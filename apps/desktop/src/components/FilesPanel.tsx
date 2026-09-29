@@ -1,7 +1,8 @@
 import type { WorkspaceFileEntry, WorkspaceInfo } from "@pier/protocol";
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
-import { formatBytes, relativeTime } from "../lib/format.ts";
+import { formatBytes, joinPath, relativeTime } from "../lib/format.ts";
 import { useAppState, useStore } from "../lib/store.tsx";
+import { terminals } from "../lib/terminals.ts";
 import {
 	IconAlert,
 	IconChevronRight,
@@ -15,6 +16,7 @@ import {
 	IconMessagePlus,
 	IconPanelRight,
 	IconRefresh,
+	IconTerminal,
 	IconX,
 } from "./Icons.tsx";
 
@@ -275,6 +277,16 @@ export function FilesPanel({ workspace, composerKey }: { workspace: WorkspaceInf
 									{entry.symlink ? <IconLink size={11} className="files-link" /> : null}
 								</button>
 								<span className="files-actions">
+									{isDir && terminals.supported ? (
+										<button
+											type="button"
+											className="ghost icon"
+											title="在终端中打开"
+											onClick={() => terminals.create({ workspace, cwd: joinPath(workspace.path, entry.path) })}
+										>
+											<IconTerminal size={13} />
+										</button>
+									) : null}
 									{composerKey ? (
 										<button type="button" className="ghost icon" title="插入路径到输入框" onClick={() => insert(entry)}>
 											<IconMessagePlus size={13} />

@@ -13,6 +13,7 @@ import {
 } from "./Icons.tsx";
 import { NoModelsBanner } from "./ModelsPanel.tsx";
 import { SidebarToggle, useAddWorkspace } from "./Sidebar.tsx";
+import { TerminalToggle } from "./TerminalPanel.tsx";
 
 const STEPS = [
 	{ icon: IconFolder, title: "添加工作区", text: "选择一个项目目录，Agent 只在其中读写文件、运行命令。" },
@@ -77,6 +78,7 @@ export function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
 		<div className="home">
 			<SidebarToggle floating />
 			<div className="home-toolbar">
+				<TerminalToggle workspace={workspace} />
 				<FilesPanelToggle />
 			</div>
 			<div className="home-inner">

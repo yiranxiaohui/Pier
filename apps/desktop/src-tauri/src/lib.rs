@@ -1,9 +1,11 @@
 mod host;
+mod terminal;
 mod tray;
 mod updater;
 
 use host::HostManager;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
+use terminal::TerminalManager;
 use updater::UpdateManager;
 
 pub(crate) fn show_main_window(app: &AppHandle) {
@@ -38,11 +40,17 @@ pub fn run() {
             updater::update_check,
             updater::update_install,
             updater::update_set_auto_check,
+            terminal::terminal_spawn,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_kill,
+            terminal::terminal_kill_all,
             quit_app
         ])
         .setup(|app| {
             let manager = HostManager::new(app.handle().clone());
             app.manage(manager.clone());
+            app.manage(TerminalManager::default());
             let updates = UpdateManager::new(app.handle().clone());
             app.manage(updates.clone());
             let update_item = tray::create(app.handle())?;
@@ -68,7 +76,10 @@ pub fn run() {
         RunEvent::ExitRequested {
             code: None, api, ..
         } => api.prevent_exit(),
-        RunEvent::Exit => app.state::<HostManager>().shutdown(),
+        RunEvent::Exit => {
+            app.state::<TerminalManager>().kill_all();
+            app.state::<HostManager>().shutdown();
+        }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show_main_window(app),
         _ => {}

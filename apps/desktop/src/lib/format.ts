@@ -113,3 +113,12 @@ export function languageForPath(path: string): string | undefined {
 	const ext = path.split(".").pop()?.toLowerCase();
 	return ext ? EXTENSION_LANGUAGE[ext] : undefined;
 }
+
+/** `base/relative` (a workspace-relative path using `/`) with the separator style of `base`. */
+export function joinPath(base: string, relative: string): string {
+	if (!relative) return base;
+	const windows = /^[a-zA-Z]:\\|^\\\\/.test(base) || (base.includes("\\") && !base.includes("/"));
+	const sep = windows ? "\\" : "/";
+	const rel = windows ? relative.replaceAll("/", "\\") : relative;
+	return base.endsWith(sep) ? base + rel : base + sep + rel;
+}

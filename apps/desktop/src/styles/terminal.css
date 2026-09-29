@@ -1,0 +1,161 @@
+/* Integrated terminal panel at the bottom of the main column. */
+
+.main-body {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.home-toolbar {
+	display: flex;
+	gap: 6px;
+}
+
+.terminal-panel {
+	position: relative;
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	border-top: 1px solid var(--border-strong);
+	background: var(--bg);
+	animation: terminal-in 0.16s var(--ease);
+}
+
+@keyframes terminal-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
+
+.terminal-resize {
+	position: absolute;
+	top: -3px;
+	left: 0;
+	right: 0;
+	height: 6px;
+	cursor: row-resize;
+	z-index: 3;
+}
+
+.terminal-resize:hover,
+body.resizing-terminal .terminal-resize {
+	background: linear-gradient(180deg, transparent, var(--accent-ring), transparent);
+}
+
+body.resizing-terminal {
+	cursor: row-resize;
+	user-select: none;
+}
+
+.terminal-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 36px;
+	padding: 4px 8px 4px 10px;
+	border-bottom: 1px solid var(--border);
+}
+
+.terminal-tabs {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	gap: 2px;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+.terminal-tab {
+	flex: none;
+	display: flex;
+	align-items: center;
+	max-width: 220px;
+	border-radius: 7px;
+	color: var(--text-muted);
+}
+
+.terminal-tab:hover {
+	background: var(--bg-hover);
+	color: var(--text);
+}
+
+.terminal-tab.active {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+button.terminal-tab-label {
+	min-width: 0;
+	gap: 6px;
+	padding: 3px 4px 3px 9px;
+	border: none;
+	background: transparent;
+	font-size: 12.5px;
+	color: inherit;
+}
+
+button.terminal-tab-label:hover:not(:disabled) {
+	background: transparent;
+}
+
+.terminal-tab-label span {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.terminal-tab.ended .terminal-tab-label span {
+	opacity: 0.6;
+	text-decoration: line-through;
+}
+
+.terminal-tab .ghost.icon.terminal-tab-close {
+	width: 20px;
+	height: 20px;
+	margin-right: 3px;
+	border-radius: 5px;
+	opacity: 0;
+}
+
+.terminal-tab:hover .terminal-tab-close,
+.terminal-tab.active .terminal-tab-close,
+.terminal-tab-close:focus-visible {
+	opacity: 1;
+}
+
+.terminal-actions {
+	flex: none;
+	display: flex;
+	gap: 1px;
+}
+
+.terminal-body {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	padding: 6px 4px 4px 12px;
+	overflow: hidden;
+}
+
+.terminal-instance {
+	width: 100%;
+	height: 100%;
+}
+
+.terminal-instance .xterm {
+	height: 100%;
+}
+
+/* xterm.css paints the viewport black; the leftover strip below the last row shows it. */
+.terminal-instance .xterm .xterm-viewport,
+.terminal-instance .xterm .xterm-scrollable-element {
+	background-color: var(--bg);
+}

@@ -32,6 +32,34 @@ export interface Bridge {
 	openExternal(url: string): Promise<void>;
 	quit(): Promise<void>;
 	updates: UpdateBridge;
+	/** Integrated terminals; only the desktop app can run local shells. */
+	terminal?: TerminalBridge;
+}
+
+/** Mirrors `SpawnedTerminal` in `src-tauri/src/terminal.rs`. */
+export interface SpawnedTerminal {
+	id: number;
+	/** The shell program name, e.g. `zsh` or `powershell`. */
+	shell: string;
+	/** The directory the shell started in (the home directory if the requested one is gone). */
+	cwd: string;
+}
+
+export interface TerminalHandlers {
+	/** Raw PTY output; may end in the middle of a UTF-8 sequence. */
+	output(data: Uint8Array): void;
+	/** The shell exited (`code` is null when it was killed by a signal). */
+	exit(code: number | null): void;
+}
+
+export interface TerminalBridge {
+	spawn(options: { cwd?: string; cols: number; rows: number }, handlers: TerminalHandlers): Promise<SpawnedTerminal>;
+	/** `binary` input carries one byte per character (xterm's `onBinary`). */
+	write(id: number, data: string, binary?: boolean): Promise<void>;
+	resize(id: number, cols: number, rows: number): Promise<void>;
+	kill(id: number): Promise<void>;
+	/** Hang up every terminal, e.g. ones left over from before the page reloaded. */
+	killAll(): Promise<void>;
 }
 
 export type UpdateState =
@@ -115,6 +143,20 @@ function tauriBridge(): Bridge {
 			install: async () => (await core).invoke("update_install"),
 			setAutoCheck: async (enabled) => (await core).invoke<UpdateStatus>("update_set_auto_check", { enabled }),
 		},
+		terminal: {
+			spawn: async ({ cwd, cols, rows }, handlers) => {
+				const { Channel, invoke } = await core;
+				const output = new Channel<ArrayBuffer | { type: "exit"; code?: number | null }>((message) => {
+					if (message instanceof ArrayBuffer) handlers.output(new Uint8Array(message));
+					else if (message.type === "exit") handlers.exit(message.code ?? null);
+				});
+				return invoke<SpawnedTerminal>("terminal_spawn", { cwd: cwd ?? null, cols, rows, output });
+			},
+			write: async (id, data, binary) => (await core).invoke("terminal_write", { id, data, binary: binary ?? false }),
+			resize: async (id, cols, rows) => (await core).invoke("terminal_resize", { id, cols, rows }),
+			kill: async (id) => (await core).invoke("terminal_kill", { id }),
+			killAll: async () => (await core).invoke("terminal_kill_all"),
+		},
 	};
 }
 
@@ -143,6 +185,62 @@ function browserBridge(): Bridge {
 		},
 		quit: async () => window.close(),
 		updates: params.get("updates") === "demo" ? demoUpdates() : unsupportedUpdates,
+		...(params.get("terminal") === "demo" ? { terminal: demoTerminal() } : {}),
+	};
+}
+
+/**
+ * `?terminal=demo`: a fake line-echo shell for working on the terminal UI in a browser.
+ */
+function demoTerminal(): TerminalBridge {
+	const encoder = new TextEncoder();
+	const shells = new Map<number, { handlers: TerminalHandlers; line: string }>();
+	let nextId = 0;
+	const prompt = "\x1b[36mdemo\x1b[0m $ ";
+	return {
+		spawn: async ({ cwd, cols, rows }, handlers) => {
+			const id = ++nextId;
+			shells.set(id, { handlers, line: "" });
+			const out = (text: string) => handlers.output(encoder.encode(text));
+			setTimeout(() => {
+				out(`演示终端（浏览器模式）· ${cols}×${rows} · ${cwd ?? "~"}\r\n`);
+				out("输入 exit 退出，fail 以非零代码退出。\r\n");
+				out(prompt);
+			}, 50);
+			return { id, shell: "demo", cwd: cwd ?? "~" };
+		},
+		write: async (id, data) => {
+			const shell = shells.get(id);
+			if (!shell) throw new Error("终端已关闭");
+			const out = (text: string) => shell.handlers.output(encoder.encode(text));
+			for (const ch of data) {
+				if (ch === "\r") {
+					const line = shell.line.trim();
+					shell.line = "";
+					out("\r\n");
+					if (line === "exit" || line === "fail") {
+						shells.delete(id);
+						shell.handlers.exit(line === "exit" ? 0 : 1);
+						return;
+					}
+					if (line) out(`${line}\r\n`);
+					out(prompt);
+				} else if (ch === "\x7f") {
+					if (shell.line) {
+						shell.line = shell.line.slice(0, -1);
+						out("\b \b");
+					}
+				} else if (ch >= " ") {
+					shell.line += ch;
+					out(ch);
+				}
+			}
+		},
+		resize: async () => {},
+		kill: async (id) => {
+			shells.delete(id);
+		},
+		killAll: async () => shells.clear(),
 	};
 }
 
