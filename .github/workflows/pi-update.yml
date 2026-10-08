@@ -42,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.ref }}
           token: ${{ secrets.PI_UPDATE_TOKEN || github.token }}
 
       - uses: actions/setup-node@v5
