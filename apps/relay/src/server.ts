@@ -108,6 +108,8 @@ export interface RelayServer {
 	configure(change: Partial<RelaySettings>): RelaySettings;
 	/** Registered computers. */
 	hosts(): RelayHostInfo[];
+	/** Disconnect one registered computer and all of its relay streams. */
+	kickHost(key: string): boolean;
 	close(): Promise<void>;
 }
 
@@ -478,6 +480,15 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Rel
 		closeQuietly(stream.device, code, reason);
 		closeQuietly(stream.hostSocket, code, reason);
 	};
+	const kickHost = (key: string): boolean => {
+		const entry = hosts.get(key);
+		if (!entry) return false;
+		hosts.delete(key);
+		for (const stream of [...entry.streams]) endStream(stream, 1000, "Kicked from relay");
+		closeQuietly(entry.socket, 1000, "Kicked from relay");
+		log(`kicked computer ${key.slice(0, 8)}… (${hosts.size} online)`);
+		return true;
+	};
 
 	const onDevice = (socket: WebSocket, req: IncomingMessage, host: HostEntry) => {
 		track(socket);
@@ -651,6 +662,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Rel
 				configure,
 				hosts: hostList,
 				stats,
+				kickHost,
 				revalidate,
 				effective: () => ({ maxHosts: maxHosts(), bytesPerSecond: bytesPerSecond() }),
 			},
@@ -665,6 +677,7 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Rel
 		settings: currentSettings,
 		configure,
 		hosts: hostList,
+		kickHost,
 		close: async () => {
 			if (closing) return closing;
 			closing = shutdown();

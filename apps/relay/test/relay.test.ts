@@ -99,6 +99,39 @@ describe("relay server", () => {
 		await expect(opened(again)).rejects.toThrow(/404/);
 	});
 
+	it("kicks a host and closes its active and pending relay streams", async () => {
+		relay = await startRelayServer({ mode: "open", port: 0, stunPort: 0 });
+		const keys = generateKeyPair();
+		const { socket: control } = await registerHost(relay, keys);
+		track(control);
+		const incomingMessage = nextMessage(control);
+		const device = track(new WebSocket(relayConnectUrl(relay.url, keys.publicKey)));
+		await opened(device);
+		const incoming = await incomingMessage;
+		if (incoming.t !== "incoming") throw new Error(incoming.t);
+		const accepted = track(new WebSocket(`${relay.url}/v1/accept?id=${incoming.id}`));
+		await opened(accepted);
+		const pendingIncoming = nextMessage(control);
+		const pendingDevice = track(new WebSocket(relayConnectUrl(relay.url, keys.publicKey)));
+		await opened(pendingDevice);
+		const pending = await pendingIncoming;
+		if (pending.t !== "incoming") throw new Error(pending.t);
+		const controlClosed = closed(control);
+		const deviceClosed = closed(device);
+		const acceptedClosed = closed(accepted);
+		const pendingClosed = closed(pendingDevice);
+
+		expect(relay.kickHost(toBase64Url(keys.publicKey))).toBe(true);
+		expect(await controlClosed).toBe(1000);
+		expect(await deviceClosed).toBe(1000);
+		expect(await acceptedClosed).toBe(1000);
+		expect(await pendingClosed).toBe(1000);
+		expect(relay.kickHost(toBase64Url(keys.publicKey))).toBe(false);
+		expect(relay.stats()).toEqual({ hosts: 0, streams: 0 });
+		const lateAccept = track(new WebSocket(`${relay.url}/v1/accept?id=${pending.id}`));
+		await expect(opened(lateAccept)).rejects.toThrow(/404/);
+	});
+
 	it("refuses wrong tokens and failed key proofs", async () => {
 		relay = await startRelayServer({ mode: "private", tokens: [TOKEN], port: 0, stunPort: 0 });
 		const wrong = await registerHost(relay, generateKeyPair(), "wrong-token-0123456789");
