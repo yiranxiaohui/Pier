@@ -484,9 +484,9 @@ export async function startRelayServer(options: RelayServerOptions): Promise<Rel
 		const entry = hosts.get(key);
 		if (!entry) return false;
 		hosts.delete(key);
-		for (const stream of [...entry.streams]) endStream(stream, 1000, "Kicked by administrator");
-		closeQuietly(entry.socket, 1000, "Kicked by administrator");
-		log(`disconnected computer ${key.slice(0, 8)}… by administrator (${hosts.size} online)`);
+		for (const stream of [...entry.streams]) endStream(stream, 1000, "Kicked from relay");
+		closeQuietly(entry.socket, 1000, "Kicked from relay");
+		log(`kicked computer ${key.slice(0, 8)}… (${hosts.size} online)`);
 		return true;
 	};
 

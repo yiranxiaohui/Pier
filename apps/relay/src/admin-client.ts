@@ -635,6 +635,12 @@ export function panel(): void {
 		const rows = hosts
 			.sort((a, b) => b.connectedAt - a.connectedAt)
 			.map((host) => {
+				const reconnectHint =
+					host.via === "account"
+						? "私有模式下，删除它使用的访问令牌可以阻止再次接入。"
+						: host.via === "static"
+							? "要阻止再次接入，请在服务器启动配置中撤销它使用的命令行令牌。"
+							: "开放模式允许电脑重新接入；要限制接入，可在系统设置切换为私有模式。";
 				const kick = h(
 					"button",
 					{
@@ -643,8 +649,8 @@ export function panel(): void {
 							void (async () => {
 								if (
 									!(await dialog(
-										"踢出这台电脑？",
-										"将立即断开它当前经中继的连接；电脑仍可使用有效令牌重新连接。需要禁止它再次连接，请删除对应的访问令牌。",
+										`踢出电脑「${host.key.slice(0, 12)}…」？`,
+										`将立即断开它当前经中继的连接，Pier 可能自动重连。${reconnectHint}`,
 										{ confirm: "踢出", danger: true },
 									))
 								)

@@ -276,6 +276,10 @@ describe("relay admin panel", () => {
 		expect((await bob.call("POST", `hosts/${key}/kick`)).status).toBe(200);
 		expect(await ownerClosed).toBe(1000);
 		expect(relay.stats().hosts).toBe(0);
+		// Kicking ends the current registration; the token still permits reconnecting.
+		const reconnected = await registerHost(relay, keys, token);
+		track(reconnected.socket);
+		expect(reconnected.registered).toMatchObject({ t: "registered" });
 
 		const charlie = new Client(base);
 		expect((await charlie.call("POST", "register", { username: "charlie", password: "charlie-password" })).status).toBe(
@@ -287,9 +291,11 @@ describe("relay admin panel", () => {
 		track(other.socket);
 		const otherKey = toBase64Url(otherKeys.publicKey);
 		expect((await bob.call("POST", `hosts/${otherKey}/kick`)).status).toBe(404);
+		expect(relay.stats().hosts).toBe(2);
 		const adminClosed = closed(other.socket);
 		expect((await admin.call("POST", `hosts/${otherKey}/kick`)).status).toBe(200);
 		expect(await adminClosed).toBe(1000);
+		expect(relay.hosts()).toMatchObject([{ key }]);
 		expect((await admin.call("POST", `hosts/${otherKey}/kick`)).status).toBe(404);
 	});
 
