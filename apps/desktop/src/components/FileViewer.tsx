@@ -1,12 +1,13 @@
 import type { WorkspaceFileContent } from "@pier/protocol";
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatBytes, languageForPath, relativeTime } from "../lib/format.ts";
+import { formatBytes, joinPath, languageForPath, relativeTime } from "../lib/format.ts";
 import { filePreviewAuthorizationPath, filePreviewError } from "../lib/markdown-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
 import { hostAuthorizesFilePreviews, LOCAL_NODE, useAppState, useCanManageWorkspace, useStore } from "../lib/store.tsx";
 import {
 	IconAlert,
 	IconFile,
+	IconFolderOpen,
 	IconLoader,
 	IconMessagePlus,
 	IconPencil,
@@ -198,6 +199,13 @@ export function FileViewer({
 
 	const previewNode = useAppState((s) => s.workspaceNodes[workspaceId] || s.node);
 	const previewHost = useAppState((s) => s.nodes[previewNode]?.hostInfo);
+	const workspacePath = useAppState((s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.path);
+	const absolutePath = /^(?:[\\/]|[a-zA-Z]:[\\/])/.test(path)
+		? path
+		: workspacePath
+			? joinPath(workspacePath, path)
+			: undefined;
+	const canReveal = previewNode === LOCAL_NODE && store.canRevealPaths && !!absolutePath;
 	const authorizationPath = fromMarkdown ? filePreviewAuthorizationPath(error) : undefined;
 	const canAuthorize = !!authorizationPath && hostAuthorizesFilePreviews(previewHost, previewNode !== LOCAL_NODE);
 
@@ -406,81 +414,94 @@ export function FileViewer({
 						</span>
 					) : null}
 				</span>
-				{editing ? (
-					<span className="file-viewer-actions">
-						<span className="file-viewer-hint">{dirty ? "未保存" : "已保存"} · Ctrl/⌘+S 保存</span>
+				<span className="file-viewer-actions">
+					{canReveal ? (
 						<button
 							type="button"
 							className="ghost small"
-							disabled={saving}
-							onClick={() => {
-								if (dirty) setDraft(original);
-								else stopEditing();
-							}}
+							title="打开所在文件夹并选中文件"
+							onClick={() => absolutePath && store.revealPath(absolutePath)}
 						>
-							{dirty ? "撤销修改" : "完成"}
+							<IconFolderOpen size={14} />
+							打开所在文件夹
 						</button>
-						<button type="button" className="primary small" disabled={!dirty || saving} onClick={() => void save()}>
-							{saving ? <IconLoader size={13} className="spin" /> : null}
-							保存
-						</button>
-					</span>
-				) : (
-					<span className="file-viewer-actions">
-						{isMarkdown ? (
-							<span className="segmented" role="tablist" aria-label="显示方式">
-								<button
-									type="button"
-									className={rendered ? "active" : ""}
-									role="tab"
-									aria-selected={rendered}
-									onClick={() => setRendered(true)}
-								>
-									预览
-								</button>
-								<button
-									type="button"
-									className={rendered ? "" : "active"}
-									role="tab"
-									aria-selected={!rendered}
-									onClick={() => setRendered(false)}
-								>
-									源码
-								</button>
-							</span>
-						) : null}
-						{editable ? (
-							<button type="button" className="ghost small" title="编辑文件" onClick={startEditing}>
-								<IconPencil size={13} />
-								编辑
+					) : null}
+					{editing ? (
+						<>
+							<span className="file-viewer-hint">{dirty ? "未保存" : "已保存"} · Ctrl/⌘+S 保存</span>
+							<button
+								type="button"
+								className="ghost small"
+								disabled={saving}
+								onClick={() => {
+									if (dirty) setDraft(original);
+									else stopEditing();
+								}}
+							>
+								{dirty ? "撤销修改" : "完成"}
 							</button>
-						) : null}
-						{file?.kind === "text" && file.text ? <CopyButton text={file.text} label="复制内容" /> : null}
-						<CopyButton text={path} label="复制路径" iconOnly />
-						{onInsert ? (
+							<button type="button" className="primary small" disabled={!dirty || saving} onClick={() => void save()}>
+								{saving ? <IconLoader size={13} className="spin" /> : null}
+								保存
+							</button>
+						</>
+					) : (
+						<>
+							{isMarkdown ? (
+								<span className="segmented" role="tablist" aria-label="显示方式">
+									<button
+										type="button"
+										className={rendered ? "active" : ""}
+										role="tab"
+										aria-selected={rendered}
+										onClick={() => setRendered(true)}
+									>
+										预览
+									</button>
+									<button
+										type="button"
+										className={rendered ? "" : "active"}
+										role="tab"
+										aria-selected={!rendered}
+										onClick={() => setRendered(false)}
+									>
+										源码
+									</button>
+								</span>
+							) : null}
+							{editable ? (
+								<button type="button" className="ghost small" title="编辑文件" onClick={startEditing}>
+									<IconPencil size={13} />
+									编辑
+								</button>
+							) : null}
+							{file?.kind === "text" && file.text ? <CopyButton text={file.text} label="复制内容" /> : null}
+							<CopyButton text={path} label="复制路径" iconOnly />
+							{onInsert ? (
+								<button
+									type="button"
+									className="ghost icon"
+									title="插入路径到输入框"
+									onClick={() => {
+										onInsert();
+										requestClose();
+									}}
+								>
+									<IconMessagePlus size={14} />
+								</button>
+							) : null}
 							<button
 								type="button"
 								className="ghost icon"
-								title="插入路径到输入框"
-								onClick={() => {
-									onInsert();
-									requestClose();
-								}}
+								title="重新读取"
+								disabled={!confirmed || loading}
+								onClick={() => void load()}
 							>
-								<IconMessagePlus size={14} />
+								<IconRefresh size={14} className={loading ? "spin" : undefined} />
 							</button>
-						) : null}
-						<button
-							type="button"
-							className="ghost icon"
-							title="重新读取"
-							disabled={!confirmed || loading}
-							onClick={() => void load()}
-						>
-							<IconRefresh size={14} className={loading ? "spin" : undefined} />
-						</button>
-					</span>
-				)}
+						</>
+					)}
+				</span>
 			</div>
 			<div className="file-viewer-body">{body}</div>
 		</Modal>
