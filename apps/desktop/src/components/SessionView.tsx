@@ -4,6 +4,7 @@ import type { SessionSummary } from "@pier/protocol";
 import { useState } from "react";
 import { formatCost, formatPercent, formatTokens, RUN_STATE_LABEL, sessionTitle } from "../lib/format.ts";
 import { LOCAL_NODE, useAppState, useChatView, useStore } from "../lib/store.tsx";
+import { BrowserButton } from "./BrowserPanel.tsx";
 import { Composer } from "./Composer.tsx";
 import { FilesPanelToggle } from "./FilesPanel.tsx";
 import { IconAlert, IconFolder, IconInfo, IconLoader, IconX } from "./Icons.tsx";
@@ -248,6 +249,7 @@ export function SessionView({ session }: { session: SessionSummary }) {
 				</div>
 				<div className="session-tools">
 					<SessionMenu chat={chat} controller={controller} />
+					<BrowserButton workspace={workspace} />
 					<TerminalToggle workspace={workspace} />
 					<FilesPanelToggle />
 				</div>

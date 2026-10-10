@@ -1,4 +1,11 @@
-import type { AgentRuntimeInfo, ModelInfo, ThinkingLevel, WorkspaceInfo } from "@pier/protocol";
+import type {
+	AgentRuntimeInfo,
+	BrowserCommand,
+	BrowserResult,
+	ModelInfo,
+	ThinkingLevel,
+	WorkspaceInfo,
+} from "@pier/protocol";
 import { PierProtocolError } from "@pier/protocol";
 import type { ManagedSession, ManagedSessionOptions } from "../managed-session.ts";
 import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
@@ -11,7 +18,15 @@ export class PiRuntime implements AgentRuntime {
 	readonly name = "pi";
 	readonly capabilities = PI_CAPABILITIES;
 
-	constructor(readonly env: PiEnvironment) {}
+	constructor(
+		readonly env: PiEnvironment,
+		private readonly browserAction?: (
+			workspaceId: string,
+			command: BrowserCommand,
+			browserId?: string,
+			signal?: AbortSignal,
+		) => Promise<BrowserResult>,
+	) {}
 
 	async info(): Promise<AgentRuntimeInfo> {
 		return { id: this.id, name: this.name, available: true, version: PI_VERSION, capabilities: this.capabilities };
@@ -33,7 +48,17 @@ export class PiRuntime implements AgentRuntime {
 	}
 
 	private sessionOptions(options: ManagedSessionOptions) {
-		return { ...options, env: this.env };
+		const browserAction = this.browserAction;
+		return {
+			...options,
+			env: this.env,
+			...(browserAction
+				? {
+						browserAction: (command: BrowserCommand, browserId?: string, signal?: AbortSignal) =>
+							browserAction(options.workspace().id, command, browserId, signal),
+					}
+				: {}),
+		};
 	}
 
 	create(options: ManagedSessionOptions): Promise<ManagedSession> {

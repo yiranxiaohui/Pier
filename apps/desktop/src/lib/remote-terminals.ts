@@ -17,6 +17,9 @@ const bridges = new WeakMap<PierClient, TerminalBridge>();
  * one through its host when it can run terminals.
  */
 export function installTerminalResolver(store: PierStore): void {
+	terminals.setLinkOpener((url, workspaceId) => {
+		void store.openWorkspaceUrl(url, workspaceId);
+	});
 	terminals.setResolver((workspace: WorkspaceInfo | undefined): TerminalTarget | undefined => {
 		const node = workspace ? store.nodeOf(workspace.id) : LOCAL_NODE;
 		if (node === LOCAL_NODE) return terminals.local ? { backend: terminals.local } : undefined;

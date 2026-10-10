@@ -1,3 +1,4 @@
+import type { BrowserCommand } from "./browser.ts";
 import type {
 	AgentConfigRuntime,
 	AgentConfigScope,
@@ -83,6 +84,7 @@ export type PierSessionEvent =
 
 /** Host-scoped events (no `sessionId`, no `seq`). */
 export type PierHostEvent =
+	| { type: "browser.command"; browserId: string; requestId: string; command: BrowserCommand }
 	| { type: "task.changed" }
 	| { type: "host.notice"; level: "info" | "warning" | "error"; message: string; sessionId?: string }
 	| { type: "workspace.changed" }

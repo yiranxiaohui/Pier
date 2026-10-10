@@ -28,6 +28,9 @@ import {
 	type WorkspaceInfo,
 	YUNLIAN_LINES,
 } from "@pier/protocol";
+import { type BrowserOptions, LocalBrowsers } from "./browser/browsers.ts";
+import { BrowserControllers } from "./browser/controllers.ts";
+import { HostTunnels } from "./browser/tunnels.ts";
 import { ClaudeCodeRuntime, type ClaudeCodeRuntimeOptions, claudeConfigDir } from "./claude/claude-runtime.ts";
 import { CodexRuntime, type CodexRuntimeOptions, codexHome } from "./codex/codex-runtime.ts";
 import { ConfigStore } from "./config.ts";
@@ -133,10 +136,14 @@ export interface PierHostOptions {
 	agentConfigDirs?: Partial<Record<AgentConfigRuntime, string>>;
 	/** Installer dependencies for tests; production always downloads official native releases. */
 	agentInstaller?: Pick<AgentInstallerOptions, "fetch" | "probe" | "homeDirectory" | "configurePath">;
+	browser?: BrowserOptions;
 }
 
 /** Remote methods recorded in the audit log. */
 const AUDITED_METHODS = new Set<MethodName>([
+	"tunnel.open",
+	"browser.attach",
+	"browser.action",
 	"task.create",
 	"task.update",
 	"task.setStatus",
@@ -212,6 +219,12 @@ const AUDITED_METHODS = new Set<MethodName>([
 
 function auditDetail(method: MethodName, params: Record<string, unknown>): Record<string, unknown> | undefined {
 	switch (method) {
+		case "tunnel.open":
+			return { host: params.host, port: params.port };
+		case "browser.attach":
+			return { workspaceId: params.workspaceId, browserId: params.browserId };
+		case "browser.action":
+			return { workspaceId: params.workspaceId, action: (params.command as { action?: string })?.action };
 		case "task.create":
 			return { workspaceId: params.workspaceId, runtime: params.runtime };
 		case "task.update":
@@ -394,6 +407,9 @@ export class PierHost implements RequestHandler {
 	readonly newapi: NewApiManager;
 	readonly account: AccountManager;
 	readonly loopback = new LoopbackRelays();
+	readonly browserControllers = new BrowserControllers();
+	readonly tunnels = new HostTunnels();
+	readonly browsers: LocalBrowsers;
 	readonly extensions: ExtensionManager;
 	readonly packageCatalog: PackageCatalog;
 	readonly settings: PiSettingsFiles;
@@ -428,7 +444,9 @@ export class PierHost implements RequestHandler {
 		const installationHome = options.agentInstaller?.homeDirectory;
 		this.pool = new SessionPool({
 			runtimes: [
-				new PiRuntime(env),
+				new PiRuntime(env, (workspaceId, command, browserId, signal) =>
+					this.browserControllers.action(workspaceId, command, browserId, signal),
+				),
 				...(agents.claudeCode === false
 					? []
 					: [new ClaudeCodeRuntime({ log, managedDirectory, installationHome, ...agents.claudeCode })]),
@@ -536,6 +554,12 @@ export class PierHost implements RequestHandler {
 			options.peers,
 		);
 		this.shell = options.shell;
+		this.browsers = new LocalBrowsers(
+			this.pierDir,
+			(peerId) => this.peers.openClient(peerId),
+			this.browserControllers,
+			options.browser,
+		);
 		this.terminals = new HostTerminals(this.shell, { log });
 		this.uploads = new WorkspaceUploads({ log });
 		this.offShellStatus = this.shell?.onUpdateStatus((status) => this.broadcast({ type: "update.status", status }));
@@ -621,6 +645,9 @@ export class PierHost implements RequestHandler {
 	}
 
 	disconnected(connection: Connection): void {
+		this.browsers.connectionClosed(connection);
+		this.browserControllers.connectionClosed(connection);
+		this.tunnels.connectionClosed(connection);
 		this.connections.delete(connection);
 		this.providers.connectionClosed(connection.connectionId);
 		this.newapi.connectionClosed(connection.connectionId);
@@ -802,6 +829,31 @@ export class PierHost implements RequestHandler {
 
 	private createHandlers(): Handlers {
 		return {
+			"tunnel.open": (ctx, params) => this.tunnels.open(ctx.connection, params.host, params.port),
+			"tunnel.read": (ctx, params) => this.tunnels.read(ctx.connection, params.tunnelId),
+			"tunnel.write": (ctx, params) => this.tunnels.write(ctx.connection, params.tunnelId, params.data, params.end),
+			"tunnel.close": (ctx, params) => ({ closed: this.tunnels.close(ctx.connection, params.tunnelId) }),
+			"browser.open": (ctx, params) => {
+				if (!params.peerId) this.requireWorkspace(params.workspaceId);
+				return this.browsers.open(ctx.connection, params);
+			},
+			"browser.list": (ctx) => ({ browsers: this.browsers.list(ctx.connection) }),
+			"browser.close": async (ctx, params) => ({ closed: await this.browsers.close(ctx.connection, params.browserId) }),
+			"browser.attach": (ctx, params) => {
+				this.requireWorkspace(params.workspaceId);
+				this.browserControllers.attach(ctx.connection, params.workspaceId, params.browserId);
+				return { attached: true };
+			},
+			"browser.detach": (ctx, params) => ({
+				detached: this.browserControllers.detach(params.browserId, ctx.connection),
+			}),
+			"browser.action": (_ctx, params) => {
+				this.requireWorkspace(params.workspaceId);
+				return this.browserControllers.action(params.workspaceId, params.command, params.browserId);
+			},
+			"browser.result": (ctx, params) => ({
+				accepted: this.browserControllers.respond(ctx.connection, params.requestId, params.result, params.error),
+			}),
 			"task.list": () => ({ tasks: this.tasks.list() }),
 			"task.create": (_ctx, params) => ({ task: this.tasks.create(params) }),
 			"task.update": (_ctx, params) => ({ task: this.tasks.update(params.taskId, params.task) }),
@@ -1336,6 +1388,9 @@ export class PierHost implements RequestHandler {
 	async shutdown(): Promise<void> {
 		if (this.shuttingDown) return;
 		this.shuttingDown = true;
+		await this.browsers.shutdown();
+		this.browserControllers.shutdown();
+		this.tunnels.shutdown();
 		this.offShellStatus?.();
 		await this.tasks.shutdown();
 		this.broadcast({ type: "host.notice", level: "warning", message: "Pier host is shutting down" });

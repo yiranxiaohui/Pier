@@ -2,6 +2,7 @@ import { platform } from "node:os";
 import {
 	createSecureSocketFactory,
 	type P2POptions,
+	PierClient,
 	pairWithHost,
 	type WebSocketFactory,
 	type WebSocketLike,
@@ -125,6 +126,52 @@ export class PeerManager {
 
 	private changed(): void {
 		this.hooks.broadcastLocal({ type: "peer.changed" });
+	}
+
+	/** Dedicated encrypted connection for browser traffic, separate from chat subscriptions. */
+	async openClient(peerId: string): Promise<PierClient> {
+		const record = this.store.get(peerId);
+		if (!record || this.stopped) throw new PierProtocolError("NOT_FOUND", "Paired computer not found");
+		const client = new PierClient({
+			url: "pier-secure://browser",
+			client: { name: "pier-browser", version: this.hooks.hostVersion() },
+			reconnect: { enabled: false },
+			heartbeatMs: 15_000,
+			heartbeatTimeoutMs: 10_000,
+			createWebSocket: createSecureSocketFactory({
+				addresses: record.addresses,
+				relays: record.relays,
+				hostPublicKey: fromBase64Url(record.publicKey),
+				deviceKeyPair: this.hooks.identity(),
+				createWebSocket: this.factory,
+				...(this.hooks.p2pEnabled?.() === false
+					? {}
+					: {
+							p2p: {
+								createPeerConnection: (config) => createHostPeerConnection(config.iceServers),
+							},
+						}),
+			}),
+		});
+		const close = () => client.close();
+		const set = this.proxies.get(peerId) ?? new Set();
+		set.add(close);
+		this.proxies.set(peerId, set);
+		client.onState((state) => {
+			if (state !== "closed") return;
+			set.delete(close);
+			if (!set.size) this.proxies.delete(peerId);
+			this.changed();
+		});
+		try {
+			const hello = await client.connect();
+			this.connected(peerId, hello.host, undefined);
+			this.changed();
+			return client;
+		} catch (error) {
+			client.close();
+			throw error;
+		}
 	}
 
 	list(): PeerInfo[] {

@@ -59,6 +59,7 @@ import type {
 import { PierProtocolError, parseProtocolVersion } from "@pier/protocol";
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import type { Bridge, HostStatus, LocalFileSink, UpdateStatus } from "./bridge.ts";
+import { remoteServiceUrl } from "./browser-url.ts";
 import { fileToken } from "./composer-text.ts";
 import { newSessionDefaultsFromSettings } from "./new-session-defaults.ts";
 import { remotePageBlocker } from "./settings-target.ts";
@@ -3107,6 +3108,31 @@ export class PierStore {
 	/** Ask where to save a download named `name` on this computer; null when cancelled. */
 	saveLocalFile(name: string): Promise<LocalFileSink | null> {
 		return this.bridge.saveFile(name);
+	}
+
+	/** Resolve localhost against the conversation/terminal's host before opening it locally. */
+	async openWorkspaceUrl(url: string, workspaceId?: string): Promise<void> {
+		const node = workspaceId ? this.nodeOf(workspaceId) : LOCAL_NODE;
+		const remoteUrl = remoteServiceUrl(url);
+		if (!workspaceId || node === LOCAL_NODE || !remoteUrl) {
+			this.openExternal(url);
+			return;
+		}
+		const client = this.nodeClient(LOCAL_NODE);
+		if (!client) {
+			this.toast("error", "尚未连接到本机 Pier Host");
+			return;
+		}
+		try {
+			const info = await client.request(
+				"browser.open",
+				{ peerId: node, workspaceId, url: remoteUrl, mode: "service" },
+				{ timeoutMs: 60_000 },
+			);
+			await this.bridge.openExternal(info.localUrl);
+		} catch (error) {
+			this.toast("error", `无法打开远程网页：${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	openExternal(url: string): void {

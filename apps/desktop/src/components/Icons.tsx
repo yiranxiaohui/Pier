@@ -314,3 +314,10 @@ export const IconEyeOff = make(
 	</>,
 );
 export const IconMinus = make(<path d="M5 12h14" />);
+
+export const IconGlobe = make(
+	<>
+		<circle cx="12" cy="12" r="10" />
+		<path d="M2 12h20M12 2a18 18 0 0 1 0 20 18 18 0 0 1 0-20" />
+	</>,
+);

@@ -96,7 +96,7 @@ function Link({ href, children }: ComponentProps<"a">) {
 				if (href?.startsWith("#")) return;
 				event.preventDefault();
 				if (files && path) store.openMarkdownFilePreview(files.workspaceId, path);
-				else if (href && /^https?:\/\//i.test(href)) store.openExternal(href);
+				else if (href && /^https?:\/\//i.test(href)) void store.openWorkspaceUrl(href, files?.workspaceId);
 			}}
 		>
 			{children}

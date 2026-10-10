@@ -1,5 +1,6 @@
 import { POLICY_LABEL, relativeTime, sessionTitle } from "../lib/format.ts";
 import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import { BrowserButton } from "./BrowserPanel.tsx";
 import { FilesPanelToggle } from "./FilesPanel.tsx";
 import {
 	IconChevronRight,
@@ -86,6 +87,7 @@ export function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
 		<div className="home">
 			<SidebarToggle floating />
 			<div className="home-toolbar">
+				<BrowserButton workspace={workspace} />
 				<TerminalToggle workspace={workspace} />
 				<FilesPanelToggle />
 			</div>

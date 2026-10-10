@@ -324,6 +324,20 @@ export function evaluateToolCall(call: ToolCallInput, options: EvaluateOptions):
 	const { policy, allowances } = options;
 	if (policy === "auto") return { action: "allow", reason: "auto policy" };
 	if (READ_ONLY_TOOLS.has(call.toolName)) return { action: "allow", reason: "read-only tool" };
+	if (call.toolName === "pier_browser") {
+		const action = stringField(call.input, "action") ?? "";
+		if (["tabs", "snapshot", "screenshot"].includes(action))
+			return { action: "allow", reason: "read-only browser operation" };
+		if (allowances?.has("pier_browser")) return { action: "allow", reason: "allowed for this session" };
+		return {
+			action: "ask",
+			reason: "Browser interaction can submit data or change an account",
+			severity: "normal",
+			summary: `Browser: ${action}`,
+			sessionKey: "pier_browser",
+			sessionScope: "browser interactions",
+		};
+	}
 
 	if (SHELL_TOOLS.has(call.toolName)) {
 		const command = stringField(call.input, "command") ?? "";

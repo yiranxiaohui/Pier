@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PEER_ADDRESS } from "./addresses.ts";
+import { BrowserCommandSchema, type BrowserResult, type LocalBrowserInfo } from "./browser.ts";
 import {
 	type AccountAuthorizeStart,
 	type AccountLoginResult,
@@ -111,6 +112,35 @@ export const ClientInfoSchema = z.object({
  * Params schema for every method. Methods not listed here are unknown to the protocol.
  */
 export const MethodParamsSchemas = {
+	/** TCP streams owned by the authenticated connection; used inside the encrypted channel. */
+	"tunnel.open": z.object({ host: z.string().min(1).max(253), port: z.number().int().min(1).max(65535) }),
+	"tunnel.read": z.object({ tunnelId: Id }),
+	"tunnel.write": z.object({ tunnelId: Id, data: z.string().max(87_384), end: z.boolean().optional() }),
+	"tunnel.close": z.object({ tunnelId: Id }),
+	/** Launches a browser on this computer. Remote callers cannot launch one here. */
+	"browser.open": z.object({
+		workspaceId: Id,
+		peerId: Id.optional(),
+		url: z.string().min(1).max(8192),
+		mode: z.enum(["service", "network"]),
+		controlled: z.boolean().optional(),
+	}),
+	"browser.list": z.object({}).optional(),
+	"browser.close": z.object({ browserId: Id }),
+	/** Register the browser this connection renders locally, for a workspace on this host. */
+	"browser.attach": z.object({ workspaceId: Id, browserId: Id }),
+	"browser.detach": z.object({ browserId: Id }),
+	"browser.action": z.object({ workspaceId: Id, browserId: Id.optional(), command: BrowserCommandSchema }),
+	"browser.result": z.object({
+		requestId: Id,
+		result: z
+			.object({
+				text: z.string().max(200_000).optional(),
+				image: z.object({ data: z.string().max(12_000_000), mimeType: z.literal("image/png") }).optional(),
+			})
+			.optional(),
+		error: z.string().max(4000).optional(),
+	}),
 	"task.list": z.object({}).optional(),
 	"task.create": ScheduledTaskInputSchema,
 	"task.update": z.object({ taskId: Id, task: ScheduledTaskInputSchema }),
@@ -733,6 +763,9 @@ export function isMethodName(method: string): method is MethodName {
  * configure models, providers, accounts, and extensions.
  */
 export const LOCAL_ONLY_METHODS: ReadonlySet<MethodName> = new Set([
+	"browser.open",
+	"browser.list",
+	"browser.close",
 	"device.list",
 	"device.revoke",
 	"device.rename",
@@ -773,6 +806,17 @@ export interface SubscribeResult {
 }
 
 export interface MethodResults {
+	"tunnel.open": { tunnelId: string };
+	"tunnel.read": { data: string; end: boolean };
+	"tunnel.write": { written: number };
+	"tunnel.close": { closed: boolean };
+	"browser.open": LocalBrowserInfo;
+	"browser.list": { browsers: LocalBrowserInfo[] };
+	"browser.close": { closed: boolean };
+	"browser.attach": { attached: true };
+	"browser.detach": { detached: boolean };
+	"browser.action": BrowserResult;
+	"browser.result": { accepted: boolean };
 	"task.list": { tasks: ScheduledTask[] };
 	"task.create": { task: ScheduledTask };
 	"task.update": { task: ScheduledTask };

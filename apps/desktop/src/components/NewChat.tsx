@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { draftToPrompt } from "../lib/composer-text.ts";
 import { type Draft, LOCAL_NODE, NEW_CHAT_DRAFT, useAppState, useComputers, useStore } from "../lib/store.tsx";
 import { AgentIcon } from "./AgentIcons.tsx";
+import { BrowserButton } from "./BrowserPanel.tsx";
 import { readImages, useComposerInsert } from "./Composer.tsx";
 import { ComposerInput, type ComposerInputHandle } from "./ComposerInput.tsx";
 import { FilesPanelToggle } from "./FilesPanel.tsx";
@@ -291,6 +292,7 @@ export function NewChatView({ workspaceId }: { workspaceId?: string }) {
 			<SidebarToggle floating />
 			{workspace ? (
 				<div className="home-toolbar">
+					<BrowserButton workspace={workspace} />
 					<TerminalToggle workspace={workspace} />
 					<FilesPanelToggle />
 				</div>

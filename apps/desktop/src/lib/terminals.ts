@@ -151,6 +151,10 @@ export class TerminalManager {
 	private nextKey = 0;
 	/** Hangs up shells orphaned by a page reload, once, before the first spawn. */
 	private cleanup: Promise<void> | undefined;
+	private linkOpener: ((url: string, workspaceId?: string) => void) | undefined;
+	setLinkOpener(opener: (url: string, workspaceId?: string) => void): void {
+		this.linkOpener = opener;
+	}
 	private resolver: TerminalResolver = () => (this.backend ? { backend: this.backend } : undefined);
 
 	constructor(
@@ -326,7 +330,8 @@ export class TerminalManager {
 		term.loadAddon(
 			new WebLinksAddon((event, uri) => {
 				event.preventDefault();
-				void this.openExternal(uri);
+				if (this.linkOpener) this.linkOpener(uri, this.state.tabs.find((tab) => tab.key === key)?.workspaceId);
+				else void this.openExternal(uri);
 			}),
 		);
 		const instance: Instance = { term, fit, element, opened: false, backend, pending: [] };
