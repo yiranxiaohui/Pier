@@ -1903,6 +1903,13 @@ export class PierStore {
 		return client.request("runtime.install", { runtime });
 	}
 
+	/** Models offered by an agent on the computer the settings screen manages. */
+	async listAgentModels(runtime: AgentConfigRuntime): Promise<MethodResult<"model.list">> {
+		const client = this.settingsClient;
+		if (!client) throw this.settingsOffline();
+		return client.request("model.list", { runtime });
+	}
+
 	/** Read a runtime's user file, plus a workspace's files; rejects with the host's error. */
 	async getAgentConfig(runtime: AgentConfigRuntime, workspaceId?: string): Promise<AgentConfigResult> {
 		const client = this.settingsClient;

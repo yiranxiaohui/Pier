@@ -99,6 +99,7 @@ const CLAUDE_MODEL_FIELDS: FieldDef[] = [
 			placeholder: "sonnet",
 			mono: true,
 			suggestions: ["default", "sonnet", "opus", "haiku", "opusplan", "sonnet[1m]"],
+			select: true,
 		},
 		defaultLabel: "按账号决定",
 	},
@@ -351,7 +352,7 @@ export const CODEX_GROUPS: GroupDef[] = [
 				path: ["model"],
 				label: "默认模型",
 				description: "新会话使用的模型。在 Pier 中为会话选择的模型优先。",
-				kind: { type: "string", placeholder: "gpt-5-codex", mono: true },
+				kind: { type: "string", placeholder: "gpt-5-codex", mono: true, select: true },
 				defaultLabel: "Codex 默认",
 			},
 			{

@@ -187,6 +187,59 @@ export function DraftList({
 	);
 }
 
+/** A dropdown of suggested models that also accepts an arbitrary model id. */
+function StringSelect({
+	value,
+	defaultLabel,
+	placeholder,
+	suggestions,
+	mono,
+	disabled,
+	ariaLabel,
+	onCommit,
+}: {
+	value: string;
+	defaultLabel: string;
+	placeholder?: string | undefined;
+	suggestions: readonly string[];
+	mono?: boolean | undefined;
+	disabled: boolean;
+	ariaLabel: string;
+	onCommit: (text: string) => void;
+}) {
+	const [custom, setCustom] = useState(false);
+	const choices = [...new Set([...(value ? [value] : []), ...suggestions].filter(Boolean))];
+	return (
+		<div className="config-string-select">
+			<Select
+				className={`setting-select pi-setting-select${mono ? " mono" : ""}`}
+				value={custom ? "custom" : value ? JSON.stringify(value) : ""}
+				title={ariaLabel}
+				disabled={disabled}
+				options={[
+					{ value: "", label: defaultLabel },
+					...choices.map((choice) => ({ value: JSON.stringify(choice), label: choice })),
+					{ value: "custom", label: "自定义模型…" },
+				]}
+				onChange={(next) => {
+					setCustom(next === "custom");
+					if (next !== "custom") onCommit(next ? (JSON.parse(next) as string) : "");
+				}}
+			/>
+			{custom ? (
+				<DraftInput
+					value={value}
+					placeholder={placeholder}
+					mono={mono}
+					disabled={disabled}
+					ariaLabel={`自定义${ariaLabel}`}
+					onCommit={onCommit}
+				/>
+			) : null}
+		</div>
+	);
+}
+
 /** Name / value rows of an object of strings (environment variables). */
 function MapEditor({
 	value,
@@ -365,24 +418,41 @@ function FieldControl(props: FieldRowProps) {
 					{kind.unit ? <span className="pi-setting-unit">{kind.unit}</span> : null}
 				</span>
 			);
-		case "string":
+		case "string": {
+			const placeholder =
+				typeof fallback === "string" && fallback
+					? kind.secret
+						? formatValue(field, fallback)
+						: fallback
+					: kind.placeholder;
+			const commit = (text: string) => set(text.trim() ? text.trim() : undefined);
+			if (kind.select) {
+				return (
+					<StringSelect
+						key={valid ? String(own) : ""}
+						value={valid ? String(own) : ""}
+						defaultLabel={`${inheritedFrom ? `继承${inheritedFrom}` : "默认"}（${formatValue(field, fallback)}）`}
+						placeholder={placeholder}
+						suggestions={suggestions ?? kind.suggestions ?? []}
+						mono={kind.mono}
+						disabled={disabled}
+						ariaLabel={field.label}
+						onCommit={commit}
+					/>
+				);
+			}
 			return (
 				<DraftInput
 					value={valid ? String(own) : ""}
-					placeholder={
-						typeof fallback === "string" && fallback
-							? kind.secret
-								? formatValue(field, fallback)
-								: fallback
-							: kind.placeholder
-					}
+					placeholder={placeholder}
 					mono={kind.mono}
 					secret={kind.secret}
 					suggestions={suggestions ?? kind.suggestions}
 					disabled={disabled}
-					onCommit={(text) => set(text.trim() ? text.trim() : undefined)}
+					onCommit={commit}
 				/>
 			);
+		}
 		case "list":
 			return (
 				<DraftList

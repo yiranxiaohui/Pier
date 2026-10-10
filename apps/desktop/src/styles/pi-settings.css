@@ -57,6 +57,15 @@ input.pi-setting-input {
 	width: var(--field-width);
 }
 
+.config-string-select {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: var(--field-width);
+	max-width: 100%;
+	min-width: 0;
+}
+
 /* A number with its unit shown inside the field's frame. */
 .pi-setting-number {
 	display: inline-flex;

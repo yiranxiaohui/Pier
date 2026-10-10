@@ -20,6 +20,8 @@ export type FieldKind =
 			secret?: boolean;
 			/** Values offered while typing (any other value is allowed too). */
 			suggestions?: readonly string[];
+			/** Offer suggestions in a dropdown, with an editor for custom values. */
+			select?: boolean;
 	  }
 	| { type: "list"; placeholder?: string }
 	/** Pick any of `options` (pi's built-in tools); stores the picked ones in this order. */

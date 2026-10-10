@@ -120,6 +120,9 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState<string>();
 	const [query, setQuery] = useState("");
+	const [modelIds, setModelIds] = useState<string[]>([]);
+	const [modelsLoading, setModelsLoading] = useState(false);
+	const [modelsError, setModelsError] = useState(false);
 	const { scope, workspaceId } = parseTarget(target);
 	const workspace = workspaceId ? workspaces.find((w) => w.id === workspaceId) : undefined;
 	const format = data?.format ?? (runtime === "codex" ? "toml" : "json");
@@ -151,6 +154,29 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	const file = files && index >= 0 ? files[index] : undefined;
 	const own = file?.settings;
 	const broken = file !== undefined && file.settings === undefined;
+
+	// Load from the managed computer, including when no workspace has been added there.
+	// Config edits and refreshes can change the provider and the models its CLI offers.
+	useEffect(() => {
+		if (!files) return;
+		let live = true;
+		setModelsLoading(true);
+		setModelsError(false);
+		store
+			.listAgentModels(runtime)
+			.then((result) => {
+				if (live) setModelIds(result.models.map((model) => model.id));
+			})
+			.catch(() => {
+				if (live) setModelsError(true);
+			})
+			.finally(() => {
+				if (live) setModelsLoading(false);
+			});
+		return () => {
+			live = false;
+		};
+	}, [store, runtime, files]);
 	/** Lower-precedence files, nearest first: where values come from when this file does not set them. */
 	const lower = useMemo(
 		() =>
@@ -205,11 +231,13 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 		const blocked = scope !== "user" && field.globalOnly;
 		const fallback = resolveFallback(field, lower, builtinDefault(field));
 		const suggestions =
-			key === "model_provider"
-				? [...CODEX_BUILTIN_PROVIDERS, ...providerIds]
-				: key === "profile"
-					? profileIds
-					: undefined;
+			key === "model" && field.kind.type === "string"
+				? [...(field.kind.suggestions ?? []), ...modelIds]
+				: key === "model_provider"
+					? [...CODEX_BUILTIN_PROVIDERS, ...providerIds]
+					: key === "profile"
+						? profileIds
+						: undefined;
 		return (
 			<FieldRow
 				key={key}
@@ -222,6 +250,13 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 				disabledReason={blocked ? "只能在全局设置中配置" : undefined}
 				saving={saving === key}
 				suggestions={suggestions}
+				extra={
+					key === "model" ? (
+						<span className="muted small" role="status" hidden={!modelsLoading && !modelsError}>
+							{modelsLoading ? "正在加载模型…" : modelsError ? "模型列表加载失败，可选择“自定义模型…”手动填写。" : null}
+						</span>
+					) : undefined
+				}
 				onChanges={(f, changes) => void apply(f.path.join("."), changes)}
 			/>
 		);
