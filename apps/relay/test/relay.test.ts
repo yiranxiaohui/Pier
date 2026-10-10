@@ -11,7 +11,7 @@ import {
 } from "@pier/crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { type RelayServer, startRelayServer } from "../src/server.ts";
+import { DEFAULT_ICE_SERVER_URLS, type RelayServer, startRelayServer } from "../src/server.ts";
 import { bindingResponse } from "../src/stun.ts";
 
 const TOKEN = "relay-test-token-0123456789";
@@ -185,6 +185,15 @@ describe("relay server", () => {
 		const cookie = [0x21, 0x12, 0xa4, 0x42];
 		const ip = [...response.subarray(28, 32)].map((b, i) => b ^ (cookie[i] ?? 0)).join(".");
 		expect(ip).toBe("127.0.0.1");
+	});
+
+	it("announces domestic and international STUN fallbacks by default", async () => {
+		relay = await startRelayServer({ mode: "open", port: 0, stunPort: false });
+		const { socket, registered } = await registerHost(relay, generateKeyPair());
+		track(socket);
+		expect(registered).toMatchObject({
+			iceServers: DEFAULT_ICE_SERVER_URLS.map((urls) => ({ urls })),
+		});
 	});
 
 	it("ignores datagrams that are not STUN binding requests", () => {

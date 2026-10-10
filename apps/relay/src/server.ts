@@ -70,6 +70,15 @@ export interface RelayServerOptions {
 	log?: (message: string) => void;
 }
 
+/** Public STUN fallbacks announced when no extra ICE servers were configured. */
+export const DEFAULT_ICE_SERVER_URLS = [
+	"stun:stun.miwifi.com:3478",
+	"stun:stun.qq.com:3478",
+	"stun:stun.l.google.com:19302",
+	"stun:stun.cloudflare.com:3478",
+	"stun:global.stun.twilio.com:3478",
+] as const;
+
 /** How a registered computer was let in. */
 export type HostVia = "open" | "static" | "account";
 
@@ -260,6 +269,7 @@ export const MODE_DEFAULTS = {
 } as const;
 
 function initialSettings(options: RelayServerOptions): RelaySettings {
+	const iceServers = options.iceServers ?? DEFAULT_ICE_SERVER_URLS.map((urls) => ({ urls }));
 	return {
 		mode: options.mode,
 		maxHosts: options.maxHosts ?? null,
@@ -267,7 +277,7 @@ function initialSettings(options: RelayServerOptions): RelaySettings {
 		bytesPerSecond: options.bytesPerSecond ?? null,
 		connectsPerMinute: options.connectsPerMinute ?? 120,
 		publicHost: options.publicHost ?? null,
-		iceServers: (options.iceServers ?? []).flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])),
+		iceServers: iceServers.flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])),
 	};
 }
 

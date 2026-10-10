@@ -31,6 +31,7 @@ Options:
                                                            [env PIER_RELAY_PUBLIC_HOST]
   --ice-server <url>      Another STUN server to announce, e.g. stun:stun.miwifi.com:3478
                           (repeatable)                     [env PIER_RELAY_ICE_SERVERS, comma-separated]
+                          If omitted, common domestic and international public STUN fallbacks are used.
   --max-hosts <n>         Registered computers at most     [env PIER_RELAY_MAX_HOSTS]
   --max-streams <n>       Device connections per computer (default 32)
                                                            [env PIER_RELAY_MAX_STREAMS]
@@ -114,10 +115,13 @@ async function main(): Promise<void> {
 	}
 	if (tokens.some((t) => t.length < 16)) throw new Error("Access tokens must be at least 16 characters long");
 	const stunPort = int("--stun-port", values["stun-port"] ?? env.PIER_RELAY_STUN_PORT);
-	const iceServers: IceServer[] = [...(values["ice-server"] ?? []), ...list(env.PIER_RELAY_ICE_SERVERS)].map((url) => {
-		if (!/^stuns?:/i.test(url)) throw new Error(`Only STUN URLs can be announced: ${url}`);
-		return { urls: url };
-	});
+	const configuredIceServers = [...(values["ice-server"] ?? []), ...list(env.PIER_RELAY_ICE_SERVERS)];
+	const iceServers: IceServer[] | undefined = configuredIceServers.length
+		? configuredIceServers.map((url) => {
+				if (!/^stuns?:/i.test(url)) throw new Error(`Only STUN URLs can be announced: ${url}`);
+				return { urls: url };
+			})
+		: undefined;
 	const log = (message: string) => process.stderr.write(`[pier-relay] ${new Date().toISOString()} ${message}\n`);
 	const maxHosts = int("--max-hosts", values["max-hosts"] ?? env.PIER_RELAY_MAX_HOSTS);
 	const maxStreams = int("--max-streams", values["max-streams"] ?? env.PIER_RELAY_MAX_STREAMS);
