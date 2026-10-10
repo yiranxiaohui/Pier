@@ -12,6 +12,12 @@ import type {
 } from "@pier/protocol";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	accountTokenSelectionKey,
+	readAccountTokenChoice,
+	resolveAccountTokenChoice,
+	saveAccountTokenChoice,
+} from "../lib/account-tokens.ts";
+import {
 	CLAUDE_FAMILIES,
 	claudeFamilyModel,
 	claudeModels,
@@ -976,6 +982,7 @@ function groupTargets(
 
 function GroupRow({
 	entry,
+	selectionKey,
 	overview,
 	provider,
 	agents,
@@ -984,6 +991,7 @@ function GroupRow({
 	onRemove,
 }: {
 	entry: GroupEntry;
+	selectionKey: string;
 	overview: AccountOverview;
 	/** The pi provider configured for this group, if any. */
 	provider?: ProviderInfo | undefined;
@@ -997,13 +1005,18 @@ function GroupRow({
 }) {
 	const store = useStore();
 	const usable = entry.tokens.filter((t) => t.status === 1);
-	const [choice, setChoice] = useState<number | "new">(usable[0]?.id ?? "new");
+	const [choice, setChoice] = useState(() => readAccountTokenChoice(selectionKey));
 	const [open, setOpen] = useState(fresh === true);
 	// Models read from a token, for Claude Code and Codex while the group is not added to pi.
 	const [fetched, setFetched] = useState<RelayGroup["models"] | undefined>();
 	const [fetchError, setFetchError] = useState<string | undefined>();
 	const fetching = useRef(false);
-	const selected = choice === "new" || usable.some((t) => t.id === choice) ? choice : (usable[0]?.id ?? "new");
+	const chooseToken = (value: number | "new") => {
+		saveAccountTokenChoice(selectionKey, value);
+		setChoice(value);
+		setFetchError(undefined);
+	};
+	const selected = resolveAccountTokenChoice(choice, entry.tokens);
 	const ratio = ratioText(entry.ratio);
 	const targets = groupTargets(entry, overview, provider, agents, fetched);
 	const configured = provider !== undefined || targets.claude || targets.codexDefined;
@@ -1015,7 +1028,7 @@ function GroupRow({
 			const created = await store.account("account.createToken", { name: tokenName(entry.name), group: entry.name });
 			onTokens(created.tokens);
 			tokenId = created.tokenId;
-			setChoice(tokenId);
+			chooseToken(tokenId);
 		} else tokenId = selected;
 		const used = await store.account("account.useToken", { tokenId });
 		const models = tokenRelayModels(used.models);
@@ -1070,10 +1083,7 @@ function GroupRow({
 					<Select<number | "new">
 						className="setting-select compact account-token-select"
 						value={selected}
-						onChange={(value) => {
-							setChoice(value);
-							setFetchError(undefined);
-						}}
+						onChange={chooseToken}
 						options={[
 							...usable.map((token) => ({
 								value: token.id,
@@ -1348,18 +1358,22 @@ function Dashboard({
 							</div>
 						</div>
 					) : null}
-					{shown.map((entry) => (
-						<GroupRow
-							key={entry.name}
-							entry={entry}
-							overview={overview}
-							provider={providerOf(entry)}
-							agents={agents}
-							fresh={fresh.includes(entry.name)}
-							onTokens={onTokens}
-							onRemove={() => setPicked((list) => list.filter((name) => name !== entry.name))}
-						/>
-					))}
+					{shown.map((entry) => {
+						const selectionKey = accountTokenSelectionKey(node, site, user, entry.name);
+						return (
+							<GroupRow
+								key={selectionKey}
+								entry={entry}
+								selectionKey={selectionKey}
+								overview={overview}
+								provider={providerOf(entry)}
+								agents={agents}
+								fresh={fresh.includes(entry.name)}
+								onTokens={onTokens}
+								onRemove={() => setPicked((list) => list.filter((name) => name !== entry.name))}
+							/>
+						);
+					})}
 					{!shown.length && !picking ? (
 						<div className="provider-row muted small">
 							{entries.length ? "还没有添加分组，点右上角「添加分组」选择要使用的分组。" : "这个账号还没有可用的分组。"}
