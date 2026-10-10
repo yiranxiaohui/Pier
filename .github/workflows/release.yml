@@ -138,6 +138,8 @@ jobs:
           # Pier.app ships pi's assets as a resource; the desktop passes them through PI_PACKAGE_DIR.
           PI_PACKAGE_DIR="$app/Contents/Resources/pi-assets" \
             node packages/host/scripts/smoke-sidecar.mjs "$app/Contents/MacOS/pier-host" "${{ needs.verify.outputs.version }}"
+          PI_PACKAGE_DIR="$app/Contents/Resources/pi-assets" \
+            node packages/host/scripts/smoke-mcp.mjs "$app/Contents/MacOS/pier-host"
 
       # The bundles ship the sidecar that beforeBuildCommand prepared; smoke-test that exact binary
       # (macOS tests it inside the signed .app above).
@@ -149,6 +151,8 @@ jobs:
           [ -f "$exe" ] || { echo "::error::No sidecar in $tauri/binaries"; exit 1; }
           PI_PACKAGE_DIR="$tauri/pi-assets" \
             node packages/host/scripts/smoke-sidecar.mjs "$exe" "${{ needs.verify.outputs.version }}"
+          PI_PACKAGE_DIR="$tauri/pi-assets" \
+            node packages/host/scripts/smoke-mcp.mjs "$exe"
 
       - name: Collect bundles
         run: |
@@ -205,11 +209,13 @@ jobs:
           mkdir unpacked
           tar -xzf dist/pier-host-*.tar.gz -C unpacked
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs unpacked/pier-host "${{ needs.verify.outputs.version }}"
+          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-mcp.mjs unpacked/pier-host
           unpacked/pier-cli --help
           bash -n scripts/install-host.sh scripts/host-manager.sh
           mkdir single-file
           cp dist/pier-host-v*-linux-${{ matrix.arch }} single-file/pier-host
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier-host "${{ needs.verify.outputs.version }}" --standalone
+          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-mcp.mjs single-file/pier-host
           single-file/pier-host cli --help
           node packages/host/scripts/smoke-standalone.mjs single-file/pier-host "${{ needs.verify.outputs.version }}"
       - uses: actions/upload-artifact@v5

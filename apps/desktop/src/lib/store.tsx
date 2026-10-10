@@ -44,6 +44,7 @@ import type {
 	ProviderInfo,
 	ProviderListResult,
 	RemoteAccessStatus,
+	ResourceMethod,
 	ScheduledTask,
 	ScheduledTaskRun,
 	SessionCleanupResult,
@@ -243,6 +244,7 @@ export type SettingsSection =
 	| "models"
 	| "workspaces"
 	| "extensions"
+	| "resources"
 	| "pi"
 	| "claude"
 	| "codex"
@@ -1129,7 +1131,7 @@ export class PierStore {
 			}));
 		} else if (event.type === "settings.changed") {
 			this.set((s) => ({ piSettingsVersion: s.piSettingsVersion + 1 }));
-		} else if (event.type === "agentConfig.changed") {
+		} else if (event.type === "agentConfig.changed" || event.type === "resources.changed") {
 			this.set((s) => ({ agentConfigVersion: s.agentConfigVersion + 1 }));
 		} else if (event.type === "extension.progress") {
 			const { type: _type, ...progress } = event as unknown as ExtensionProgressState & { type: string };
@@ -1940,6 +1942,12 @@ export class PierStore {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
 		return client.request("agentConfig.get", { runtime, ...(workspaceId ? { workspaceId } : {}) });
+	}
+
+	async resourceRequest<M extends ResourceMethod>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
+		const client = this.settingsClient;
+		if (!client) throw this.settingsOffline();
+		return client.request(method, params, { timeoutMs: method === "mcp.test" ? 60_000 : 45_000 });
 	}
 
 	/** Set (or, without `value`, remove) settings in one file. Failures are reported as a toast. */

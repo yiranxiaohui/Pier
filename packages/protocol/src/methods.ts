@@ -74,6 +74,14 @@ import {
 	type WorkspacePathDeleteResult,
 	type WorkspaceUploadStart,
 } from "./domain.ts";
+import {
+	type McpServerInfo,
+	type McpTestResult,
+	type ResourceList,
+	ResourceMethodSchemas,
+	type SkillDocument,
+	type SkillInfo,
+} from "./resources.ts";
 import { type ScheduledTask, ScheduledTaskInputSchema, type ScheduledTaskRun } from "./scheduled-tasks.ts";
 
 const Id = z.string().min(1).max(256);
@@ -112,6 +120,7 @@ export const ClientInfoSchema = z.object({
  * Params schema for every method. Methods not listed here are unknown to the protocol.
  */
 export const MethodParamsSchemas = {
+	...ResourceMethodSchemas,
 	/** TCP streams owned by the authenticated connection; used inside the encrypted channel. */
 	"tunnel.open": z.object({ host: z.string().min(1).max(253), port: z.number().int().min(1).max(65535) }),
 	"tunnel.read": z.object({ tunnelId: Id }),
@@ -806,6 +815,17 @@ export interface SubscribeResult {
 }
 
 export interface MethodResults {
+	"skills.list": ResourceList<SkillInfo>;
+	"skills.read": SkillDocument;
+	"skills.save": SkillDocument;
+	"skills.import": SkillDocument;
+	"skills.setEnabled": { changed: boolean };
+	"skills.delete": { deleted: boolean };
+	"mcp.list": ResourceList<McpServerInfo>;
+	"mcp.save": McpServerInfo;
+	"mcp.setEnabled": McpServerInfo;
+	"mcp.delete": { deleted: boolean };
+	"mcp.test": McpTestResult;
 	"tunnel.open": { tunnelId: string };
 	"tunnel.read": { data: string; end: boolean };
 	"tunnel.write": { written: number };

@@ -43,6 +43,7 @@ export function Select<T extends string | number>({
 	disabled,
 	title,
 	className,
+	ariaLabel,
 }: {
 	value: T;
 	options: SelectEntry<T>[];
@@ -50,6 +51,7 @@ export function Select<T extends string | number>({
 	disabled?: boolean;
 	title?: string;
 	className?: string;
+	ariaLabel?: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -74,6 +76,7 @@ export function Select<T extends string | number>({
 				disabled={disabled}
 				title={title}
 				aria-haspopup="listbox"
+				aria-label={ariaLabel}
 				aria-expanded={open}
 				onClick={() => setOpen(!open)}
 				onKeyDown={(e) => {

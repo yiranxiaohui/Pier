@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
-import { platform } from "node:os";
+import { homedir, platform } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import {
 	type AccountLine,
@@ -24,6 +24,7 @@ import {
 	PierProtocolError,
 	PROTOCOL_VERSION,
 	parseClientFrame,
+	type ResourceRuntime,
 	type ResponseFrame,
 	type WorkspaceInfo,
 	YUNLIAN_LINES,
@@ -70,6 +71,9 @@ import { PiSettingsFiles } from "./pi/settings-files.ts";
 import { RemoteAccess, type RemoteAccessOptions } from "./remote/remote-access.ts";
 import { AgentConfigFiles } from "./runtimes/agent-config.ts";
 import { AgentInstaller, type AgentInstallerOptions } from "./runtimes/installation.ts";
+import { McpManager } from "./runtimes/mcp.ts";
+import { testMcp } from "./runtimes/mcp-client.ts";
+import { SkillManager } from "./runtimes/skills.ts";
 import { ScheduledTasks } from "./scheduled-tasks.ts";
 import { SessionArchiveStore } from "./session-archive.ts";
 import { SessionPool } from "./session-pool.ts";
@@ -134,6 +138,8 @@ export interface PierHostOptions {
 	 * the runtimes' own (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`, else `~/.claude` / `~/.codex`).
 	 */
 	agentConfigDirs?: Partial<Record<AgentConfigRuntime, string>>;
+	/** Shared skill home (tests); defaults to the current user's home. */
+	resourceHome?: string;
 	/** Installer dependencies for tests; production always downloads official native releases. */
 	agentInstaller?: Pick<AgentInstallerOptions, "fetch" | "probe" | "homeDirectory" | "configurePath">;
 	browser?: BrowserOptions;
@@ -141,6 +147,14 @@ export interface PierHostOptions {
 
 /** Remote methods recorded in the audit log. */
 const AUDITED_METHODS = new Set<MethodName>([
+	"skills.save",
+	"skills.import",
+	"skills.setEnabled",
+	"skills.delete",
+	"mcp.save",
+	"mcp.setEnabled",
+	"mcp.delete",
+	"mcp.test",
 	"tunnel.open",
 	"browser.attach",
 	"browser.action",
@@ -219,6 +233,15 @@ const AUDITED_METHODS = new Set<MethodName>([
 
 function auditDetail(method: MethodName, params: Record<string, unknown>): Record<string, unknown> | undefined {
 	switch (method) {
+		case "skills.save":
+		case "skills.import":
+		case "skills.setEnabled":
+		case "skills.delete":
+		case "mcp.save":
+		case "mcp.setEnabled":
+		case "mcp.delete":
+		case "mcp.test":
+			return { runtime: params.runtime, scope: params.scope, name: params.name, workspaceId: params.workspaceId };
 		case "tunnel.open":
 			return { host: params.host, port: params.port };
 		case "browser.attach":
@@ -414,6 +437,8 @@ export class PierHost implements RequestHandler {
 	readonly packageCatalog: PackageCatalog;
 	readonly settings: PiSettingsFiles;
 	readonly agentConfig: AgentConfigFiles;
+	readonly skills: SkillManager;
+	readonly mcp: McpManager;
 	readonly agentInstaller: AgentInstaller;
 	readonly peers: PeerManager;
 	private readonly log: (message: string) => void;
@@ -510,6 +535,20 @@ export class PierHost implements RequestHandler {
 				claudeConfigDir(agents.claudeCode ? agents.claudeCode.configDir : undefined),
 			codex: () => options.agentConfigDirs?.codex ?? codexHome(agents.codex ? agents.codex.env : undefined),
 		});
+		this.skills = new SkillManager({
+			home: options.resourceHome ?? homedir(),
+			agentDir: env.agentDir,
+			trashDir: join(this.pierDir, "trash", "skills"),
+			extensions: this.extensions,
+			configs: this.agentConfig,
+		});
+		this.mcp = new McpManager({
+			home: options.resourceHome,
+			agentDir: env.agentDir,
+			pierDir: this.pierDir,
+			configs: this.agentConfig,
+		});
+		env.setMcpConfig((cwd) => this.mcp.piConfig(cwd));
 		this.providers = new ProviderManager(env, {
 			onChanged: () => {
 				// Open sessions keep the model object they resolved; pick up edited capabilities.
@@ -827,8 +866,98 @@ export class PierHost implements RequestHandler {
 		return pending.result;
 	}
 
+	private async applyResourceChange(runtime: ResourceRuntime, workspaceId?: string): Promise<void> {
+		if (runtime === "pi") await this.applyExtensionChange(workspaceId);
+		else this.applyAgentConfigChange(runtime, "user", workspaceId);
+		this.broadcast({ type: "resources.changed", runtime, ...(workspaceId ? { workspaceId } : {}) });
+	}
+
 	private createHandlers(): Handlers {
 		return {
+			"skills.list": (_ctx, p) => this.skills.list(p.runtime, this.extensionTarget(p.workspaceId)),
+			"skills.read": (_ctx, p) => this.skills.read(p.runtime, p.path, this.extensionTarget(p.workspaceId)),
+			"skills.save": async (_ctx, p) => {
+				const result = await this.skills.save(
+					p.runtime,
+					p.scope,
+					p.name,
+					p.text,
+					this.extensionTarget(p.workspaceId),
+					p.path,
+					p.expectedRevision,
+				);
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"skills.import": async (_ctx, p) => {
+				const result = await this.skills.import(
+					p.runtime,
+					p.scope,
+					p.sourcePath,
+					p.name,
+					this.extensionTarget(p.workspaceId),
+				);
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"skills.setEnabled": async (_ctx, p) => {
+				const result = await this.skills.setEnabled(p.runtime, p.path, p.enabled, this.extensionTarget(p.workspaceId));
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"skills.delete": async (_ctx, p) => {
+				const result = await this.skills.delete(
+					p.runtime,
+					p.path,
+					this.extensionTarget(p.workspaceId),
+					p.expectedRevision,
+				);
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"mcp.list": (_ctx, p) => this.mcp.list(p.runtime, this.extensionTarget(p.workspaceId)),
+			"mcp.save": async (_ctx, p) => {
+				const result = this.mcp.save(
+					p.runtime,
+					p.scope,
+					p.name,
+					p.config,
+					p.enabled,
+					this.extensionTarget(p.workspaceId),
+					p.expectedRevision,
+					p.create,
+				);
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"mcp.setEnabled": async (_ctx, p) => {
+				const result = this.mcp.setEnabled(
+					p.runtime,
+					p.scope,
+					p.name,
+					p.enabled,
+					p.expectedRevision,
+					this.extensionTarget(p.workspaceId),
+				);
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"mcp.delete": async (_ctx, p) => {
+				const result = this.mcp.delete(
+					p.runtime,
+					p.scope,
+					p.name,
+					p.expectedRevision,
+					this.extensionTarget(p.workspaceId),
+				);
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
+			"mcp.test": (_ctx, p) =>
+				testMcp(
+					this.mcp.connectionServer(p.runtime, p.scope, p.name, this.extensionTarget(p.workspaceId)),
+					p.workspaceId ? this.requireWorkspace(p.workspaceId).path : undefined,
+				),
 			"tunnel.open": (ctx, params) => this.tunnels.open(ctx.connection, params.host, params.port),
 			"tunnel.read": (ctx, params) => this.tunnels.read(ctx.connection, params.tunnelId),
 			"tunnel.write": (ctx, params) => this.tunnels.write(ctx.connection, params.tunnelId, params.data, params.end),

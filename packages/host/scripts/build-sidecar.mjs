@@ -11,6 +11,7 @@
  *   <outdir>/assets/...            interactive assets
  *   <outdir>/docs, examples        referenced from pi's system prompt
  *   <outdir>/photon_rs_bg.wasm     image resizing
+ *   <outdir>/quickjs.wasm         MCP codemode sandbox
  *
  * When the assets cannot live next to the binary (e.g. inside an app bundle), point
  * PI_PACKAGE_DIR at the directory that contains them.
@@ -70,7 +71,10 @@ const bunArgs = [
 	"build",
 	"--compile",
 	"--no-compile-autoload-bunfig",
+	"--root",
+	packageRoot,
 	join(packageRoot, "src/main.ts"),
+	join(packageRoot, "src/extensions/codemode/worker.ts"),
 	"--outfile",
 	exe,
 ];
@@ -97,5 +101,6 @@ copy(join(piDir, "dist/core/export-html/vendor"), join(outdir, "export-html/vend
 copy(join(piDir, "docs"), join(outdir, "docs"));
 copy(join(piDir, "examples"), join(outdir, "examples"));
 copy(join(photonDir, "photon_rs_bg.wasm"), join(outdir, "photon_rs_bg.wasm"));
+copy(join(findInNodeModules("quickjs-wasi", piDir), "quickjs.wasm"), join(outdir, "quickjs.wasm"));
 
 console.log(`Built ${exe} with pi assets in ${outdir}`);

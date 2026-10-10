@@ -125,6 +125,16 @@ function ToolsCard({ hostId }: { hostId: string }) {
 	return (
 		<Card flat style={styles.tools}>
 			<View style={styles.toolRow}>
+				{online ? (
+					<Pressable
+						testID="open-resources"
+						onPress={() => router.push({ pathname: "/host/[hostId]/resources", params: { hostId } })}
+						style={({ pressed }) => [styles.tool, { backgroundColor: p.elevated }, pressed && styles.pressed]}
+					>
+						<Icon name="school-outline" size={18} color={p.accentText} />
+						<Text style={[styles.toolText, { color: p.text }]}>Skills 与 MCP</Text>
+					</Pressable>
+				) : null}
 				{canTerminal ? (
 					<Pressable
 						testID="open-terminal"

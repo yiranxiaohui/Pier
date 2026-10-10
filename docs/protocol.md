@@ -606,6 +606,26 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 
 没有订阅者、非运行中、没有待处理 UI 请求，且 30 分钟无活动的会话会被自动 `dispose`（`session.closed { reason: "idle" }`），之后可通过 `session.open` 重新加载。
 
+## 统一 Skills 与 MCP 管理（1.38）
+
+以下方法向已认证的本地及配对客户端开放。`runtime` 为 `pi`、`claude-code` 或 `codex`；`workspaceId?` 为目标 Host 的已注册工作区，省略时只查看全局。`scope` 为 `user` / `project`，Claude MCP 另支持 `local`（存放在用户状态中的项目私有定义）。项目 / 本地操作必须提供工作区。
+
+| 方法 | 参数 | 结果 |
+| --- | --- | --- |
+| `skills.list` | `{ runtime, workspaceId? }` | `{ items: SkillInfo[], errors: string[] }`。技能包含 `scope, name, description, path, enabled, editable, deletable, shared`；路径必须来自列表才能读取或修改 |
+| `skills.read` | `{ runtime, workspaceId?, path }` | `{ skill, text, revision }`；`revision` 为内容 SHA-256 |
+| `skills.save` | `{ runtime, workspaceId?, scope, name, text, path?, expectedRevision? }` | `{ skill, text, revision }`；无 `path` 时创建独立技能，已存在的目录返回 `CONFLICT`。编辑需要列表路径与读取时的版本；冲突返回 `CONFLICT`，扩展包 / 系统 / 符号链接技能不可编辑 |
+| `skills.import` | `{ runtime, workspaceId?, scope, sourcePath, name? }` | `{ skill, text, revision }`；从目标电脑上绝对路径的技能目录或 `SKILL.md` 复制技能、脚本和资源，不覆盖已有目录 |
+| `skills.setEnabled` | `{ runtime, workspaceId?, path, enabled }` | `{ changed }`；pi 更新资源设置，Codex 更新 `skills.config`，Claude 更新技能 `permissions.deny` 规则，不删除技能文件 |
+| `skills.delete` | `{ runtime, workspaceId?, path, expectedRevision? }` | `{ deleted }`；独立技能目录移入回收站，pi 的显式资源路径遵循 `extension.delete` 的移除语义 |
+| `mcp.list` | `{ runtime, workspaceId? }` | `{ items: McpServerInfo[], errors: string[] }`；服务器包含 `scope, name, path, enabled, config, revision`。`config` 是原生配置，可能含凭据，仅通过认证连接返回 |
+| `mcp.save` | `{ runtime, workspaceId?, scope, name, config, enabled?(true), expectedRevision?, create?(false) }` | `McpServerInfo`；新建时传 `create: true` 防止覆盖同名服务器，编辑时必须匹配旧版本；保留其他服务器、配置项及 Codex TOML 注释 |
+| `mcp.setEnabled` | `{ runtime, workspaceId?, scope, name, enabled, expectedRevision }` | `McpServerInfo`；Claude 定义停用后归档在 Pier 状态目录，启用时恢复；pi / Codex 使用原生 `enabled`，支持 pi 的项目启用状态覆盖 |
+| `mcp.delete` | `{ runtime, workspaceId?, scope, name, expectedRevision }` | `{ deleted }`；只移除指定定义，保留其他服务器与应用配置 |
+| `mcp.test` | `{ runtime, workspaceId?, scope, name }` | `{ ok, tools: { name }[], message }`；显式建立 stdio / HTTP / Claude SSE 连接、发现工具并关闭连接；不调用业务工具、不启动 OAuth、不回传子进程日志或凭据。客户端建议 60 秒超时 |
+
+变更广播 `resources.changed = { runtime, workspaceId? }`，并通知相关扩展 / Agent 配置页面。pi 空闲会话重新加载，忙碌会话保持原运行并在结束后 `/reload`；Claude / Codex 原生配置在会话新建 / 重新打开时读取。审计只记录 runtime、scope、资源名称与工作区，不记录技能正文、MCP 配置、环境变量、请求头或凭据。
+
 ## 本地渲染的浏览器（1.37）
 
 本机 Host 负责本地浏览器进程和回环监听器，通过 `PeerManager` 为浏览器建立独立的配对加密连接（现有 Relay / P2P 可用）。远程 Host 仅连接目标 TCP 服务，运行独立 Host 的无桌面 Linux 同样可提供转发。配对仍表示完全信任；这里只对已认证连接开放。旧版目标 Host 在打开时提示更新。

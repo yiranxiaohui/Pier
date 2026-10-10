@@ -16,6 +16,7 @@ export const HOST_SETTINGS_PAGES = {
 	account: 10,
 	models: 10,
 	extensions: 10,
+	resources: 38,
 	pi: 15,
 	claude: 23,
 	codex: 23,

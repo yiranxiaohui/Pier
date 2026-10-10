@@ -96,6 +96,13 @@ CLI 不在 `PATH` 中时，可以用 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH` 指�
 
 修改对之后新建（或重新打开）的会话生效。Pier 按工作区审批策略设置的项（Claude Code 的默认权限模式，Codex 的审批策略与沙箱）只影响终端中的 CLI。设置其他电脑时这两页修改那台电脑上的文件，那台电脑需要协议 1.23 或更高。
 
+**统一 Skills 与 MCP 管理**：桌面端「设置 → Skills 与 MCP」与手机端电脑页面的同名入口，可选择 pi、Claude Code 或 Codex，并查看全局资源及所选工作区的项目资源；支持管理已配对的电脑（目标 Host 需要协议 1.38）。
+
+- **Skills**：查看、搜索、新建、编辑 `SKILL.md`、从目标电脑的本地技能目录导入（保留脚本和资源）、启用 / 停用及删除。pi 使用自己的资源设置；Claude Code 使用 `~/.claude/skills` 和项目 / 祖先目录的 `.claude/skills`，停用通过 `permissions.deny` 的 `Skill(name)` 与 `Skill(name *)` 规则实现；Codex 使用共享的 `~/.agents/skills`、项目 / 祖先目录的 `.agents/skills` 和兼容的 `CODEX_HOME/skills`，启用状态写入原生 `skills.config`。扩展包内技能可查看并通过包管理启用 / 停用；系统技能和符号链接技能不能编辑或直接删除。独立技能删除到 Pier 回收站，删除共享目录中的技能会影响其他读取同一目录的工具。pi 的 npm / Git 扩展包安装、更新与仓库搜索继续在「扩展」页操作。
+- **MCP**：添加、编辑、启用 / 停用、删除服务器及测试连接；支持 stdio 与 Streamable HTTP，Claude Code 还支持 SSE。参数每行一个，环境变量和请求头使用 JSON，高级选项会保留。pi 写入 `~/.pi/agent/mcp.json` / `.pi/mcp.json`，并在 Pier 会话中加载 SDK 内置 MCP、codemode 与 tool-search 扩展；新服务器默认直接展示工具，已有工具展示设置保留。Claude Code 写入 `~/.claude.json`（全局 / 本地）或 `.mcp.json`（项目）；停用时将定义存入 `~/.pier/resources/disabled-mcp.json` 并从活动配置移除，启用时恢复。Codex 写入 `config.toml` 的 `mcp_servers`，保留注释和其他设置，项目配置仍需受信任的工作区。
+
+MCP 测试会连接目标电脑上的服务器，stdio 测试会启动配置的程序；结果显示本次连接与工具发现情况，不代表 Agent 会话的持续连接状态。测试不回传子进程日志或凭据。需要 OAuth、原生凭据助手或远程执行器的服务器继续由对应 Agent 完成登录 / 凭据解析；连接测试不启动登录流程。pi 的 MCP 工具与资源调用按工作区策略审批，空闲会话在修改后重新加载，运行中的会话完成后执行 `/reload`；Claude Code / Codex 修改后需新建或重新打开会话。编辑器检测文件版本冲突，不覆盖外部修改。
+
 **一键接入云链API**：在「设置 → 个人中心」中添加一个分组并选择令牌后，在「配置到 pi / Claude Code / Codex」中选择要接入的 Agent，同一个令牌可以同时接入多个（密钥由 Host 直接写入；Claude Code 与 Codex 写入全局配置，需要协议 1.25）：
 
 - **pi**：读取令牌可用的全部模型，添加为服务商「云链API · 分组名」，可以在「模型与服务商」中查看和编辑。

@@ -1,5 +1,41 @@
 /* Settings → Extensions: pi packages, standalone extensions and other resources. */
 
+.resource-toolbar {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 20px 0 12px;
+}
+.resource-toolbar > .segmented {
+	margin-right: auto;
+}
+.resource-path {
+	overflow-wrap: anywhere;
+}
+.resource-form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+.resource-form label,
+.resource-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 13px;
+}
+.resource-form textarea {
+	width: 100%;
+	resize: vertical;
+	min-height: 88px;
+	padding: 10px;
+}
+.resource-form .resource-code {
+	min-height: 320px;
+	line-height: 1.6;
+}
+
 .extension-warning {
 	margin: -8px 0 24px;
 	align-items: flex-start;

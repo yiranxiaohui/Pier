@@ -15,6 +15,7 @@ import { DEFAULT_ALLOWED_ORIGINS, startLocalGateway } from "./gateway/local-gate
 import { PIER_HOST_VERSION, PierHost } from "./host.ts";
 import { applyLoginShellPath } from "./login-shell-path.ts";
 import { defaultPierDir, runtimeFilePath } from "./paths.ts";
+import { installCodemodeWasmRedirect } from "./pi/codemode-wasm.ts";
 import { checkImageSupport, installPhotonWasmRedirect } from "./pi/photon-wasm.ts";
 import { checkP2PSupport } from "./remote/p2p.ts";
 import { StdioShell } from "./shell.ts";
@@ -68,6 +69,7 @@ async function main(): Promise<void> {
 	// Load Photon's wasm from the bundled assets, not the build machine's path; without it pi
 	// drops every image.
 	installPhotonWasmRedirect();
+	installCodemodeWasmRedirect();
 	const { values } = parseArgs({
 		options: {
 			port: { type: "string" },

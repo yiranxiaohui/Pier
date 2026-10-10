@@ -21,7 +21,10 @@ import {
 	type HostDirectoryListing,
 	type HostInfo,
 	type HostStats,
+	type MethodParams,
+	type MethodResult,
 	parseProtocolVersion,
+	type ResourceMethod,
 	type SessionRunState,
 	type SessionSummary,
 	type WorkspaceFileContent,
@@ -73,6 +76,7 @@ export interface TerminalSummary {
 }
 
 export interface HostView {
+	resourcesVersion?: number;
 	hostId?: string;
 	connection: ClientState | "none";
 	/** Last connection problem, shown while (re)connecting. */
@@ -517,7 +521,14 @@ export class MobileStore {
 
 	private onHostEvent(conn: HostConnection, frame: EventFrame): void {
 		const event = frame.event;
-		if (event.type === "workspace.changed") void this.loadWorkspacesOf(conn);
+		if (
+			event.type === "resources.changed" ||
+			event.type === "extension.changed" ||
+			event.type === "agentConfig.changed"
+		) {
+			const view = this.state.connections[conn.hostId];
+			this.setView(conn.hostId, { resourcesVersion: (view?.resourcesVersion ?? 0) + 1 });
+		} else if (event.type === "workspace.changed") void this.loadWorkspacesOf(conn);
 		else if (event.type === "session.listChanged") this.scheduleRefresh(conn, String(event.workspaceId));
 		else if (event.type === "session.activity") {
 			const workspaceId = String(event.workspaceId);
@@ -1108,6 +1119,10 @@ export class MobileStore {
 
 	async listExtensions(workspaceId?: string): Promise<ExtensionListResult> {
 		return this.requireClient().request("extension.list", workspaceId ? { workspaceId } : {});
+	}
+
+	async resourceRequest<M extends ResourceMethod>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
+		return this.requireClient().request(method, params, { timeoutMs: method === "mcp.test" ? 60_000 : 45_000 });
 	}
 
 	async setExtensionEnabled(resource: ExtensionResourceInfo, enabled: boolean, workspaceId?: string): Promise<void> {

@@ -58,9 +58,25 @@ try {
 		`import archive from "./pi-resources.json.gz" with { type: "file" };\nimport { runStandalone } from ${JSON.stringify(join(repo, "packages/host/src/standalone/main.ts"))};\nrunStandalone(archive, ${JSON.stringify(version)}).catch(error => { console.error("pier-host: " + error.message); process.exit(1); });\n`,
 	);
 	const executable = join(outdir, `pier-host-v${version}-linux-${values.arch}`);
+	// Keep pi's worker specifier identical in the archive sidecar and the embedded executable.
+	const worker = join(staging, "src/extensions/codemode/worker.ts");
+	mkdirSync(join(staging, "src/extensions/codemode"), { recursive: true });
+	writeFileSync(worker, `import ${JSON.stringify(join(repo, "packages/host/src/extensions/codemode/worker.ts"))};\n`);
 	execFileSync(
 		"bun",
-		["build", "--compile", "--no-compile-autoload-bunfig", "--target", target, entry, "--outfile", executable],
+		[
+			"build",
+			"--compile",
+			"--no-compile-autoload-bunfig",
+			"--root",
+			staging,
+			"--target",
+			target,
+			entry,
+			worker,
+			"--outfile",
+			executable,
+		],
 		{ cwd: repo, stdio: "inherit" },
 	);
 	console.log(`Built single-file ${executable}`);

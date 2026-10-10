@@ -8,8 +8,12 @@ import {
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
 	createAgentSessionServices,
+	createCodemodeExtension,
+	createMcpExtension,
+	createToolSearchExtension,
 	getAgentDir,
 	type InlineExtension,
+	type LoadedMcpConfig,
 	ModelRuntime,
 	VERSION as PI_VERSION,
 	type SessionInfo,
@@ -66,6 +70,11 @@ export class PiEnvironment {
 	readonly modelsPath: string;
 	readonly modelRuntime: ModelRuntime;
 	private readonly options: PiEnvironmentOptions;
+	private mcpConfig: ((cwd: string) => LoadedMcpConfig) | undefined;
+
+	setMcpConfig(load: (cwd: string) => LoadedMcpConfig): void {
+		this.mcpConfig = load;
+	}
 
 	private constructor(options: PiEnvironmentOptions, agentDir: string, modelRuntime: ModelRuntime) {
 		this.options = options;
@@ -156,6 +165,7 @@ export class PiEnvironment {
 	async createRuntime(request: RuntimeRequest): Promise<AgentSessionRuntime> {
 		const isolated = this.options.isolated === true;
 		const extra = this.options.extraResources ?? {};
+		const loadMcpConfig = this.mcpConfig;
 		const factory: CreateAgentSessionRuntimeFactory = async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
 			const services = await createAgentSessionServices({
 				cwd,
@@ -163,7 +173,30 @@ export class PiEnvironment {
 				modelRuntime: this.modelRuntime,
 				settingsManager: this.settingsFor(cwd),
 				resourceLoaderOptions: {
-					extensionFactories: [...request.extensions(), ...(extra.extensions ?? [])],
+					extensionFactories: [
+						...request.extensions(),
+						...(loadMcpConfig
+							? [
+									{
+										name: "mcp",
+										builtin: true,
+										replaceable: true,
+										factory: createMcpExtension({
+											loadConfig: () => loadMcpConfig(cwd),
+											logPath: join(agentDir, "mcp.log"),
+										}),
+									},
+									{
+										name: "codemode",
+										builtin: true,
+										replaceable: true,
+										factory: createCodemodeExtension(),
+									},
+									{ name: "tool-search", builtin: true, replaceable: true, factory: createToolSearchExtension() },
+								]
+							: []),
+						...(extra.extensions ?? []),
+					],
 					...(extra.skillPaths ? { additionalSkillPaths: extra.skillPaths } : {}),
 					...(extra.promptTemplatePaths ? { additionalPromptTemplatePaths: extra.promptTemplatePaths } : {}),
 					...(isolated

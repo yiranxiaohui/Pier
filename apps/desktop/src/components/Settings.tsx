@@ -42,6 +42,7 @@ import { CopyButton } from "./Markdown.tsx";
 import { ModelsSettings } from "./ModelsPanel.tsx";
 import { PiSettings } from "./PiSettingsPanel.tsx";
 import { RemoteSettings } from "./RemotePanel.tsx";
+import { ResourcesSettings } from "./ResourcesPanel.tsx";
 import { Select } from "./Select.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
@@ -135,6 +136,13 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 				label: "扩展",
 				icon: IconPuzzle,
 				keywords: "扩展 插件 extension package 扩展包 npm git 安装 卸载 更新 启用 停用 技能 skill 提示词 prompt 主题",
+				online: true,
+			},
+			{
+				id: "resources",
+				label: "Skills 与 MCP",
+				icon: IconPuzzle,
+				keywords: "skills 技能 mcp 服务器 管理 claude codex pi 添加 导入 编辑 启用 停用 测试连接",
 				online: true,
 			},
 			{
@@ -590,6 +598,7 @@ const PAGES: Record<SettingsSection, ComponentType> = {
 	models: ModelsSettings,
 	workspaces: WorkspacesSettings,
 	extensions: ExtensionsSettings,
+	resources: ResourcesSettings,
 	pi: PiSettings,
 	claude: ClaudeSettings,
 	codex: CodexSettings,

@@ -79,7 +79,9 @@ jobs:
 
       - name: Smoke test (native target only)
         if: matrix.target == 'bun-linux-x64'
-        run: node packages/host/scripts/smoke-sidecar.mjs packages/host/bin/pier-host
+        run: |
+          node packages/host/scripts/smoke-sidecar.mjs packages/host/bin/pier-host
+          node packages/host/scripts/smoke-mcp.mjs packages/host/bin/pier-host
 
   desktop:
     name: desktop shell (${{ matrix.os }})
