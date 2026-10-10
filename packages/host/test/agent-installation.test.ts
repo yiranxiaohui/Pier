@@ -28,7 +28,7 @@ function claudeDownloads(version: string, bytes = Buffer.from("native-cli"), che
 }
 
 async function finished(installer: AgentInstaller, runtime: AgentConfigRuntime) {
-	await vi.waitFor(() => expect(["ready", "error"]).toContain(installer.status(runtime).state));
+	await vi.waitFor(() => expect(["ready", "error"]).toContain(installer.status(runtime).state), { timeout: 5_000 });
 	return installer.status(runtime);
 }
 

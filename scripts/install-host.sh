@@ -7,20 +7,21 @@ fail() { echo "pier-host: $*" >&2; exit 1; }
 scope=auto
 version=latest
 start=true
-from_source=false
+local_install=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user) scope=user ;;
     --system) scope=system ;;
     --version) [[ $# -ge 2 ]] || fail '--version requires a tag'; version=$2; shift ;;
     --no-start) start=false ;;
-    --from-source) from_source=true ;;
+    --local) local_install=true ;;
     -h|--help)
       cat <<'HELP'
 Install Pier Host on Linux, including its CLI and systemd service.
-Usage: bash install-host.sh [--user|--system] [--version vX.Y.Z] [--no-start] [--from-source]
+Usage: bash install-host.sh [--user|--system] [--version vX.Y.Z] [--no-start] [--local]
 Default: user service for ordinary users, system service for root.
 --no-start installs the service without enabling or starting it.
+--local installs the already downloaded, extracted Host bundle beside this script.
 PIER_HOST_PREFIX overrides ~/.local (user) or /opt/pier-host (system).
 PIER_HOST_STATE_DIR overrides ~/.pier. Uninstall keeps it unless --purge is given.
 HELP
@@ -31,15 +32,16 @@ HELP
 done
 [[ $(uname -s) == Linux ]] || fail 'Only Linux is supported.'
 case "$(uname -m)" in
-  x86_64|amd64) arch=x64; bun_platform=bun-linux-x64-baseline; bun_target=bun-linux-x64-baseline ;;
-  aarch64|arm64) arch=arm64; bun_platform=bun-linux-aarch64; bun_target=bun-linux-arm64 ;;
+  x86_64|amd64) arch=x64 ;;
+  aarch64|arm64) arch=arm64 ;;
   *) fail 'Supported architectures: x86_64 and arm64.' ;;
 esac
 if [[ "$scope" == auto ]]; then
   if [[ $(id -u) == 0 ]]; then scope=system; else scope=user; fi
 fi
 [[ "$scope" != system || $(id -u) == 0 ]] || fail '--system requires root.'
-for tool in curl tar sha256sum systemctl realpath readlink; do command -v "$tool" >/dev/null || fail "Missing command: $tool"; done
+for tool in tar sha256sum systemctl realpath readlink; do command -v "$tool" >/dev/null || fail "Missing command: $tool"; done
+if ! "$local_install"; then command -v curl >/dev/null || fail 'Missing command: curl'; fi
 
 if [[ "$scope" == user ]]; then
   prefix=${PIER_HOST_PREFIX:-$HOME/.local}
@@ -83,55 +85,36 @@ trap 'rm -rf -- "$task_tmp"' EXIT
 download() { curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error --retry 3 --connect-timeout 20 --max-time 600 "$1" -o "$2"; }
 repo=https://github.com/yiranxiaohui/Pier
 install_url=https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install-host.sh
-if [[ "$version" == latest ]]; then
-  download https://api.github.com/repos/yiranxiaohui/Pier/releases/latest "$task_tmp/release.json"
-  version=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$task_tmp/release.json" | head -n 1)
-fi
-[[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[[:alnum:].-]+)?$ ]] || fail "Invalid version tag: $version"
-asset="pier-host-$version-linux-$arch.tar.gz"
-base="$repo/releases/download/$version"
-download "$base/SHA256SUMS.txt" "$task_tmp/SHA256SUMS.txt"
-checksum=$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print $1 }' "$task_tmp/SHA256SUMS.txt")
-payload="$task_tmp/payload"
-mkdir -p "$payload"
-if [[ -n "$checksum" ]] && ! "$from_source"; then
+if "$local_install"; then
+  script_path=${BASH_SOURCE[0]:-}
+  [[ -n "$script_path" ]] || fail '--local requires the script from an extracted Host archive.'
+  payload=$(cd -- "$(dirname -- "$script_path")" && pwd)
+  [[ -f "$payload/VERSION" && -f "$payload/PLATFORM" ]] || fail 'No Host bundle found beside the installer.'
+  bundle_version=$(cat "$payload/VERSION")
+  [[ "$version" == latest || "$version" == "$bundle_version" ]] || fail 'Requested version does not match the local bundle.'
+  version=$bundle_version
+  [[ $(cat "$payload/PLATFORM") == "linux-$arch" ]] || fail 'Local bundle architecture does not match this computer.'
+  [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[[:alnum:].-]+)?$ ]] || fail "Invalid bundle version: $version"
+  echo "Installing downloaded Pier Host $version (linux-$arch)..."
+else
+  if [[ "$version" == latest ]]; then
+    download https://api.github.com/repos/yiranxiaohui/Pier/releases/latest "$task_tmp/release.json"
+    version=$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$task_tmp/release.json" | head -n 1)
+  fi
+  [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[[:alnum:].-]+)?$ ]] || fail "Invalid version tag: $version"
+  asset="pier-host-$version-linux-$arch.tar.gz"
+  base="$repo/releases/download/$version"
+  download "$base/SHA256SUMS.txt" "$task_tmp/SHA256SUMS.txt"
+  checksum=$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print $1 }' "$task_tmp/SHA256SUMS.txt")
+  [[ -n "$checksum" ]] || fail "No standalone Host archive for $version (linux-$arch). Choose v0.2.35 or later."
   [[ "$checksum" =~ ^[0-9a-fA-F]{64}$ ]] || fail 'Invalid release checksum.'
   echo "Downloading Pier Host $version (linux-$arch)..."
   download "$base/$asset" "$task_tmp/$asset"
   printf '%s  %s\n' "$checksum" "$asset" > "$task_tmp/checksum"
   (cd "$task_tmp" && sha256sum --check --status checksum) || fail 'Archive checksum mismatch; existing installation was kept.'
+  payload="$task_tmp/payload"
+  mkdir -p "$payload"
   tar -xzf "$task_tmp/$asset" -C "$payload" --no-same-owner
-else
-  echo "No standalone archive selected for $version; building the tagged source with temporary Bun."
-  command -v unzip >/dev/null || fail 'Source fallback needs unzip. Install it, or choose a release with a Host archive.'
-  download "$repo/archive/refs/tags/$version.tar.gz" "$task_tmp/source.tar.gz"
-  mkdir "$task_tmp/source"
-  tar -xzf "$task_tmp/source.tar.gz" -C "$task_tmp/source" --strip-components=1 --no-same-owner
-  source_dir="$task_tmp/source"
-  bun_version=$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"bun@\([^"]*\)".*/\1/p' "$source_dir/package.json")
-  [[ "$bun_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'Source does not specify a stable Bun version.'
-  if command -v bun >/dev/null && [[ $(bun --version) == "$bun_version" ]]; then
-    bun_command=$(command -v bun)
-  else
-    download "https://github.com/oven-sh/bun/releases/download/bun-v$bun_version/$bun_platform.zip" "$task_tmp/bun.zip"
-    unzip -q "$task_tmp/bun.zip" -d "$task_tmp/bun"
-    bun_command="$task_tmp/bun/$bun_platform/bun"
-  fi
-  bun_bin_dir=$(dirname -- "$bun_command")
-  export PATH="$bun_bin_dir:$PATH" BUN_INSTALL_CACHE_DIR="$task_tmp/bun-cache"
-  (
-    cd "$source_dir"
-    "$bun_command" install --frozen-lockfile
-    "$bun_command" packages/host/scripts/build-sidecar.mjs --outdir "$payload" --target "$bun_target"
-    "$bun_command" build --compile --target "$bun_target" packages/client/src/cli.ts --outfile "$payload/pier-cli"
-  )
-  # Older tags predate the manager. Fetch it from the same branch as this installer.
-  script_path=${BASH_SOURCE[0]:-}
-  if [[ -n "$script_path" && -f "$(dirname -- "$script_path")/host-manager.sh" ]]; then
-    cp -- "$(dirname -- "$script_path")/host-manager.sh" "$payload/manage.sh"
-  else
-    download https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/host-manager.sh "$payload/manage.sh"
-  fi
 fi
 for file in pier-host pier-cli manage.sh package.json photon_rs_bg.wasm; do [[ -f "$payload/$file" ]] || fail "Missing archive file: $file"; done
 chmod 755 "$payload/pier-host" "$payload/pier-cli" "$payload/manage.sh"
@@ -139,7 +122,7 @@ chmod 755 "$payload/pier-host" "$payload/pier-cli" "$payload/manage.sh"
 "$payload/pier-cli" --help >/dev/null
 bash -n "$payload/manage.sh"
 
-# Finish downloading/building before touching an existing service or installation.
+# Finish verifying the bundle before touching an existing service or installation.
 mkdir -p "$install_dir" "$bin_dir" "$(dirname -- "$service_file")"
 staging=$(mktemp -d "$install_dir/.next-XXXXXX")
 cp -a "$payload/." "$staging/"

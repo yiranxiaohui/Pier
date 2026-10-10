@@ -178,7 +178,9 @@ Linux x86_64 / arm64 服务器可以单独运行 Pier Host，不需要 X11、Way
 curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install-host.sh | bash
 ```
 
-安装器优先下载最新正式版的独立 Host 压缩包并校验 Release 中的 SHA-256。尚未提供独立包的旧版本会下载对应 tag 的源码和临时 Bun，按锁文件安装依赖并编译；这条路径还需要 `unzip`，首次安装耗时较长。安装完成会删除临时构建工具、依赖与源码；运行不需要另装 Node 或 Bun。两条路径都需要 `curl`、`tar`、Linux coreutils 和 systemd。
+安装器直接下载最新正式版的独立 Host 压缩包并校验 Release 中的 SHA-256，需要 `curl`、`tar`、Linux coreutils 和 systemd。无需源码、Node、Bun 或编译工具；独立 Host 包从 v0.2.35 起提供。
+
+也可以从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-host-v<版本>-linux-x64.tar.gz` 或 `pier-host-v<版本>-linux-arm64.tar.gz`，解压后直接运行 `./pier-host` 和 `./pier-cli`。要安装后台服务及卸载命令，在解压目录执行 `bash install-host.sh --local`，使用已下载的文件，不再联网下载。请保留压缩包中的 pi 资源文件。
 
 普通账号安装到 `~/.local/share/pier-host`，命令放在 `~/.local/bin`，配置为 systemd 用户服务；root 安装到 `/opt/pier-host`，命令放在 `/usr/local/bin`，配置为系统服务。服务安装后自动启用并启动。普通账号要在退出 SSH 后继续运行并在开机时启动，需要管理员执行 `sudo loginctl enable-linger "$USER"`。若 `~/.local/bin` 尚未在 PATH 中，请使用命令的绝对路径或将它加入 PATH。
 
@@ -200,11 +202,11 @@ pier-host uninstall --purge        # 另行删除该安装使用的 Pier 配置�
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install-host.sh -o /tmp/install-pier-host.sh
-bash /tmp/install-pier-host.sh --version v0.2.34
+bash /tmp/install-pier-host.sh --version v0.2.35
 bash /tmp/install-pier-host.sh --no-start  # 没有可用的 systemd manager 时也可安装，随后 pier-host run
 ```
 
-可用 `PIER_HOST_PREFIX` 自定义安装前缀、`PIER_HOST_STATE_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。`--from-source` 强制从指定 tag 构建。独立 Host 支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端与桌面应用更新仍需桌面端。独立 Host 通过 `pier-host update` 更新。
+可用 `PIER_HOST_PREFIX` 自定义安装前缀、`PIER_HOST_STATE_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。独立 Host 支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端与桌面应用更新仍需桌面端。独立 Host 通过 `pier-host update` 更新。
 
 ### Sidecar
 

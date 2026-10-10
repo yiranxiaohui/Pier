@@ -32,6 +32,9 @@ function fixture() {
 	writeFileSync(join(payload, "manage.sh"), readFileSync(join(repo, "scripts/host-manager.sh")));
 	writeFileSync(join(payload, "package.json"), '{"version":"1.1.0"}');
 	writeFileSync(join(payload, "photon_rs_bg.wasm"), "wasm fixture");
+	writeFileSync(join(payload, "install-host.sh"), readFileSync(installer));
+	writeFileSync(join(payload, "VERSION"), "v0.2.34\n");
+	writeFileSync(join(payload, "PLATFORM"), "linux-x64\n");
 	const asset = "pier-host-v0.2.34-linux-x64.tar.gz";
 	const archive = join(root, asset);
 	execFileSync("tar", ["-czf", archive, "-C", payload, "."]);
@@ -52,7 +55,6 @@ case "$url" in
   */releases/latest) cp "$PIER_TEST_ROOT/release.json" "$out" ;;
   */SHA256SUMS.txt) cp "$PIER_TEST_ROOT/SHA256SUMS.txt" "$out" ;;
   */pier-host-*.tar.gz) cp "$PIER_TEST_ROOT/${asset}" "$out" ;;
-  */archive/refs/tags/*.tar.gz) cp "$PIER_TEST_ROOT/source.tar.gz" "$out" ;;
   *) echo "Unexpected download: $url" >&2; exit 1 ;;
 esac`,
 	);
@@ -95,7 +97,7 @@ esac`,
 	const service = join(config, "systemd/user/pier-host.service");
 	const manage = (args: string[], extra: NodeJS.ProcessEnv = {}) =>
 		spawnSync("bash", [manager, ...args], { env: { ...env, ...extra }, encoding: "utf8" });
-	return { root, env, run, manage, installed, manager, service, state, prefix };
+	return { root, env, run, manage, installed, manager, service, state, prefix, payload };
 }
 
 describe.skipIf(process.platform !== "linux")("headless installer and uninstall", () => {
@@ -201,26 +203,40 @@ describe.skipIf(process.platform !== "linux")("headless installer and uninstall"
 		expect(existsSync(f.state)).toBe(true);
 	});
 
-	it("builds older releases with temporary dependencies when no Host archive exists", () => {
+	it("rejects missing Host archives without downloading source or changing an installation", () => {
 		const f = fixture();
+		expect(f.run().status).toBe(0);
+		const before = readFileSync(f.service, "utf8");
 		writeFileSync(join(f.root, "SHA256SUMS.txt"), "desktop-checksum  pier-desktop-v0.2.34-linux-x64.deb\n");
-		const source = join(f.root, "tagged-source");
-		mkdirSync(source);
-		writeFileSync(join(source, "package.json"), '{"packageManager":"bun@1.4.2"}');
-		execFileSync("tar", ["-czf", join(f.root, "source.tar.gz"), "-C", f.root, "tagged-source"]);
-		script(
-			join(f.root, "mock-bin/bun"),
-			`case "$1" in
-  --version) echo 1.4.2 ;;
-  install) [[ "$2" == --frozen-lockfile ]] ;;
-  packages/host/scripts/build-sidecar.mjs) cp -a "$PIER_TEST_ROOT/payload/." "$3/" ;;
-  build) while [[ "$1" != --outfile ]]; do shift; done; cp "$PIER_TEST_ROOT/payload/pier-cli" "$2" ;;
-  *) exit 1 ;;
-esac`,
-		);
 		const result = f.run();
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain("No standalone Host archive");
+		expect(result.stderr).not.toContain("Unexpected download");
+		expect(readFileSync(f.service, "utf8")).toBe(before);
+	});
+
+	it("installs an already downloaded bundle without network access", () => {
+		const f = fixture();
+		script(join(f.root, "mock-bin/curl"), "echo 'Network access forbidden' >&2; exit 1");
+		const result = spawnSync("bash", [join(f.payload, "install-host.sh"), "--user", "--local", "--no-start"], {
+			env: f.env,
+			encoding: "utf8",
+		});
 		expect(result.status, result.stderr).toBe(0);
-		expect(result.stdout).toContain("building the tagged source");
+		expect(result.stdout).toContain("Installing downloaded Pier Host");
 		expect(f.manage(["cli"]).stdout).toContain(f.state);
+		expect(f.manage(["uninstall"]).status).toBe(0);
+	});
+
+	it("refuses a downloaded bundle for a different architecture", () => {
+		const f = fixture();
+		writeFileSync(join(f.payload, "PLATFORM"), "linux-arm64\n");
+		const result = spawnSync("bash", [join(f.payload, "install-host.sh"), "--user", "--local", "--no-start"], {
+			env: f.env,
+			encoding: "utf8",
+		});
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain("architecture does not match");
+		expect(existsSync(f.installed)).toBe(false);
 	});
 });

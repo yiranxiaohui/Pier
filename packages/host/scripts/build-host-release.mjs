@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Build a Linux Host + CLI archive, with pi assets and the service manager. */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,9 @@ try {
 		{ cwd: repo, stdio: "inherit" },
 	);
 	copyFileSync(join(repo, "scripts/host-manager.sh"), join(staging, "manage.sh"));
+	copyFileSync(join(repo, "scripts/install-host.sh"), join(staging, "install-host.sh"));
+	writeFileSync(join(staging, "VERSION"), `v${version}\n`);
+	writeFileSync(join(staging, "PLATFORM"), `linux-${values.arch}\n`);
 	const outdir = resolve(values.outdir);
 	mkdirSync(outdir, { recursive: true });
 	const archive = join(outdir, `pier-host-v${version}-linux-${values.arch}.tar.gz`);
