@@ -3,7 +3,7 @@
 		"name": "Pier",
 		"slug": "pier",
 		"scheme": "pier",
-		"version": "0.2.35",
+		"version": "0.2.36",
 		"orientation": "portrait",
 		"icon": "./assets/icon.png",
 		"userInterfaceStyle": "automatic",

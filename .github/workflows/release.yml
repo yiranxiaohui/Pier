@@ -207,10 +207,15 @@ jobs:
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs unpacked/pier-host "${{ needs.verify.outputs.version }}"
           unpacked/pier-cli --help
           bash -n scripts/install-host.sh scripts/host-manager.sh
+          mkdir single-file
+          cp dist/pier-host-v*-linux-${{ matrix.arch }} single-file/pier-host
+          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier-host "${{ needs.verify.outputs.version }}" --standalone
+          single-file/pier-host cli --help
+          node packages/host/scripts/smoke-standalone.mjs single-file/pier-host "${{ needs.verify.outputs.version }}"
       - uses: actions/upload-artifact@v5
         with:
           name: pier-host-${{ github.ref_name }}-linux-${{ matrix.arch }}
-          path: dist/pier-host-*.tar.gz
+          path: dist/pier-host-*
           if-no-files-found: error
 
   android:

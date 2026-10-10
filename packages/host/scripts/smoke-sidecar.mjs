@@ -132,7 +132,11 @@ async function main() {
 function checkP2P() {
 	let output;
 	try {
-		output = execFileSync(exe, ["--check-p2p"], { encoding: "utf8", timeout: 90_000 });
+		output = execFileSync(exe, ["--check-p2p"], {
+			encoding: "utf8",
+			timeout: 90_000,
+			env: { ...process.env, PIER_DIR: pierDir },
+		});
 	} catch (error) {
 		fail(`--check-p2p failed: ${error.stdout || error.message}`);
 	}
@@ -148,7 +152,7 @@ function checkImages() {
 		output = execFileSync(exe, ["--check-images"], {
 			encoding: "utf8",
 			timeout: 60_000,
-			env: { ...process.env, PI_CODING_AGENT_DIR: join(root, "agent") },
+			env: { ...process.env, PIER_DIR: pierDir, PI_CODING_AGENT_DIR: join(root, "agent") },
 		});
 	} catch (error) {
 		fail(`--check-images failed: ${error.stdout || error.message}`);
@@ -161,7 +165,13 @@ function checkImages() {
 			const rel = relative(dir, resolve(file));
 			return rel === "photon_rs_bg.wasm";
 		});
-	if (!result.wasm || !inBundle(result.wasm)) {
+	const embedded =
+		process.argv.includes("--standalone") &&
+		result.wasm &&
+		/^[a-f0-9]{64}\/photon_rs_bg\.wasm$/.test(
+			relative(join(pierDir, "runtime/resources"), resolve(result.wasm)).replaceAll("\\", "/"),
+		);
+	if (!result.wasm || (!inBundle(result.wasm) && !embedded)) {
 		fail(`Photon wasm was not loaded from the bundle (${result.wasm ?? "build machine path"})`);
 	}
 	return result;

@@ -188,15 +188,24 @@ bun run --cwd apps/mobile web                 # 在浏览器中“添加电脑 �
 
 ### 无桌面 Linux 安装与卸载
 
-Linux x86_64 / arm64 服务器可以单独运行 Pier Host，不需要 X11、Wayland、GTK、Rust 或桌面应用。在要运行 Agent 的账号下执行：
+Linux x86_64 / arm64 服务器可以单独运行 Pier Host。从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-host-v<版本>-linux-x64` 或 `pier-host-v<版本>-linux-arm64`，改名为 `pier-host` 后直接运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install-host.sh | bash
+chmod +x pier-host
+./pier-host
+# 另开终端，使用同一个文件配对：
+./pier-host cli
 ```
 
-安装器直接下载最新正式版的独立 Host 压缩包并校验 Release 中的 SHA-256，需要 `curl`、`tar`、Linux coreutils 和 systemd。无需源码、Node、Bun 或编译工具；独立 Host 包从 v0.2.35 起提供。
+在 CLI 中依次输入 `/remote on`、`/pair`；客户端粘贴链接后输入 `/pair yes`。单文件 Host 从 v0.2.36 起提供，包含运行时、CLI、pi 资源及 Photon WASM；无需安装脚本、旁边的资源文件、Node、Bun、桌面或编译工具。资源首次运行时自动准备到 Pier 自己的状态目录，之后复用。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
 
-也可以从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-host-v<版本>-linux-x64.tar.gz` 或 `pier-host-v<版本>-linux-arm64.tar.gz`，解压后直接运行 `./pier-host` 和 `./pier-cli`。要安装后台服务及卸载命令，在解压目录执行 `bash install-host.sh --local`，使用已下载的文件，不再联网下载。请保留压缩包中的 pi 资源文件。
+需要后台服务、开机启动和命令行更新时，让二进制自己安装：
+
+```bash
+./pier-host install                 # 普通账号安装用户服务；root 安装系统服务
+./pier-host install --user          # 显式选择用户服务
+./pier-host install --no-start      # 只安装、不启动；没有 systemd manager 时也可使用
+```
 
 普通账号安装到 `~/.local/share/pier-host`，命令放在 `~/.local/bin`，配置为 systemd 用户服务；root 安装到 `/opt/pier-host`，命令放在 `/usr/local/bin`，配置为系统服务。服务安装后自动启用并启动。普通账号要在退出 SSH 后继续运行并在开机时启动，需要管理员执行 `sudo loginctl enable-linger "$USER"`。若 `~/.local/bin` 尚未在 PATH 中，请使用命令的绝对路径或将它加入 PATH。
 
@@ -217,16 +226,17 @@ pier-host uninstall --purge        # 另行删除该安装使用的 Pier 配置�
 指定版本或仅安装、不启动：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install-host.sh -o /tmp/install-pier-host.sh
-bash /tmp/install-pier-host.sh --version v0.2.35
-bash /tmp/install-pier-host.sh --no-start  # 没有可用的 systemd manager 时也可安装，随后 pier-host run
+pier-host update --version v0.2.36
+pier-host update --no-start
 ```
 
-可用 `PIER_HOST_PREFIX` 自定义安装前缀、`PIER_HOST_STATE_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。独立 Host 支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端与桌面应用更新仍需桌面端。独立 Host 通过 `pier-host update` 更新。
+内置更新命令下载对应架构的单文件，并校验 Release 的 SHA-256 和版本后替换，启动失败时恢复上一版。可用 `PIER_HOST_PREFIX` 自定义安装前缀、`PIER_HOST_STATE_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。直接运行时无需 systemd；不安装的便携副本停机后删除该文件即可。独立 Host 支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端与桌面应用更新仍需桌面端。
+
+为已有安装保留 `.tar.gz` 压缩包和旧安装脚本。若之前通过脚本安装，先用旧 `pier-host uninstall` 卸载（默认保留数据），再执行新二进制的 `install`；也可以继续使用原来的压缩包更新方式。
 
 ### Sidecar
 
-构建单文件 sidecar（输出到 `packages/host/bin/`，包含 pi 运行时资源）：
+构建桌面 sidecar 及旁边的 pi 运行时资源（输出到 `packages/host/bin/`）：
 
 ```bash
 bun run build:sidecar                            # 当前平台

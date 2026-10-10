@@ -24,7 +24,7 @@ import type {
 } from "@pier/protocol";
 import { PierClient } from "./client.ts";
 
-export const PIER_CLI_VERSION = "0.2.35";
+export const PIER_CLI_VERSION = "0.2.36";
 
 const HELP = `Commands:
   /ws                        list workspaces
@@ -79,7 +79,7 @@ function discover(values: { url?: string; token?: string; "pier-dir"?: string })
 		const runtime = JSON.parse(readFileSync(file, "utf8")) as { url: string; token: string };
 		return { url: runtime.url, token: token ?? runtime.token };
 	} catch {
-		throw new Error(`No running host found (${file}). Start one with \`bun run host\` or pass --url/--token.`);
+		throw new Error(`No running host found (${file}). Start pier-host or pass --url/--token.`);
 	}
 }
 
