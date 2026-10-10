@@ -122,6 +122,15 @@ body.resizing-panel {
 	overflow: auto;
 	padding: 6px 6px 12px;
 	font-size: 13px;
+	user-select: none;
+}
+
+.files-delete-paths {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 180px;
+	overflow: auto;
 }
 
 .files-row {

@@ -7,7 +7,6 @@ export interface PointerSelectionModifiers {
 export interface SelectionUpdate {
 	selected: Set<string>;
 	anchor: string;
-	focus: string;
 }
 
 /** Return the visible paths between two entries, including both endpoints. */
@@ -32,15 +31,15 @@ export function selectByPointer(
 	if (modifiers.shiftKey) {
 		const next = new Set(additive ? current : undefined);
 		for (const selected of selectionRange(paths, anchor ?? path, path)) next.add(selected);
-		return { selected: next, anchor: anchor ?? path, focus: path };
+		return { selected: next, anchor: anchor ?? path };
 	}
 	if (additive) {
 		const next = new Set(current);
 		if (next.has(path)) next.delete(path);
 		else next.add(path);
-		return { selected: next, anchor: path, focus: path };
+		return { selected: next, anchor: path };
 	}
-	return { selected: new Set([path]), anchor: path, focus: path };
+	return { selected: new Set([path]), anchor: path };
 }
 
 /** Apply Shift+Arrow range extension from the existing anchor. */
@@ -50,8 +49,8 @@ export function selectByKeyboard(
 	path: string,
 	extend: boolean,
 ): SelectionUpdate {
-	if (!extend) return { selected: new Set([path]), anchor: path, focus: path };
+	if (!extend) return { selected: new Set([path]), anchor: path };
 	const next = new Set<string>();
 	for (const selected of selectionRange(paths, anchor ?? path, path)) next.add(selected);
-	return { selected: next, anchor: anchor ?? path, focus: path };
+	return { selected: next, anchor: anchor ?? path };
 }
