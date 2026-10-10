@@ -27,7 +27,7 @@ import { type StunServer, startStunServer } from "./stun.ts";
 
 export type { RegistrationPolicy, RelaySettings } from "./store.ts";
 
-export const RELAY_VERSION = "0.2.37";
+export const RELAY_VERSION = "0.2.38";
 
 export interface RelayServerOptions {
 	/** TCP port for HTTP / WebSocket (default 7480; 0 picks a free port). */

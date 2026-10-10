@@ -90,7 +90,7 @@ import {
 } from "./workspace-files.ts";
 import { WorkspaceUploads } from "./workspace-uploads.ts";
 
-export const PIER_HOST_VERSION = "0.2.37";
+export const PIER_HOST_VERSION = "0.2.38";
 
 /** How Pier introduces itself to NewAPI sites (their login sessions list shows the system). */
 function pierUserAgent(): string {

@@ -9,6 +9,8 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 if (!process.argv[2]) throw new Error("Usage: smoke-mcp.mjs <pier-host executable>");
+// Resolve bundled resources before launching the Host in the isolated test directory.
+const packageDir = process.env.PI_PACKAGE_DIR ? resolve(process.env.PI_PACKAGE_DIR) : undefined;
 const root = mkdtempSync(join(tmpdir(), "pier-mcp-smoke-"));
 const agent = join(root, "agent");
 mkdirSync(agent);
@@ -86,6 +88,7 @@ try {
 			stdio: ["pipe", "pipe", "ignore"],
 			env: {
 				...process.env,
+				...(packageDir ? { PI_PACKAGE_DIR: packageDir } : {}),
 				PI_CODING_AGENT_DIR: agent,
 				PI_CODING_AGENT_SESSION_DIR: join(root, "sessions"),
 				CLAUDE_CONFIG_DIR: join(root, "claude"),
