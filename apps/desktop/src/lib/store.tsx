@@ -506,6 +506,7 @@ export class PierStore {
 	private readonly autoSend = new Set<string>();
 	private nextToastId = 1;
 	private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly workspaceLoadSeq = new Map<string, number>();
 	private readonly taskLoadSeq = new Map<string, number>();
 	/** Sign-in events that arrived before `provider.login` answered with their flow id. */
 	private authBacklog: EventFrame[] = [];
@@ -1155,10 +1156,11 @@ export class PierStore {
 	 * Keep the selection and the new-chat target on existing workspaces. A workspace whose
 	 * computer has not answered yet (offline, still connecting) stays selected.
 	 */
-	private fixSelection(): void {
+	private fixSelection(removed: ReadonlySet<string> = new Set()): void {
 		const { workspaces, workspaceNodes, nodes, selectedWorkspaceId, newChat } = this.state;
 		const gone = (id: string | undefined) => {
 			if (!id) return true;
+			if (removed.has(id)) return true;
 			if (id in workspaceNodes) return false;
 			// Unknown: gone once every computer that could have it has answered.
 			return Object.values(nodes).every((n) => n.workspacesLoaded || n.connection === "closed");
@@ -1181,16 +1183,27 @@ export class PierStore {
 		if (Object.keys(patch).length) this.set(patch);
 	}
 
+	/** Reconcile an authoritative list, including workspaces removed by another device. */
+	private async loadWorkspaceList(node: string, client: PierClient): Promise<WorkspaceInfo[] | undefined> {
+		const seq = (this.workspaceLoadSeq.get(node) ?? 0) + 1;
+		this.workspaceLoadSeq.set(node, seq);
+		const { workspaces } = await client.request("workspace.list");
+		if (this.clients.get(node) !== client || this.workspaceLoadSeq.get(node) !== seq) return undefined;
+		const removed = (this.state.nodes[node]?.workspaces ?? []).filter((w) => !workspaces.some((x) => x.id === w.id));
+		this.patchNode(node, { workspaces, workspacesLoaded: true });
+		for (const workspace of removed) this.forgetWorkspace(node, workspace.id);
+		if (node !== LOCAL_NODE) this.saveNodeCache();
+		this.fixSelection();
+		return workspaces;
+	}
+
 	/** Load a computer's workspaces and sessions, including collapsed groups' running agents. */
 	async loadWorkspaces(node = this.state.node): Promise<void> {
 		const client = this.clients.get(node);
 		if (!client) return;
 		try {
-			const { workspaces } = await client.request("workspace.list");
-			if (this.clients.get(node) !== client) return;
-			this.patchNode(node, { workspaces, workspacesLoaded: true });
-			if (node !== LOCAL_NODE) this.saveNodeCache();
-			this.fixSelection();
+			const workspaces = await this.loadWorkspaceList(node, client);
+			if (!workspaces) return;
 			void this.loadTasks(node);
 			await Promise.all(workspaces.map((w) => this.refreshSessions(w.id)));
 			if (this.clients.get(node) !== client) return;
@@ -1762,7 +1775,7 @@ export class PierStore {
 		if (!client || this.state.nodes[node]?.connection !== "open") return;
 		// A removed workspace can still get a late refresh (closing its sessions announces list
 		// changes); its list is gone, so there is nothing to load or report.
-		const known = () => workspaceId in this.state.workspaceNodes;
+		const known = () => this.state.workspaceNodes[workspaceId] === node;
 		if (!known()) return;
 		const current = () => this.clients.get(node) === client && known();
 		try {
@@ -1770,7 +1783,18 @@ export class PierStore {
 			if (!current()) return;
 			this.set((s) => ({ sessions: { ...s.sessions, [workspaceId]: sessions } }));
 		} catch (error) {
-			if (current()) this.toast("error", `加载会话列表失败：${errorText(error)}`);
+			if (!current()) return;
+			if (error instanceof PierProtocolError && error.code === "NOT_FOUND") {
+				// Session-close events can beat workspace.changed to the UI. Confirm removal
+				// against the host before reporting an error, without recursively reloading sessions.
+				try {
+					const workspaces = await this.loadWorkspaceList(node, client);
+					if (!workspaces || !current()) return;
+				} catch {
+					if (!current()) return;
+				}
+			}
+			this.toast("error", `加载会话列表失败：${errorText(error)}`);
 		}
 	}
 
@@ -2308,13 +2332,7 @@ export class PierStore {
 		const node = this.nodeOf(workspaceId);
 		const client = this.clients.get(node);
 		const result = await this.callWith(client, "移除工作区", (c) => c.request("workspace.remove", { workspaceId }));
-		if (!result || !client) return;
-		for (const [id, chat] of this.chats) {
-			if (chat.workspaceId === workspaceId) this.dropChat(id);
-		}
-		if (this.state.selectedWorkspaceId === workspaceId) {
-			this.set({ selectedWorkspaceId: undefined, selectedSessionId: undefined });
-		}
+		if (!result || !client || this.clients.get(node) !== client) return;
 		this.forgetWorkspace(node, workspaceId);
 		await this.loadWorkspaces(node);
 	}
@@ -2323,17 +2341,22 @@ export class PierStore {
 	private forgetWorkspace(node: string, workspaceId: string): void {
 		clearTimeout(this.refreshTimers.get(workspaceId));
 		this.refreshTimers.delete(workspaceId);
+		for (const [id, chat] of this.chats) {
+			if (chat.workspaceId === workspaceId) this.dropChat(id);
+		}
 		const workspaces = this.state.nodes[node]?.workspaces ?? [];
 		if (workspaces.some((w) => w.id === workspaceId)) {
 			this.patchNode(node, { workspaces: workspaces.filter((w) => w.id !== workspaceId) });
 			if (node !== LOCAL_NODE) this.saveNodeCache();
 		}
-		if (workspaceId in this.state.sessions) {
+		if (workspaceId in this.state.sessions || workspaceId in this.state.expanded) {
 			this.set((s) => {
 				const { [workspaceId]: _removed, ...sessions } = s.sessions;
-				return { sessions };
+				const { [workspaceId]: _expanded, ...expanded } = s.expanded;
+				return { sessions, expanded };
 			});
 		}
+		this.fixSelection(new Set([workspaceId]));
 	}
 
 	async setPolicy(workspaceId: string, policy: ApprovalPolicy): Promise<void> {
