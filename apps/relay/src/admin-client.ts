@@ -634,8 +634,31 @@ export function panel(): void {
 					: badge("开放模式", "warn");
 		const rows = hosts
 			.sort((a, b) => b.connectedAt - a.connectedAt)
-			.map((host) =>
-				h(
+			.map((host) => {
+				const kick = h(
+					"button",
+					{
+						class: "btn danger sm",
+						onclick: () =>
+							void (async () => {
+								if (
+									!(await dialog(
+										"踢出这台电脑？",
+										"将立即断开它当前经中继的连接；电脑仍可使用有效令牌重新连接。需要禁止它再次连接，请删除对应的访问令牌。",
+										{ confirm: "踢出", danger: true },
+									))
+								)
+									return;
+								await busy(kick, null, async () => {
+									await call("POST", `hosts/${encodeURIComponent(host.key)}/kick`);
+									toast("电脑已踢出");
+									await route();
+								});
+							})(),
+					},
+					"踢出",
+				);
+				return h(
 					"tr",
 					null,
 					h(
@@ -656,8 +679,9 @@ export function panel(): void {
 					h("td", null, via(host)),
 					h("td", null, host.streams ? badge(`${host.streams} 个`, "ok", true) : h("span", { class: "faint" }, "0")),
 					h("td", { title: dateTime(host.connectedAt) }, ago(host.connectedAt)),
-				),
-			);
+					h("td", { class: "actions" }, kick),
+				);
+			});
 		const refresh = h("button", { class: "btn", onclick: () => void route() }, icon("refresh"), "刷新");
 		return h(
 			"div",
@@ -677,8 +701,8 @@ export function panel(): void {
 					{ class: "card-body flush" },
 					table(
 						admin
-							? ["电脑", "账号", "来源地址", "接入方式", "连接", "上线"]
-							: ["电脑", "来源地址", "接入方式", "连接", "上线"],
+							? ["电脑", "账号", "来源地址", "接入方式", "连接", "上线", "操作"]
+							: ["电脑", "来源地址", "接入方式", "连接", "上线", "操作"],
 						rows,
 						admin ? "还没有电脑注册到这个中继。" : "还没有电脑使用你的令牌注册。",
 					),

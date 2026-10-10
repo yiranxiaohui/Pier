@@ -32,6 +32,8 @@ export interface AdminRelayControl {
 	configure(change: Partial<RelaySettings>): RelaySettings;
 	hosts(): RelayHostInfo[];
 	stats(): { hosts: number; streams: number };
+	/** Disconnect one registered computer and all of its relay streams. */
+	kickHost(key: string): boolean;
 	/** Disconnect computers whose token or account was revoked. */
 	revalidate(): number;
 	/** Limits in force (defaults filled in for the mode). */
@@ -384,6 +386,13 @@ export function createAdmin(options: AdminOptions): RelayAdmin {
 				return sendJson(res, 200, {
 					hosts: hosts.filter((h) => admin || h.userId === me.id).map((h) => hostView(h, me)),
 				});
+			case "POST hosts/:id/kick": {
+				const host = id ? hosts.find((h) => h.key === id) : undefined;
+				if (!host || (!admin && host.userId !== me.id)) throw new HttpError(404, "电脑不存在");
+				if (!relay.kickHost(host.key)) throw new HttpError(404, "电脑已离线");
+				log(`admin panel: ${me.username} kicked computer ${host.key.slice(0, 8)}…`);
+				return sendJson(res, 200, { ok: true });
+			}
 		}
 
 		if (!admin) throw new HttpError(403, "需要管理员权限");

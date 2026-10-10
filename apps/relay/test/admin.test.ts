@@ -261,6 +261,38 @@ describe("relay admin panel", () => {
 		expect((await bob.call("GET", "tokens")).status).toBe(401);
 	});
 
+	it("lets users kick their own computers and administrators kick any computer", async () => {
+		const { relay, base, admin } = await startWithAdmin();
+		await admin.call("PUT", "settings", { registration: "open" });
+		const bob = new Client(base);
+		expect((await bob.call("POST", "register", { username: "bob", password: "bob-password" })).status).toBe(200);
+		const token = (await bob.call("POST", "tokens", { name: "laptop" })).data.token as string;
+		const keys = generateKeyPair();
+		const host = await registerHost(relay, keys, token);
+		track(host.socket);
+		const key = toBase64Url(keys.publicKey);
+
+		const ownerClosed = closed(host.socket);
+		expect((await bob.call("POST", `hosts/${key}/kick`)).status).toBe(200);
+		expect(await ownerClosed).toBe(1000);
+		expect(relay.stats().hosts).toBe(0);
+
+		const charlie = new Client(base);
+		expect((await charlie.call("POST", "register", { username: "charlie", password: "charlie-password" })).status).toBe(
+			200,
+		);
+		const otherToken = (await charlie.call("POST", "tokens", { name: "desktop" })).data.token as string;
+		const otherKeys = generateKeyPair();
+		const other = await registerHost(relay, otherKeys, otherToken);
+		track(other.socket);
+		const otherKey = toBase64Url(otherKeys.publicKey);
+		expect((await bob.call("POST", `hosts/${otherKey}/kick`)).status).toBe(404);
+		const adminClosed = closed(other.socket);
+		expect((await admin.call("POST", `hosts/${otherKey}/kick`)).status).toBe(200);
+		expect(await adminClosed).toBe(1000);
+		expect((await admin.call("POST", `hosts/${otherKey}/kick`)).status).toBe(404);
+	});
+
 	it("switches modes while running and keeps saved settings across restarts", async () => {
 		const { relay, base, admin } = await startWithAdmin("open");
 		const health = async () => ((await (await fetch(`${base}/health`)).json()) as { mode: string }).mode;
