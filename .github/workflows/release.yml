@@ -140,7 +140,7 @@ jobs:
             node packages/host/scripts/smoke-sidecar.mjs "$app/Contents/MacOS/pier-host" "${{ needs.verify.outputs.version }}"
 
       # The bundles ship the sidecar that beforeBuildCommand prepared; smoke-test that exact binary
-      # (macOS tests it inside the signed .app above). Pier Host is not published on its own.
+      # (macOS tests it inside the signed .app above).
       - name: Smoke test the bundled sidecar
         if: runner.os != 'macOS'
         run: |
@@ -176,6 +176,41 @@ jobs:
         with:
           name: ${{ env.NAME }}
           path: dist/*
+          if-no-files-found: error
+
+  host:
+    name: headless host linux-${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-22.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Build Host and CLI archive
+        run: node packages/host/scripts/build-host-release.mjs --arch ${{ matrix.arch }}
+      - name: Smoke test without a desktop
+        run: |
+          mkdir unpacked
+          tar -xzf dist/pier-host-*.tar.gz -C unpacked
+          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs unpacked/pier-host "${{ needs.verify.outputs.version }}"
+          unpacked/pier-cli --help
+          bash -n scripts/install-host.sh scripts/host-manager.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: pier-host-${{ github.ref_name }}-linux-${{ matrix.arch }}
+          path: dist/pier-host-*.tar.gz
           if-no-files-found: error
 
   android:
@@ -320,7 +355,7 @@ jobs:
 
   publish:
     name: publish GitHub release
-    needs: [verify, desktop, android, updater-manifest]
+    needs: [verify, desktop, host, android, updater-manifest]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
