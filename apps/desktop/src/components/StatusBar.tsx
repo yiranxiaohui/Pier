@@ -2,7 +2,17 @@ import type { HostStats } from "@pier/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { formatPercent, formatRate, formatSize, formatUptime } from "../lib/format.ts";
 import { type HostStatsEntry, LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
-import { IconActivity, IconArrowDown, IconArrowUp, IconMonitor, IconPlus, IconServer, IconSettings } from "./Icons.tsx";
+import { HostPortsPanel } from "./HostPortsPanel.tsx";
+import {
+	IconActivity,
+	IconArrowDown,
+	IconArrowUp,
+	IconLink,
+	IconMonitor,
+	IconPlus,
+	IconServer,
+	IconSettings,
+} from "./Icons.tsx";
 import { platformName } from "./RemotePanel.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
 
@@ -108,11 +118,13 @@ function HostCard({
 	name,
 	subtitle,
 	current,
+	onPorts,
 }: {
 	node: string;
 	name: string;
 	subtitle: string;
 	current: boolean;
+	onPorts(node: string): void;
 }) {
 	const store = useStore();
 	const entry = useAppState((s) => s.hostStats[node]);
@@ -138,12 +150,15 @@ function HostCard({
 				) : null}
 			</div>
 			<HostStatsBody entry={entry} />
+			<button type="button" className="ghost host-card-action" onClick={() => onPorts(node)}>
+				<IconLink size={13} /> 查看端口与映射
+			</button>
 		</div>
 	);
 }
 
 /** Usage of this computer and every paired computer, sampled while open. */
-function HostStatusPopover({ onClose }: { onClose: () => void }) {
+function HostStatusPopover({ onClose, onPorts }: { onClose(): void; onPorts(node: string): void }) {
 	const store = useStore();
 	const node = useAppState((s) => s.node);
 	const peers = useAppState((s) => s.peers);
@@ -158,6 +173,7 @@ function HostStatusPopover({ onClose }: { onClose: () => void }) {
 					name={localInfo?.hostName ?? "本机"}
 					subtitle={["本机", platformName(localInfo?.platform)].filter(Boolean).join(" · ")}
 					current={node === LOCAL_NODE}
+					onPorts={onPorts}
 				/>
 				{peers.length ? <div className="dropdown-group-title no-caps">远程主机</div> : null}
 				{peers.map((peer) => (
@@ -167,6 +183,7 @@ function HostStatusPopover({ onClose }: { onClose: () => void }) {
 						name={peer.name}
 						subtitle={["远程", platformName(peer.platform), peer.addresses[0] ?? ""].filter(Boolean).join(" · ")}
 						current={node === peer.id}
+						onPorts={onPorts}
 					/>
 				))}
 			</div>
@@ -216,7 +233,12 @@ function HostStatus() {
 	useAppState((s) => s.peers);
 	useAppState((s) => s.localHostInfo);
 	const [open, setOpen] = useState(false);
+	const [portsNode, setPortsNode] = useState<string>();
 	const close = useCallback(() => setOpen(false), []);
+	const openPorts = (target: string) => {
+		setOpen(false);
+		setPortsNode(target);
+	};
 	const ref = useOutsideClick(open, close);
 	useEffect(() => store.watchHostStats(false), [store]);
 	const local = node === LOCAL_NODE;
@@ -228,59 +250,70 @@ function HostStatus() {
 			}。点击查看所有主机`
 		: "主机状态：点击查看本机和远程主机的资源占用";
 	return (
-		<div className="dropdown host-status" ref={ref}>
-			<button
-				type="button"
-				className={`statusbar-item${open ? " active" : ""}`}
-				title={open ? undefined : title}
-				aria-expanded={open}
-				onClick={() => setOpen(!open)}
-			>
-				{stats ? (
-					<>
+		<>
+			<div className="dropdown host-status" ref={ref}>
+				<button
+					type="button"
+					className={`statusbar-item${open ? " active" : ""}`}
+					title={open ? undefined : title}
+					aria-expanded={open}
+					onClick={() => setOpen(!open)}
+				>
+					{stats ? (
+						<>
+							<span className="statusbar-stat">
+								<IconActivity size={12} />
+								CPU <b className={level(stats.cpu.usage)}>{formatPercent(stats.cpu.usage)}</b>
+							</span>
+							<span className="statusbar-stat">
+								内存{" "}
+								<b className={level(ratio(stats.memory.used, stats.memory.total))}>
+									{formatPercent(ratio(stats.memory.used, stats.memory.total))}
+								</b>
+							</span>
+							{stats.disk ? (
+								<span className="statusbar-stat">
+									磁盘 <b className={level(diskRatio(stats.disk))}>{formatPercent(diskRatio(stats.disk))}</b>
+								</span>
+							) : null}
+							{stats.network ? (
+								<span className="statusbar-stat statusbar-net">
+									<IconArrowDown size={11} />
+									<span className="statusbar-rate">{formatRate(stats.network.rxRate)}</span>
+									<IconArrowUp size={11} />
+									<span className="statusbar-rate">{formatRate(stats.network.txRate)}</span>
+								</span>
+							) : null}
+						</>
+					) : (
 						<span className="statusbar-stat">
 							<IconActivity size={12} />
-							CPU <b className={level(stats.cpu.usage)}>{formatPercent(stats.cpu.usage)}</b>
+							{entryText(entry)}
 						</span>
-						<span className="statusbar-stat">
-							内存{" "}
-							<b className={level(ratio(stats.memory.used, stats.memory.total))}>
-								{formatPercent(ratio(stats.memory.used, stats.memory.total))}
-							</b>
-						</span>
-						{stats.disk ? (
-							<span className="statusbar-stat">
-								磁盘 <b className={level(diskRatio(stats.disk))}>{formatPercent(diskRatio(stats.disk))}</b>
-							</span>
-						) : null}
-						{stats.network ? (
-							<span className="statusbar-stat statusbar-net">
-								<IconArrowDown size={11} />
-								<span className="statusbar-rate">{formatRate(stats.network.rxRate)}</span>
-								<IconArrowUp size={11} />
-								<span className="statusbar-rate">{formatRate(stats.network.txRate)}</span>
-							</span>
-						) : null}
-					</>
-				) : (
-					<span className="statusbar-stat">
-						<IconActivity size={12} />
-						{entryText(entry)}
-					</span>
-				)}
-				<span className="statusbar-host">
-					<IconMonitor size={12} />
-					{name}
-				</span>
-				{peerCount ? (
+					)}
 					<span className="statusbar-host">
-						<IconServer size={12} />
-						{peerCount} 台远程主机
+						<IconMonitor size={12} />
+						{name}
 					</span>
-				) : null}
+					{peerCount ? (
+						<span className="statusbar-host">
+							<IconServer size={12} />
+							{peerCount} 台远程主机
+						</span>
+					) : null}
+				</button>
+				{open ? <HostStatusPopover onClose={close} onPorts={openPorts} /> : null}
+			</div>
+			<button
+				type="button"
+				className="statusbar-item"
+				title={`查看 ${name} 的监听端口与映射`}
+				onClick={() => openPorts(node)}
+			>
+				<IconLink size={12} /> 端口
 			</button>
-			{open ? <HostStatusPopover onClose={close} /> : null}
-		</div>
+			{portsNode ? <HostPortsPanel initialNode={portsNode} onClose={() => setPortsNode(undefined)} /> : null}
+		</>
 	);
 }
 

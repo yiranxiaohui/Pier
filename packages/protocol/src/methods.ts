@@ -74,6 +74,7 @@ import {
 	type WorkspacePathDeleteResult,
 	type WorkspaceUploadStart,
 } from "./domain.ts";
+import type { HostPorts, PortForward } from "./ports.ts";
 import {
 	type McpServerInfo,
 	type McpTestResult,
@@ -121,6 +122,20 @@ export const ClientInfoSchema = z.object({
  */
 export const MethodParamsSchemas = {
 	...ResourceMethodSchemas,
+	"host.ports": z.object({}).optional(),
+	/** Local listeners are managed only by the local desktop, independently of browsers. */
+	"portForward.open": z.object({
+		peerId: Id,
+		remoteHost: z
+			.string()
+			.min(1)
+			.max(253)
+			.regex(/^[a-z\d._:-]+$/i),
+		remotePort: z.number().int().min(1).max(65535),
+		localPort: z.number().int().min(0).max(65535).optional(),
+	}),
+	"portForward.list": z.object({}).optional(),
+	"portForward.close": z.object({ id: Id }),
 	/** TCP streams owned by the authenticated connection; used inside the encrypted channel. */
 	"tunnel.open": z.object({ host: z.string().min(1).max(253), port: z.number().int().min(1).max(65535) }),
 	"tunnel.read": z.object({ tunnelId: Id }),
@@ -772,6 +787,9 @@ export function isMethodName(method: string): method is MethodName {
  * configure models, providers, accounts, and extensions.
  */
 export const LOCAL_ONLY_METHODS: ReadonlySet<MethodName> = new Set([
+	"portForward.open",
+	"portForward.list",
+	"portForward.close",
 	"browser.open",
 	"browser.list",
 	"browser.close",
@@ -815,6 +833,10 @@ export interface SubscribeResult {
 }
 
 export interface MethodResults {
+	"host.ports": HostPorts;
+	"portForward.open": PortForward;
+	"portForward.list": { forwards: PortForward[] };
+	"portForward.close": { closed: boolean };
 	"skills.list": ResourceList<SkillInfo>;
 	"skills.read": SkillDocument;
 	"skills.save": SkillDocument;

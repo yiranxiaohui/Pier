@@ -1,0 +1,149 @@
+.host-ports-modal {
+	font-size: 13px;
+	color: var(--text);
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.host-ports-modal .modal-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.host-ports-toolbar,
+.host-ports-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.host-ports-heading h4,
+.host-ports-section > h4 {
+	margin: 0 0 10px;
+}
+
+.host-ports-heading input {
+	width: min(280px, 50%);
+}
+
+.host-ports-section {
+	border-top: 1px solid var(--border);
+	padding-top: 14px;
+}
+
+.host-ports-table-wrap {
+	max-height: 260px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+}
+
+.host-ports-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12px;
+	text-align: left;
+}
+
+.host-ports-table th,
+.host-ports-table td {
+	padding: 7px 12px;
+	border-bottom: 1px solid var(--border);
+}
+
+.host-ports-table th {
+	position: sticky;
+	top: 0;
+	background: var(--bg-raised);
+	color: var(--text-muted);
+	z-index: 1;
+}
+
+.host-ports-table td:last-child {
+	width: 88px;
+}
+
+.host-ports-table code {
+	white-space: nowrap;
+}
+
+.host-ports-table button {
+	font-size: 12px;
+	padding: 3px 8px;
+}
+
+.port-protocol {
+	font-size: 10px;
+	font-weight: 650;
+	color: var(--text-muted);
+}
+
+.port-protocol.tcp {
+	color: var(--accent-text);
+}
+
+.host-ports-empty {
+	padding: 8px 12px;
+}
+
+.port-forward-form {
+	display: grid;
+	grid-template-columns: minmax(160px, 2fr) minmax(90px, 1fr) minmax(90px, 1fr) auto;
+	align-items: end;
+	gap: 12px;
+}
+
+.port-forward-form label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.port-forward-form input {
+	width: 100%;
+	min-width: 0;
+}
+
+.port-forward-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.port-forward-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--bg-hover);
+}
+
+.port-forward-details {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-width: 0;
+	gap: 4px;
+}
+
+.port-forward-details strong {
+	font-size: 12px;
+	font-weight: 500;
+	overflow-wrap: anywhere;
+}
+
+.port-forward-error {
+	color: var(--danger);
+}
+
+@media (max-width: 700px) {
+	.port-forward-form {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}

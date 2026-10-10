@@ -626,6 +626,23 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 
 变更广播 `resources.changed = { runtime, workspaceId? }`，并通知相关扩展 / Agent 配置页面。pi 空闲会话重新加载，忙碌会话保持原运行并在结束后 `/reload`；Claude / Codex 原生配置在会话新建 / 重新打开时读取。审计只记录 runtime、scope、资源名称与工作区，不记录技能正文、MCP 配置、环境变量、请求头或凭据。
 
+## 主机端口与独立 TCP 映射（1.39）
+
+端口面板独立于浏览器和工作区。本机 Host 创建回环 TCP 监听器，通过 `PeerManager` 为每条映射建立独立的配对加密连接，复用 `tunnel.*` 的流控和半关闭语义；支持现有直连 / Relay / P2P。目标转发 Host 需要 1.37，端口查询需要 1.39。
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `host.ports` | — | `{ ports: HostPort[], truncated }`；查看这台主机正在监听的 TCP 和未连接 UDP 套接字，不扫描网络或防火墙 |
+| `portForward.open` 🔒 | `{ peerId, remoteHost, remotePort, localPort? }` | `PortForward`；本地监听 `127.0.0.1`，`localPort` 省略或为 `0` 时自动分配 |
+| `portForward.list` 🔒 | — | `{ forwards: PortForward[] }`；只返回调用连接创建的映射 |
+| `portForward.close` 🔒 | `{ id }` | `{ closed }`；关闭指定映射及其所有 TCP 流，其他连接的映射返回 `false` |
+
+`HostPort = { protocol:"tcp"|"udp", address, port, pid?, process? }`。Linux 优先使用 `ss`，缺少命令时读取 `/proc/net/{tcp,tcp6,udp,udp6}`；macOS 使用 `lsof`，Windows 使用 PowerShell 的 `Get-NetTCPConnection` / `Get-NetUDPEndpoint`。仅执行固定只读命令，不提升权限、不读取进程命令行；进程名称/PID 不可读时省略。Linux 仅显示 Host 所在网络命名空间的监听端口。样本缓存 1 秒并共享并发查询，最多返回 4096 条，超出时设置 `truncated:true`。
+
+`PortForward = { id, peerId, remoteHost, remotePort, localHost:"127.0.0.1", localPort, lastError? }`。只允许已配对目标和不带 URL / 凭据的目标地址；所有端口限定在 1–65535（本地额外允许 0）。本地端口冲突返回 `CONFLICT`，权限不足返回 `FORBIDDEN`。创建映射只确认本地监听器启动；远程服务在本地程序连接时按需连接，失败会更新 `lastError`，下一次成功连接清除此字段。最多 32 条映射，不支持 UDP 转发。
+
+映射属于创建它的本地协议连接；关闭 UI 面板不会关闭该连接。管理连接断开、目标配对连接断开、设备吊销、移除配对或 Host 退出均清理监听器与流。不持久化映射或自动恢复。只有本地认证客户端可以管理映射；远程已配对设备可以查询 `host.ports`，但不能在此主机创建监听器。TCP 流继续由 `tunnel.open` 审计目标/端口，不记录流量或进程列表。
+
 ## 本地渲染的浏览器（1.37）
 
 本机 Host 负责本地浏览器进程和回环监听器，通过 `PeerManager` 为浏览器建立独立的配对加密连接（现有 Relay / P2P 可用）。远程 Host 仅连接目标 TCP 服务，运行独立 Host 的无桌面 Linux 同样可提供转发。配对仍表示完全信任；这里只对已认证连接开放。旧版目标 Host 在打开时提示更新。

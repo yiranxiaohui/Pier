@@ -68,6 +68,8 @@ import { PackageCatalog, type PackageCatalogOptions } from "./pi/package-catalog
 import { PiRuntime } from "./pi/pi-runtime.ts";
 import { ProviderManager } from "./pi/providers.ts";
 import { PiSettingsFiles } from "./pi/settings-files.ts";
+import { LocalPortForwards } from "./ports/forwards.ts";
+import { HostPortSampler } from "./ports/listening.ts";
 import { RemoteAccess, type RemoteAccessOptions } from "./remote/remote-access.ts";
 import { AgentConfigFiles } from "./runtimes/agent-config.ts";
 import { AgentInstaller, type AgentInstallerOptions } from "./runtimes/installation.ts";
@@ -433,6 +435,8 @@ export class PierHost implements RequestHandler {
 	readonly browserControllers = new BrowserControllers();
 	readonly tunnels = new HostTunnels();
 	readonly browsers: LocalBrowsers;
+	readonly portForwards: LocalPortForwards;
+	readonly ports = new HostPortSampler();
 	readonly extensions: ExtensionManager;
 	readonly packageCatalog: PackageCatalog;
 	readonly settings: PiSettingsFiles;
@@ -593,6 +597,7 @@ export class PierHost implements RequestHandler {
 			options.peers,
 		);
 		this.shell = options.shell;
+		this.portForwards = new LocalPortForwards((peerId) => this.peers.openClient(peerId));
 		this.browsers = new LocalBrowsers(
 			this.pierDir,
 			(peerId) => this.peers.openClient(peerId),
@@ -684,6 +689,7 @@ export class PierHost implements RequestHandler {
 	}
 
 	disconnected(connection: Connection): void {
+		this.portForwards.connectionClosed(connection);
 		this.browsers.connectionClosed(connection);
 		this.browserControllers.connectionClosed(connection);
 		this.tunnels.connectionClosed(connection);
@@ -958,6 +964,10 @@ export class PierHost implements RequestHandler {
 					this.mcp.connectionServer(p.runtime, p.scope, p.name, this.extensionTarget(p.workspaceId)),
 					p.workspaceId ? this.requireWorkspace(p.workspaceId).path : undefined,
 				),
+			"host.ports": () => this.ports.sample(),
+			"portForward.open": (ctx, params) => this.portForwards.open(ctx.connection, params),
+			"portForward.list": (ctx) => ({ forwards: this.portForwards.list(ctx.connection) }),
+			"portForward.close": (ctx, params) => ({ closed: this.portForwards.close(ctx.connection, params.id) }),
 			"tunnel.open": (ctx, params) => this.tunnels.open(ctx.connection, params.host, params.port),
 			"tunnel.read": (ctx, params) => this.tunnels.read(ctx.connection, params.tunnelId),
 			"tunnel.write": (ctx, params) => this.tunnels.write(ctx.connection, params.tunnelId, params.data, params.end),
@@ -1517,6 +1527,7 @@ export class PierHost implements RequestHandler {
 	async shutdown(): Promise<void> {
 		if (this.shuttingDown) return;
 		this.shuttingDown = true;
+		this.portForwards.shutdown();
 		await this.browsers.shutdown();
 		this.browserControllers.shutdown();
 		this.tunnels.shutdown();

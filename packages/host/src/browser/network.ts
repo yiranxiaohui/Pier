@@ -21,10 +21,10 @@ export interface BrowserNetwork {
 }
 
 /** A listener lives only on loopback; no development service or proxy is exposed to the LAN. */
-async function listen(server: Server, sockets: Set<Duplex>): Promise<BrowserNetwork> {
+async function listen(server: Server, sockets: Set<Duplex>, port = 0): Promise<BrowserNetwork> {
 	await new Promise<void>((resolve, reject) => {
 		server.once("error", reject);
-		server.listen(0, "127.0.0.1", () => {
+		server.listen(port, "127.0.0.1", () => {
 			server.off("error", reject);
 			resolve();
 		});
@@ -56,25 +56,44 @@ function bridge(a: Duplex, b: Duplex): void {
 }
 
 export async function forwardService(client: PierClient, url: URL): Promise<BrowserNetwork> {
+	return forwardTcp(client, hostname(url), Number(url.port || (url.protocol === "https:" ? 443 : 80)));
+}
+
+/** Raw TCP forwarding is shared by browser previews and independent port mappings. */
+export async function forwardTcp(
+	client: PierClient,
+	host: string,
+	port: number,
+	localPort = 0,
+	onError?: (message: string | undefined) => void,
+): Promise<BrowserNetwork> {
 	const sockets = new Set<Duplex>();
 	let closed = false;
 	const server = createTcpServer({ allowHalfOpen: true }, (socket) => {
+		if (closed || sockets.size >= 128) {
+			socket.destroy();
+			return;
+		}
 		track(sockets, socket);
 		socket.pause();
-		void RemoteStream.open(client, hostname(url), Number(url.port || (url.protocol === "https:" ? 443 : 80))).then(
+		void RemoteStream.open(client, host, port).then(
 			(remote) => {
 				track(sockets, remote);
 				if (closed || socket.destroyed) {
 					remote.destroy();
 					return;
 				}
+				onError?.(undefined);
 				bridge(socket, remote);
 				socket.resume();
 			},
-			() => socket.destroy(),
+			() => {
+				onError?.("无法连接远程端口，请确认服务正在监听且连接正常");
+				socket.destroy();
+			},
 		);
 	});
-	const network = await listen(server, sockets);
+	const network = await listen(server, sockets, localPort);
 	return {
 		...network,
 		close() {
