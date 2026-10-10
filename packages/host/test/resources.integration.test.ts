@@ -4,6 +4,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -39,7 +40,7 @@ describe("unified Skills and MCP", () => {
 	let codex: string;
 	let http: Server | undefined;
 	beforeEach(async () => {
-		root = mkdtempSync(join(tmpdir(), "pier-resources-"));
+		root = realpathSync(mkdtempSync(join(tmpdir(), "pier-resources-")));
 		claude = join(root, ".claude");
 		codex = join(root, ".codex");
 		t = await startTestHost({

@@ -4,6 +4,15 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## 未发布
 
+## v0.2.37 — 2026-10-10
+
+桌面端和手机端统一管理 pi、Claude Code、Codex 的 Skills 与 MCP，并让 pi 会话直接使用原生 MCP 工具。
+
+- **统一 Skills 管理**：在「Skills 与 MCP」中切换 Agent、全局或项目配置，支持搜索、新建、编辑、导入完整 Skill 目录、启停和移入回收站；操作直接写入各 Agent 的原生路径，保留已有配置。
+- **统一 MCP 管理**：支持添加、编辑、删除、启停 MCP 服务器并测试真实连接；按 Agent 支持 stdio、Streamable HTTP 和 Claude Code SSE，兼容全局、项目及 Claude Code 本地配置。并发修改时提示冲突，保留无关配置和 Codex TOML 注释。
+- **pi 原生 MCP 与 codemode**：加载 MCP、工具搜索和 codemode 扩展，支持直接调用或通过 codemode 调用 MCP 工具，遵循工作区审批策略；停用服务器后移除对应工具。桌面 sidecar、独立 Host 压缩包与单文件均包含 codemode worker 和 QuickJS WASM，并增加实际打包产物的 MCP 调用测试。
+- **协议 1.38**（向后兼容）：新增 Skills / MCP 管理和连接测试接口，支持管理已配对电脑上的资源；目标 Host 需要同步升级。
+
 ## v0.2.36 — 2026-10-10
 
 Linux Host 支持单个二进制直接运行，CLI、安装、更新和卸载均内置。

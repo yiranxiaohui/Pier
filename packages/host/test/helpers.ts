@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -42,7 +42,8 @@ export async function startTestHost(
 		fileSettings?: boolean;
 	} = {},
 ): Promise<TestHost> {
-	const root = mkdtempSync(join(tmpdir(), "pier-it-"));
+	// macOS's temporary directory may be reached through the system /var symlink.
+	const root = realpathSync(mkdtempSync(join(tmpdir(), "pier-it-")));
 	const workspaceDir = join(root, "workspace");
 	mkdirSync(workspaceDir, { recursive: true });
 
