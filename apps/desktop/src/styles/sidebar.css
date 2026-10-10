@@ -203,7 +203,32 @@
 }
 
 .workspace-group {
+	position: relative;
 	margin-bottom: 2px;
+}
+
+.workspace-group.dragging {
+	opacity: 0.45;
+}
+
+.workspace-group[data-drop-position]::after {
+	content: "";
+	position: absolute;
+	left: 2px;
+	right: 2px;
+	height: 2px;
+	border-radius: 2px;
+	background: var(--accent);
+	pointer-events: none;
+	z-index: 1;
+}
+
+.workspace-group[data-drop-position="before"]::after {
+	top: -2px;
+}
+
+.workspace-group[data-drop-position="after"]::after {
+	bottom: -2px;
 }
 
 .workspace-row {
@@ -271,6 +296,8 @@
 }
 
 .workspace-name {
+	cursor: grab;
+	user-select: none;
 	flex: 1;
 	min-width: 0;
 	justify-content: flex-start;
@@ -279,6 +306,10 @@
 	background: transparent;
 	padding: 4px 4px 4px 2px;
 	font-size: 13.5px;
+}
+
+.workspace-name:active {
+	cursor: grabbing;
 }
 
 .workspace-name:hover:not(:disabled) {

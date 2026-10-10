@@ -1,7 +1,7 @@
 import { agentRuntimeLabel } from "@pier/chat-state";
 import type { ApprovalPolicy, PeerInfo, SessionSummary, WorkspaceInfo } from "@pier/protocol";
 import { DEFAULT_AGENT_RUNTIME } from "@pier/protocol";
-import { useEffect, useState } from "react";
+import { type DragEvent, useEffect, useState } from "react";
 import { POLICY_DESCRIPTION, POLICY_LABEL, relativeTime, sessionTitle } from "../lib/format.ts";
 import {
 	type ComputerInfo,
@@ -333,7 +333,32 @@ function SessionItem({
 	);
 }
 
-function WorkspaceGroup({ workspace, onSettings }: { workspace: WorkspaceInfo; onSettings: () => void }) {
+type WorkspaceDropPosition = "before" | "after";
+
+interface WorkspaceDrag {
+	workspaceId?: string;
+	target?: { id: string; position: WorkspaceDropPosition };
+	start: (event: DragEvent<HTMLButtonElement>, workspaceId: string) => void;
+	over: (event: DragEvent<HTMLDivElement>, workspaceId: string) => void;
+	drop: (event: DragEvent<HTMLDivElement>, workspaceId: string) => void;
+	end: () => void;
+}
+
+/** The header's midpoint chooses the insertion side; expanded sessions move with it. */
+function workspaceDropPosition(event: DragEvent<HTMLDivElement>): WorkspaceDropPosition {
+	const row = event.currentTarget.firstElementChild?.getBoundingClientRect();
+	return row && event.clientY < row.top + row.height / 2 ? "before" : "after";
+}
+
+function WorkspaceGroup({
+	workspace,
+	onSettings,
+	drag,
+}: {
+	workspace: WorkspaceInfo;
+	onSettings: () => void;
+	drag: WorkspaceDrag;
+}) {
 	const store = useStore();
 	// Workspaces of every computer are listed together; paired computers' ones show its name.
 	const node = useAppState((s) => s.workspaceNodes[workspace.id] ?? LOCAL_NODE);
@@ -361,7 +386,13 @@ function WorkspaceGroup({ workspace, onSettings }: { workspace: WorkspaceInfo; o
 	// An archived session that is open keeps the archive expanded, so it stays visible.
 	const archivedOpen = showArchived || archived.some((s) => s.id === selectedSessionId);
 	return (
-		<div className="workspace-group">
+		// biome-ignore lint/a11y/noStaticElementInteractions: Drop target for the group; its name button also supports Alt+ArrowUp/Down.
+		<div
+			className={`workspace-group${drag.workspaceId === workspace.id ? " dragging" : ""}`}
+			data-drop-position={drag.target?.id === workspace.id ? drag.target.position : undefined}
+			onDragOver={(event) => drag.over(event, workspace.id)}
+			onDrop={(event) => drag.drop(event, workspace.id)}
+		>
 			<div className={`workspace-row${selected ? " selected" : ""}${online ? "" : " offline"}`}>
 				<button
 					type="button"
@@ -376,7 +407,19 @@ function WorkspaceGroup({ workspace, onSettings }: { workspace: WorkspaceInfo; o
 				<button
 					type="button"
 					className="workspace-name"
-					title={local ? workspace.path : `${nodeName}：${workspace.path}`}
+					title={`${local ? workspace.path : `${nodeName}：${workspace.path}`}\n拖动调整顺序 · Alt+↑/↓`}
+					draggable
+					onDragStart={(event) => drag.start(event, workspace.id)}
+					onDragEnd={drag.end}
+					aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+					onKeyDown={(event) => {
+						if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+						event.preventDefault();
+						const workspaces = store.getState().workspaces;
+						const up = event.key === "ArrowUp";
+						const target = workspaces[workspaces.findIndex((w) => w.id === workspace.id) + (up ? -1 : 1)];
+						if (target) store.moveWorkspace(workspace.id, target.id, up ? "before" : "after");
+					}}
 					onClick={() => store.selectWorkspace(workspace.id)}
 				>
 					<IconFolder size={15} className="workspace-icon" />
@@ -547,10 +590,56 @@ export function Sidebar({ open = true }: { open?: boolean }) {
 	const workspaces = useAppState((s) => s.workspaces);
 	const addWorkspace = useAddWorkspace();
 	const [settingsFor, setSettingsFor] = useState<string | undefined>();
+	const [draggingWorkspace, setDraggingWorkspace] = useState<string>();
+	const [dropTarget, setDropTarget] = useState<WorkspaceDrag["target"]>();
+	const endDrag = () => {
+		setDraggingWorkspace(undefined);
+		setDropTarget(undefined);
+	};
+	const drag: WorkspaceDrag = {
+		workspaceId: draggingWorkspace,
+		target: dropTarget,
+		start: (event, workspaceId) => {
+			event.dataTransfer.effectAllowed = "move";
+			event.dataTransfer.setData("application/x-pier-workspace", workspaceId);
+			setDraggingWorkspace(workspaceId);
+		},
+		over: (event, id) => {
+			if (!draggingWorkspace) return;
+			event.preventDefault();
+			event.dataTransfer.dropEffect = "move";
+			const position = workspaceDropPosition(event);
+			setDropTarget((target) =>
+				id === draggingWorkspace
+					? undefined
+					: target?.id === id && target.position === position
+						? target
+						: { id, position },
+			);
+		},
+		drop: (event, id) => {
+			if (!draggingWorkspace) return;
+			event.preventDefault();
+			store.moveWorkspace(draggingWorkspace, id, workspaceDropPosition(event));
+			endDrag();
+		},
+		end: endDrag,
+	};
+	// The source can disappear when another device removes a workspace during the drag.
+	useEffect(() => {
+		if (draggingWorkspace && !workspaces.some((workspace) => workspace.id === draggingWorkspace)) {
+			setDraggingWorkspace(undefined);
+			setDropTarget(undefined);
+		}
+	}, [draggingWorkspace, workspaces]);
 	const settingsWorkspace = workspaces.find((w) => w.id === settingsFor);
 	// Collapsing the sidebar dismisses its workspace-settings dialog instead of hiding it.
 	useEffect(() => {
-		if (!open) setSettingsFor(undefined);
+		if (!open) {
+			setSettingsFor(undefined);
+			setDraggingWorkspace(undefined);
+			setDropTarget(undefined);
+		}
 	}, [open]);
 	const newChat = useAppState((s) => !!s.newChat);
 	const status = useHostStatus();
@@ -587,9 +676,20 @@ export function Sidebar({ open = true }: { open?: boolean }) {
 				<span>工作区</span>
 				{online ? <AddWorkspaceButton /> : null}
 			</div>
-			<div className="workspace-list">
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: Drag-leave only clears the visual insertion marker. */}
+			<div
+				className="workspace-list"
+				onDragLeave={(event) => {
+					if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(undefined);
+				}}
+			>
 				{workspaces.map((workspace) => (
-					<WorkspaceGroup key={workspace.id} workspace={workspace} onSettings={() => setSettingsFor(workspace.id)} />
+					<WorkspaceGroup
+						key={workspace.id}
+						workspace={workspace}
+						onSettings={() => setSettingsFor(workspace.id)}
+						drag={drag}
+					/>
 				))}
 				{online && !workspaces.length ? (
 					<button type="button" className="add-first" onClick={() => void addWorkspace()}>

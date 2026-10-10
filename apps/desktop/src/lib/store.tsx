@@ -290,8 +290,10 @@ export interface AppState {
 	peers: PeerInfo[];
 	/** The "add a computer" (pair with a link) dialog is open. */
 	addPeerOpen: boolean;
-	/** Workspaces of every computer: this one's first, then each paired computer's. */
+	/** Workspaces of every computer, in the sidebar's saved display order. */
 	workspaces: WorkspaceInfo[];
+	/** Preferred sidebar order, including computers whose workspace lists have not loaded yet. */
+	workspaceOrder: string[];
 	/** The computer each workspace in `workspaces` belongs to. */
 	workspaceNodes: Record<string, string>;
 	/** This computer's workspaces were loaded (the main area can decide what to show). */
@@ -385,6 +387,8 @@ function deriveWorkspaces(state: AppState): Partial<AppState> {
 			workspaces.push(workspace);
 		}
 	}
+	const order = new Map(state.workspaceOrder.map((id, index) => [id, index]));
+	workspaces.sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity));
 	const local = state.nodes[LOCAL_NODE] ?? EMPTY_NODE;
 	return {
 		workspaces,
@@ -421,6 +425,7 @@ const FILES_PANEL_KEY = "pier.filesPanel";
 /** The views of the right-hand panel. */
 export type RightPanelTab = "files" | "git";
 const SIDEBAR_KEY = "pier.sidebar";
+const WORKSPACE_ORDER_KEY = "pier.workspaceOrder";
 export const SIDEBAR_MIN_WIDTH = 180;
 export const SIDEBAR_MAX_WIDTH = 480;
 export const SIDEBAR_DEFAULT_WIDTH = 228;
@@ -571,6 +576,14 @@ export class PierStore {
 				return {};
 			}
 		})();
+		const workspaceOrder = (() => {
+			try {
+				const saved: unknown = JSON.parse(localStorage.getItem(WORKSPACE_ORDER_KEY) ?? "[]");
+				return Array.isArray(saved) ? [...new Set(saved.filter((id): id is string => typeof id === "string"))] : [];
+			} catch {
+				return [];
+			}
+		})();
 		const state: AppState = {
 			scheduledTasksOpen: false,
 			taskData: {},
@@ -583,6 +596,7 @@ export class PierStore {
 			peers: [],
 			addPeerOpen: false,
 			workspaces: [],
+			workspaceOrder,
 			workspaceNodes: {},
 			workspacesLoaded: false,
 			sessions: {},
@@ -627,7 +641,9 @@ export class PierStore {
 		const next = typeof patch === "function" ? patch(this.state) : patch;
 		const previousNode = this.state.node;
 		let state: AppState = { ...this.state, ...next };
-		if ("nodes" in next || "peers" in next) state = { ...state, ...deriveWorkspaces(state) };
+		if ("nodes" in next || "peers" in next || "workspaceOrder" in next) {
+			state = { ...state, ...deriveWorkspaces(state) };
+		}
 		// The computer on screen follows the workspace on screen.
 		const screen = state.newChat ? state.newChat.workspaceId : state.selectedWorkspaceId;
 		const owner = screen ? state.workspaceNodes[screen] : undefined;
@@ -654,6 +670,9 @@ export class PierStore {
 		}
 		if ("sidebar" in next || "sidebarWidth" in next) {
 			localStorage.setItem(SIDEBAR_KEY, JSON.stringify({ open: this.state.sidebar, width: this.state.sidebarWidth }));
+		}
+		if ("workspaceOrder" in next) {
+			localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(state.workspaceOrder));
 		}
 		if ("filesPanel" in next || "filesPanelWidth" in next || "rightPanelTab" in next) {
 			localStorage.setItem(
@@ -854,6 +873,7 @@ export class PierStore {
 			const target = s.newChat?.workspaceId !== undefined && workspaceIds.has(s.newChat.workspaceId);
 			return {
 				nodes,
+				workspaceOrder: s.workspaceOrder.filter((id) => !workspaceIds.has(id)),
 				...(selected ? { selectedWorkspaceId: undefined, selectedSessionId: undefined } : {}),
 				...(target ? { newChat: {} } : {}),
 				...(s.node === node ? { node: LOCAL_NODE } : {}),
@@ -2131,6 +2151,25 @@ export class PierStore {
 
 	// ---- workspaces --------------------------------------------------------------------
 
+	/** Move a sidebar group without changing its host, sessions or current selection. */
+	moveWorkspace(workspaceId: string, targetId: string, position: "before" | "after"): void {
+		const { workspaces, workspaceOrder } = this.state;
+		if (
+			workspaceId === targetId ||
+			!workspaces.some((w) => w.id === workspaceId) ||
+			!workspaces.some((w) => w.id === targetId)
+		) {
+			return;
+		}
+		// Keep saved entries for computers that are still loading, so reordering another group
+		// cannot erase their positions. Previously unseen workspaces join at the end.
+		const order = [...new Set([...workspaceOrder, ...workspaces.map((w) => w.id)])].filter((id) => id !== workspaceId);
+		order.splice(order.indexOf(targetId) + (position === "after" ? 1 : 0), 0, workspaceId);
+		if (order.some((id, index) => id !== workspaceOrder[index]) || order.length !== workspaceOrder.length) {
+			this.set({ workspaceOrder: order });
+		}
+	}
+
 	toggleSidebar(open = !this.state.sidebar): void {
 		if (open !== this.state.sidebar) this.set({ sidebar: open });
 	}
@@ -2358,11 +2397,15 @@ export class PierStore {
 			this.patchNode(node, { workspaces: workspaces.filter((w) => w.id !== workspaceId) });
 			if (node !== LOCAL_NODE) this.saveNodeCache();
 		}
-		if (workspaceId in this.state.sessions || workspaceId in this.state.expanded) {
+		if (
+			workspaceId in this.state.sessions ||
+			workspaceId in this.state.expanded ||
+			this.state.workspaceOrder.includes(workspaceId)
+		) {
 			this.set((s) => {
 				const { [workspaceId]: _removed, ...sessions } = s.sessions;
 				const { [workspaceId]: _expanded, ...expanded } = s.expanded;
-				return { sessions, expanded };
+				return { sessions, expanded, workspaceOrder: s.workspaceOrder.filter((id) => id !== workspaceId) };
 			});
 		}
 		this.fixSelection(new Set([workspaceId]));
