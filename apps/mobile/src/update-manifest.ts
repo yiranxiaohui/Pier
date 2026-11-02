@@ -104,12 +104,12 @@ export function parseAndroidUpdate(value: unknown): AndroidUpdate {
 
 /** File name of the downloaded APK for a version (in the app's cache). */
 export function apkFileName(version: string): string {
-	return `pier-mobile-${version}.apk`;
+	return `pier-${version}.apk`;
 }
 
 /** The version of a downloaded APK, from its file name. */
 export function apkFileVersion(name: string): string | undefined {
-	const match = /^pier-mobile-(.+)\.apk$/.exec(name);
+	const match = /^pier-(?:mobile-)?(.+)\.apk$/.exec(name);
 	return match?.[1] && isValidVersion(match[1]) ? match[1] : undefined;
 }
 

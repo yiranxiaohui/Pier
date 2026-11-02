@@ -20,9 +20,9 @@ import { checkImageSupport, installPhotonWasmRedirect } from "./pi/photon-wasm.t
 import { checkP2PSupport } from "./remote/p2p.ts";
 import { StdioShell } from "./shell.ts";
 
-const HELP = `pier-host ${PIER_HOST_VERSION}
+const HELP = `pier ${PIER_HOST_VERSION}
 
-Usage: pier-host [options]
+Usage: pier run [options]
 
 Options:
   --port <n>          Local WebSocket port on 127.0.0.1 (default: random free port)

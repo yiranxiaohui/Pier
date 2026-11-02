@@ -46,9 +46,8 @@ pub(crate) fn autostart_set_enabled(app: AppHandle, enabled: bool) -> Result<boo
     {
         let entry = linux::entry_path(&app)?;
         if enabled {
-            let executable = app
-                .env()
-                .appimage
+            let executable = std::env::var_os("PIER_PORTABLE_EXECUTABLE")
+                .or_else(|| app.env().appimage)
                 .map(std::path::PathBuf::from)
                 .map(Ok)
                 .unwrap_or_else(std::env::current_exe)

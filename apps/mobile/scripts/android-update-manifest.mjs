@@ -22,7 +22,7 @@ import { parseArgs } from "node:util";
  *   notes: string, pubDate: string }} input
  */
 export function buildAndroidManifest({ apkName, apk, version, tag, repo, notes, pubDate }) {
-	if (apkName !== `pier-mobile-${tag}-android.apk`) throw new Error(`Unexpected APK name ${apkName}`);
+	if (apkName !== `pier-${tag}-android.apk`) throw new Error(`Unexpected APK name ${apkName}`);
 	if (!apk.length) throw new Error(`${apkName} is empty`);
 	return {
 		version,

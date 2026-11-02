@@ -78,7 +78,7 @@ jobs:
           - { platform: darwin-x64, runner: macos-15-intel, bundles: "app,dmg" }
           - { platform: windows-x64, runner: windows-latest, bundles: nsis }
     env:
-      NAME: pier-desktop-${{ github.ref_name }}-${{ matrix.platform }}
+      NAME: pier-${{ github.ref_name }}-${{ matrix.platform }}
     defaults:
       run:
         shell: bash
@@ -214,6 +214,15 @@ jobs:
           PI_PACKAGE_DIR="$assets" node packages/host/scripts/smoke-sidecar.mjs "$exe" "${{ needs.verify.outputs.version }}"
           PI_PACKAGE_DIR="$assets" node packages/host/scripts/smoke-mcp.mjs "$exe"
 
+      - name: Verify Linux command and upgrade compatibility
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p "$RUNNER_TEMP/pier-deb"
+          dpkg-deb -x apps/desktop/src-tauri/target/release/bundle/deb/*.deb "$RUNNER_TEMP/pier-deb"
+          test -x "$RUNNER_TEMP/pier-deb/usr/bin/pier"
+          test -x "$RUNNER_TEMP/pier-deb/usr/bin/pier-desktop"
+          cmp apps/desktop/src-tauri/compat/pier-desktop "$RUNNER_TEMP/pier-deb/usr/bin/pier-desktop"
+
       - name: Collect bundles
         run: |
           mkdir -p dist
@@ -238,20 +247,20 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.NAME }}
+          name: pier-desktop-${{ github.ref_name }}-${{ matrix.platform }}
           path: dist/*
           if-no-files-found: error
 
   host:
     name: headless host linux-${{ matrix.arch }}
-    needs: verify
+    needs: [verify, desktop]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - { arch: x64, runner: ubuntu-22.04 }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { arch: arm64, runner: ubuntu-22.04-arm }
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -262,8 +271,12 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - name: Build Host and CLI archive
-        run: node packages/host/scripts/build-host-release.mjs --arch ${{ matrix.arch }}
+      - uses: actions/download-artifact@v5
+        with:
+          name: pier-desktop-${{ github.ref_name }}-linux-${{ matrix.arch }}
+          path: desktop
+      - name: Build unified Pier and compatibility archives
+        run: node packages/host/scripts/build-host-release.mjs --arch ${{ matrix.arch }} --desktop desktop/pier-${{ github.ref_name }}-linux-${{ matrix.arch }}.AppImage
       - name: Smoke test without a desktop
         run: |
           mkdir unpacked
@@ -277,11 +290,19 @@ jobs:
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier-host "${{ needs.verify.outputs.version }}" --standalone
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-mcp.mjs single-file/pier-host
           single-file/pier-host cli --help
-          node packages/host/scripts/smoke-standalone.mjs single-file/pier-host "${{ needs.verify.outputs.version }}"
+          node packages/host/scripts/smoke-standalone.mjs single-file/pier-host "${{ needs.verify.outputs.version }}" --legacy
+          cp dist/pier-v*-linux-${{ matrix.arch }} single-file/pier
+          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier "${{ needs.verify.outputs.version }}" --standalone
+          node packages/host/scripts/smoke-standalone.mjs single-file/pier "${{ needs.verify.outputs.version }}"
+      - name: Smoke test the same file with a graphical display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dbus-x11 xvfb x11-utils libwebkit2gtk-4.1-0 libayatana-appindicator3-1
+          dbus-run-session -- xvfb-run -a node packages/host/scripts/smoke-desktop.mjs single-file/pier "${{ needs.verify.outputs.version }}"
       - uses: actions/upload-artifact@v5
         with:
           name: pier-host-${{ github.ref_name }}-linux-${{ matrix.arch }}
-          path: dist/pier-host-*
+          path: dist/pier-*
           if-no-files-found: error
 
   android:
@@ -289,7 +310,7 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     env:
-      NAME: pier-mobile-${{ github.ref_name }}-android
+      NAME: pier-${{ github.ref_name }}-android
       # SHA-256 of the Pier Android release certificate (key alias "pier"). Every APK must be signed
       # with this key, otherwise installed apps cannot be upgraded in place.
       ANDROID_CERT_SHA256: 0078f44ada161b2fa44b5bdfb97182aace34c9ec9d4e57362d9a62c168c2981d
@@ -366,7 +387,7 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: ${{ env.NAME }}
+          name: pier-mobile-${{ github.ref_name }}-android
           path: dist/${{ env.NAME }}.apk
           if-no-files-found: error
 
@@ -421,7 +442,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" --notes notes.md --out manifest/latest.json
           cat manifest/latest.json
           node apps/mobile/scripts/android-update-manifest.mjs \
-            --apk "android/pier-mobile-${GITHUB_REF_NAME}-android.apk" --version "${version}" --tag "${GITHUB_REF_NAME}" \
+            --apk "android/pier-${GITHUB_REF_NAME}-android.apk" --version "${version}" --tag "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" --notes notes.md --out manifest/latest-android.json
           cat manifest/latest-android.json
 

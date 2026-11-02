@@ -11,7 +11,7 @@ import {
 
 const apk = new TextEncoder().encode("not really an apk");
 const manifest = buildAndroidManifest({
-	apkName: "pier-mobile-v1.2.3-android.apk",
+	apkName: "pier-v1.2.3-android.apk",
 	apk,
 	version: "1.2.3",
 	tag: "v1.2.3",
@@ -26,7 +26,7 @@ describe("android update manifest", () => {
 			version: "1.2.3",
 			notes: "### 新增\n\n- 应用内更新。",
 			pub_date: "2026-10-01T00:00:00Z",
-			url: "https://github.com/owner/Pier/releases/download/v1.2.3/pier-mobile-v1.2.3-android.apk",
+			url: "https://github.com/owner/Pier/releases/download/v1.2.3/pier-v1.2.3-android.apk",
 			size: apk.length,
 			sha256: createHash("sha256").update(apk).digest("hex"),
 			md5: createHash("md5").update(apk).digest("hex"),
@@ -36,9 +36,9 @@ describe("android update manifest", () => {
 	it("rejects unexpected or empty APKs", () => {
 		const base = { apk, version: "1.2.3", tag: "v1.2.3", repo: "o/P", notes: "", pubDate: "" };
 		expect(() => buildAndroidManifest({ ...base, apkName: "app-release.apk" })).toThrow(/Unexpected APK name/);
-		expect(() =>
-			buildAndroidManifest({ ...base, apkName: "pier-mobile-v1.2.3-android.apk", apk: new Uint8Array() }),
-		).toThrow(/empty/);
+		expect(() => buildAndroidManifest({ ...base, apkName: "pier-v1.2.3-android.apk", apk: new Uint8Array() })).toThrow(
+			/empty/,
+		);
 	});
 
 	it("is read by the app", () => {
@@ -90,6 +90,8 @@ describe("versions", () => {
 	});
 
 	it("names downloaded APKs by version", () => {
+		expect(apkFileName("0.2.16")).toBe("pier-0.2.16.apk");
+		expect(apkFileVersion("pier-mobile-0.2.16.apk")).toBe("0.2.16");
 		expect(apkFileVersion(apkFileName("0.2.16"))).toBe("0.2.16");
 		expect(apkFileVersion(apkFileName("1.0.0-rc.1"))).toBe("1.0.0-rc.1");
 		expect(apkFileVersion("pier-mobile-latest.apk")).toBeUndefined();

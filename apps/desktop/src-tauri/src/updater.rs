@@ -203,6 +203,9 @@ pub struct UpdateManager {
 
 /// Packaged release builds only: a dev binary would overwrite itself (or its target dir).
 fn supported() -> bool {
+    if std::env::var_os("PIER_PORTABLE_EXECUTABLE").is_some() {
+        return false;
+    }
     !cfg!(debug_assertions) && tauri::utils::platform::bundle_type().is_some()
 }
 
@@ -240,7 +243,7 @@ impl UpdateManager {
             date: None,
             downloaded: 0,
             total: None,
-            error: None,
+            error: std::env::var_os("PIER_PORTABLE_EXECUTABLE").map(|_| "当前为 Pier 单文件版。退出应用后，已安装的版本可运行 pier update；便携运行的版本请下载新文件替换。".into()),
             last_checked: None,
             install_needs_auth: supported() && install_needs_auth(),
         };

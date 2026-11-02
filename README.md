@@ -15,6 +15,10 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 
 开发计划见 [docs/PLAN.md](docs/PLAN.md)，协议见 [docs/protocol.md](docs/protocol.md)，远程访问的安全设计见 [docs/security.md](docs/security.md)，技术验证结论见 [docs/spikes.md](docs/spikes.md)。
 
+## 下载与启动
+
+从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的 **Pier**。Windows / macOS 使用安装包；Linux 推荐 `pier-v<版本>-linux-x64` 或 `pier-v<版本>-linux-arm64` 单文件，改名为 `pier`，执行 `chmod +x pier` 后运行 `./pier`：有图形桌面会打开界面，无图形桌面会启动服务。详细命令见下方“Linux 单文件：桌面与服务器共用”。
+
 ## 界面预览
 
 以下截图来自实际运行的 Pier 界面，使用示例工作区与演示模型。桌面端截自浏览器预览，手机端截自 Web 预览。
@@ -209,9 +213,9 @@ bun run pier-cli
 
 ### 桌面端
 
-桌面安装包支持 Linux x64 / ARM64（`.deb`、`.AppImage`）、macOS Intel / Apple Silicon（`.dmg`）和 Windows x64（`.setup.exe`）。Linux ARM64 包名为 `pier-desktop-v<版本>-linux-arm64.deb` / `.AppImage`，与 x64 一样以 Ubuntu 22.04（glibc 2.35）为构建基线。安装包与签名更新包随 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 发布，ARM64 同样支持应用内自动更新。
+桌面安装包支持 Linux x64 / ARM64（`.deb`、`.AppImage`）、macOS Intel / Apple Silicon（`.dmg`）和 Windows x64（`.setup.exe`）。Linux ARM64 包名为 `pier-v<版本>-linux-arm64.deb` / `.AppImage`，与 x64 一样以 Ubuntu 22.04（glibc 2.35）为构建基线。安装包与签名更新包随 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 发布，ARM64 同样支持应用内自动更新。
 
-**Linux NVIDIA 显卡兼容**：桌面端启动时检测 NVIDIA 显卡，自动设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`，避免 WebKitGTK 在 DGX Spark（GB10）等设备上因 `Failed to create GBM buffer` / `DRM_IOCTL_MODE_CREATE_DUMB failed` 显示白屏。已显式设置该环境变量时保留原值。旧版 AppImage 可用 `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./pier-desktop-*.AppImage` 启动（请将文件名替换为实际下载的文件），`.deb` 安装后可用 `WEBKIT_DISABLE_DMABUF_RENDERER=1 pier-desktop` 启动。使用当前桌面用户运行，无需 `sudo`。
+**Linux NVIDIA 显卡兼容**：桌面端启动时检测 NVIDIA 显卡，自动设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`，避免 WebKitGTK 在 DGX Spark（GB10）等设备上因 `Failed to create GBM buffer` / `DRM_IOCTL_MODE_CREATE_DUMB failed` 显示白屏。已显式设置该环境变量时保留原值。旧版 AppImage 可用 `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./pier-desktop-*.AppImage` 启动（请将文件名替换为实际下载的文件），`.deb` 安装后可用 `WEBKIT_DISABLE_DMABUF_RENDERER=1 pier` 启动。使用当前桌面用户运行，无需 `sudo`。
 
 除 Node 与 Bun 外还需要 Rust（stable），以及 Tauri 的[系统依赖](https://v2.tauri.app/start/prerequisites/)（Linux 上为 `libwebkit2gtk-4.1-dev`、`libayatana-appindicator3-dev`、`librsvg2-dev` 等）。
 
@@ -266,7 +270,7 @@ bun run --cwd apps/mobile ios                 # 本地构建 iOS 开发版（需
 cd apps/mobile && eas build --profile development   # 或用 EAS 云构建开发版
 ```
 
-App 用到相机、安全存储等原生模块，推荐使用开发构建（development build），而不是 Expo Go。每个 GitHub Release 都附带签好名的 Android 安装包 `pier-mobile-v<版本>-android.apk`，可以直接安装到手机上试用。iOS 暂时没有打包，需要自行构建。没有设备时可以用 Web 版调界面（安全存储回退为 localStorage，仅供开发）：
+App 用到相机、安全存储等原生模块，推荐使用开发构建（development build），而不是 Expo Go。每个 GitHub Release 都附带签好名的 Android 安装包 `pier-v<版本>-android.apk`，可以直接安装到手机上试用。iOS 暂时没有打包，需要自行构建。没有设备时可以用 Web 版调界面（安全存储回退为 localStorage，仅供开发）：
 
 ```bash
 bun run faux-host --remote                    # 假模型 Host，并在 7433 端口开启远程访问
@@ -277,39 +281,41 @@ bun run --cwd apps/mobile web                 # 在浏览器中“添加电脑 �
 
 配对链接可以从桌面“设置 → 手机与远程 → 显示配对二维码 → 复制配对链接”获得；只运行 faux-host 时，也可以用 `bun run pier-cli --url <url> --token <token>` 输入 `/pair` 生成链接，再用 `/pair yes` 确认（`/remote`、`/devices`、`/revoke` 管理远程访问与设备）。Android 模拟器访问宿主机时，用 `bun run faux-host --remote --remote-address 10.0.2.2:7433` 让二维码里带上模拟器可达的地址。
 
-### 无桌面 Linux 安装与卸载
+### Linux 单文件：桌面与服务器共用
 
-Linux x86_64 / arm64 服务器可以单独运行 Pier Host。从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-host-v<版本>-linux-x64` 或 `pier-host-v<版本>-linux-arm64`，改名为 `pier-host` 后直接运行：
+Linux x86_64 / arm64 使用同一个 `pier` 单文件，包含桌面界面、后台服务和 CLI。启动时检测 `DISPLAY` / `WAYLAND_DISPLAY`：有图形桌面就打开 Pier 界面，没有图形桌面就运行服务。从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-v<版本>-linux-x64` 或 `pier-v<版本>-linux-arm64`，改名为 `pier` 后直接运行：
 
 ```bash
-chmod +x pier-host
-./pier-host
-# 另开终端，使用同一个文件配对：
-./pier-host cli
+chmod +x pier
+./pier                    # 自动选择图形界面或服务
+./pier desktop            # 显式打开界面（也支持 --desktop）
+./pier run                # 显式运行服务（也支持 --headless）
+# 服务运行时另开终端，使用同一个文件配对：
+./pier cli
 ```
 
-在 CLI 中依次输入 `/remote on`、`/pair`；客户端粘贴链接后输入 `/pair yes`。单文件 Host 从 v0.2.36 起提供，包含运行时、CLI、pi 资源及 Photon WASM；无需安装脚本、旁边的资源文件、Node、Bun、桌面或编译工具。资源首次运行时自动准备到 Pier 自己的状态目录，之后复用。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
+在 CLI 中依次输入 `/remote on`、`/pair`；客户端粘贴链接后输入 `/pair yes`。单文件包含运行时、CLI、pi 资源、Photon WASM 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
 
-需要后台服务、开机启动和命令行更新时，让二进制自己安装：
+需要后台服务、开机启动和命令行更新时，让二进制自己安装。`install` 安装的是无界面的服务；平时使用桌面界面无需执行：
 
 ```bash
-./pier-host install                 # 普通账号安装用户服务；root 安装系统服务
-./pier-host install --user          # 显式选择用户服务
-./pier-host install --no-start      # 只安装、不启动；没有 systemd manager 时也可使用
+./pier install                 # 普通账号安装用户服务；root 安装系统服务
+./pier install --user          # 显式选择用户服务
+./pier install --no-start      # 只安装、不启动；没有 systemd manager 时也可使用
 ```
 
-普通账号安装到 `~/.local/share/pier-host`，命令放在 `~/.local/bin`，配置为 systemd 用户服务；root 安装到 `/opt/pier-host`，命令放在 `/usr/local/bin`，配置为系统服务。服务安装后自动启用并启动。普通账号要在退出 SSH 后继续运行并在开机时启动，需要管理员执行 `sudo loginctl enable-linger "$USER"`。若 `~/.local/bin` 尚未在 PATH 中，请使用命令的绝对路径或将它加入 PATH。
+普通账号安装到 `~/.local/share/pier`，命令放在 `~/.local/bin`，配置为 systemd 用户服务 `pier.service`；root 安装到 `/opt/pier`，命令放在 `/usr/local/bin`，配置为系统服务 `pier.service`。服务安装后自动启用并启动。普通账号要在退出 SSH 后继续运行并在开机时启动，需要管理员执行 `sudo loginctl enable-linger "$USER"`。若 `~/.local/bin` 尚未在 PATH 中，请使用命令的绝对路径或将它加入 PATH。
 
 ```bash
-pier-host status                   # 服务状态
-pier-host logs                     # 实时日志
-pier-host cli                      # 配置工作区、远程访问和配对
+pier status                   # 服务状态
+pier logs                     # 实时日志
+pier cli                      # 配置工作区、远程访问和配对
 # 在 CLI 中依次输入 /remote on、/pair；客户端粘贴链接后输入 /pair yes
-pier-host update                   # 更新到最新正式版
-pier-host stop                     # 停止服务
-pier-host start                    # 启动服务
-pier-host uninstall                # 停止并移除服务、命令和程序，保留 ~/.pier
-pier-host uninstall --purge        # 另行删除该安装使用的 Pier 配置、配对、定时任务等状态
+pier update                   # 更新到最新正式版
+pier stop                     # 停止服务
+pier start                    # 启动服务
+pier uninstall                # 停止并移除服务、命令和程序，保留 ~/.pier
+pier uninstall --purge        # 另行删除该安装使用的 Pier 配置、配对、定时任务等状态
 ```
 
 卸载不会删除项目文件，也不会删除共享的 `~/.pi`、`~/.claude`、`~/.codex` 或公共安装的 Claude Code / Codex。重新安装会沿用保留的 Pier 状态。同一状态目录不能同时用于正在运行的桌面 Host 和独立 Host；安装、卸载会拒绝处理仍在运行的实例。
@@ -317,13 +323,13 @@ pier-host uninstall --purge        # 另行删除该安装使用的 Pier 配置�
 指定版本或仅安装、不启动：
 
 ```bash
-pier-host update --version v0.2.56
-pier-host update --no-start
+pier update --version v0.2.56
+pier update --no-start
 ```
 
-内置更新命令下载对应架构的单文件，并校验 Release 的 SHA-256 和版本后替换，启动失败时恢复上一版。可用 `PIER_HOST_PREFIX` 自定义安装前缀、`PIER_HOST_STATE_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。直接运行时无需 systemd；不安装的便携副本停机后删除该文件即可。独立 Host 支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端与桌面应用更新仍需桌面端。
+内置更新命令下载对应架构的单文件，并校验 Release 的 SHA-256 和版本后替换，启动失败时恢复上一版。可用 `PIER_PREFIX` 自定义安装前缀、`PIER_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。`PIER_HOST_PREFIX` / `PIER_HOST_STATE_DIR` 继续兼容。直接运行时无需 systemd；不安装的便携副本停机后删除该文件即可。服务模式支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端需要桌面模式。单文件版在“关于与更新”提示通过 `pier update`（已安装）或下载新文件替换（便携运行）更新整个程序；独立的桌面安装包仍支持应用内更新。切换到桌面模式前先用 `pier stop` 停止同一状态目录的后台服务。
 
-为已有安装保留 `.tar.gz` 压缩包和旧安装脚本。若之前通过脚本安装，先用旧 `pier-host uninstall` 卸载（默认保留数据），再执行新二进制的 `install`；也可以继续使用原来的压缩包更新方式。
+新版下载统一使用 `pier-v<版本>-<平台>` 命名。为旧版自动更新保留 `pier-host-*` 兼容文件和 `.tar.gz`；新用户只需下载 `pier`。已有单文件安装升级时保留原安装目录、`pier-host.service` 和配置，运行新版 `install` 或再次 `update` 后补充 `pier` 命令。若之前通过脚本安装，先用旧 `pier-host uninstall` 卸载（默认保留数据），再执行新二进制的 `install`；也可以继续使用原来的压缩包更新方式。
 
 ### Sidecar
 

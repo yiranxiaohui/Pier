@@ -17,6 +17,7 @@ import { createInterface } from "node:readline";
 
 const source = resolve(process.argv[2]);
 const version = process.argv[3];
+const legacy = process.argv.includes("--legacy");
 const root = mkdtempSync(join(tmpdir(), "pier-single-smoke-"));
 let host;
 try {
@@ -26,7 +27,7 @@ try {
 	mkdirSync(tools);
 	writeFileSync(join(tools, "systemctl"), "#!/bin/sh\nexit 1\n");
 	chmodSync(join(tools, "systemctl"), 0o755);
-	const executable = join(root, "pier-host");
+	const executable = join(root, "pier");
 	copyFileSync(source, executable);
 	chmodSync(executable, 0o755);
 	const env = {
@@ -43,14 +44,23 @@ try {
 		delete env[key];
 	const run = (binary, args, input) =>
 		execFileSync(binary, args, { env, input, encoding: "utf8", timeout: 60_000, stdio: ["pipe", "pipe", "pipe"] });
-	if (run(executable, ["--version"]).trim() !== `pier-host ${version}`) throw new Error("Unexpected version");
+	if (run(executable, ["--version"]).trim() !== `${legacy ? "pier-host" : "pier"} ${version}`)
+		throw new Error("Unexpected version");
+	try {
+		run(executable, ["desktop"]);
+		throw new Error("Desktop launch unexpectedly succeeded without a display");
+	} catch (error) {
+		if (!String(error.stderr).includes("No graphical display")) throw error;
+	}
+	if (existsSync(join(state, "runtime/desktop"))) throw new Error("Headless commands extracted the desktop");
+	if (!run(executable, ["--headless", "--help"]).includes("Usage: pier run")) throw new Error("Headless alias failed");
 	const image = JSON.parse(run(executable, ["--check-images"]).trim());
 	if (!image.ok || !image.wasm.startsWith(state)) throw new Error("Embedded Photon failed");
 	run(executable, ["install", "--user", "--no-start"]);
-	const installed = join(prefix, "bin/pier-host");
-	const service = join(root, "config/systemd/user/pier-host.service");
+	const installed = join(prefix, "bin/pier");
+	const service = join(root, "config/systemd/user/pier.service");
 	if (readFileSync(service, "utf8").includes(".sh")) throw new Error("Service still depends on a shell script");
-	host = spawn(installed, ["run", "--no-mdns", "--remote-port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
+	host = spawn(installed, ["--no-mdns", "--remote-port", "0"], { env, stdio: ["ignore", "pipe", "pipe"] });
 	const exited = new Promise((resolveExit) => host.once("exit", (code) => resolveExit(code)));
 	const lines = createInterface({ input: host.stdout });
 	await new Promise((resolveReady, reject) => {
@@ -72,7 +82,7 @@ try {
 	host.kill("SIGTERM");
 	if ((await exited) !== 0) throw new Error("Host did not stop cleanly");
 	run(installed, ["uninstall"]);
-	if (existsSync(installed) || existsSync(service) || existsSync(join(prefix, "share/pier-host")))
+	if (existsSync(installed) || existsSync(service) || existsSync(join(prefix, "share/pier")))
 		throw new Error("Uninstall left program or service files");
 	if (!existsSync(join(state, "config.json"))) throw new Error("Uninstall removed retained state");
 	run(executable, ["install", "--user", "--no-start"]);

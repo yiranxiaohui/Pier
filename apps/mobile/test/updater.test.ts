@@ -58,7 +58,7 @@ import { MobileUpdater } from "../src/updater.ts";
 
 const manifest = {
 	version: "1.2.3",
-	url: "https://github.com/yiranxiaohui/Pier/releases/download/v1.2.3/pier-mobile-v1.2.3-android.apk",
+	url: "https://github.com/yiranxiaohui/Pier/releases/download/v1.2.3/pier-v1.2.3-android.apk",
 	size: 42,
 	sha256: "b".repeat(64),
 	md5: "a".repeat(32),

@@ -83,15 +83,15 @@ jobs:
 
           root = Path(os.environ['RELEASE_ASSETS_DIR'])
           tag = os.environ['RELEASE_TAG']
-          signed = {f'pier-desktop-{tag}-{suffix}' for suffix in [
+          signed = {f'pier-{tag}-{suffix}' for suffix in [
               'linux-x64.AppImage', 'linux-x64.deb', 'windows-x64.setup.exe',
               'linux-arm64.AppImage', 'linux-arm64.deb',
               'darwin-arm64.app.tar.gz', 'darwin-x64.app.tar.gz',
           ]}
           expected = signed | {name + '.sig' for name in signed} | {
-              f'pier-desktop-{tag}-darwin-arm64.dmg', f'pier-desktop-{tag}-darwin-x64.dmg',
-              f'pier-mobile-{tag}-android.apk', 'latest.json', 'latest-android.json',
-          } | {f'pier-host-{tag}-linux-{arch}{suffix}' for arch in ['x64', 'arm64'] for suffix in ['', '.tar.gz']}
+              f'pier-{tag}-darwin-arm64.dmg', f'pier-{tag}-darwin-x64.dmg',
+              f'pier-{tag}-android.apk', 'latest.json', 'latest-android.json',
+          } | {f'pier-host-{tag}-linux-{arch}{suffix}' for arch in ['x64', 'arm64'] for suffix in ['', '.tar.gz']} | {f'pier-{tag}-linux-{arch}' for arch in ['x64', 'arm64']}
           assert {p.name for p in root.iterdir()} == expected, 'Unexpected or missing release artifacts'
           assert all(p.is_file() and not p.is_symlink() and p.stat().st_size for p in root.iterdir()), 'Invalid artifact'
           version = json.loads(Path('package.json').read_text())['version']

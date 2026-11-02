@@ -222,7 +222,7 @@ function peerUpdateText(
 	const pendingVersion = status.version ? `v${status.version}` : "新版本";
 	switch (status.state) {
 		case "unsupported":
-			return { text: "那台电脑运行的是开发版本或未经打包的构建，无法自动更新" };
+			return { text: status.error ?? "那台电脑运行的是开发版本或未经打包的构建，无法自动更新" };
 		case "idle":
 			return { text: `Pier v${status.currentVersion}` };
 		case "checking":
@@ -484,7 +484,8 @@ export function UpdateSettings() {
 	if (update.state === "unsupported") {
 		body = (
 			<p className="muted">
-				当前是开发版本或未经打包的构建，无法自动更新。正式版本请从 GitHub Releases 下载安装包，之后即可在应用内更新。
+				{update.error ??
+					"当前是开发版本或未经打包的构建，无法自动更新。正式版本请从 GitHub Releases 下载安装包，之后即可在应用内更新。"}
 			</p>
 		);
 	} else if (update.state === "checking") {

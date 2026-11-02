@@ -43,7 +43,7 @@ const INSTALLERS = [
  *   repo: string, notes: string, pubDate: string }} input
  */
 export function buildManifest({ assets, signatures, version, tag, repo, notes, pubDate }) {
-	const prefix = `pier-desktop-${tag}-`;
+	const prefix = `pier-${tag}-`;
 	const platforms = {};
 	for (const [suffix, installer] of INSTALLERS) {
 		for (const name of [...assets].sort()) {

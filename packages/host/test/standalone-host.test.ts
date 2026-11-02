@@ -1,11 +1,26 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareResources } from "../src/standalone/resources.ts";
-import { findInstallation, installHost, uninstallHost, updateHost } from "../src/standalone/service.ts";
+import {
+	findInstallation,
+	type Installation,
+	installHost,
+	uninstallHost,
+	updateHost,
+} from "../src/standalone/service.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -66,10 +81,38 @@ esac
 		state,
 		source,
 		configHome,
-		binary: join(prefix, "share/pier-host/current/pier-host"),
-		service: join(configHome, "systemd/user/pier-host.service"),
-		command: join(prefix, "bin/pier-host"),
+		binary: join(prefix, "share/pier/current/pier"),
+		service: join(configHome, "systemd/user/pier.service"),
+		command: join(prefix, "bin/pier"),
 	};
+}
+
+function legacyFixture() {
+	const f = fixture();
+	const installDir = join(f.prefix, "share/pier-host");
+	const binary = join(installDir, "current/pier-host");
+	const command = join(f.prefix, "bin/pier-host");
+	const serviceFile = join(f.configHome, "systemd/user/pier-host.service");
+	const config: Installation = {
+		format: 1,
+		app: "pier-host",
+		scope: "user",
+		prefix: f.prefix,
+		stateDir: f.state,
+		configHome: f.configHome,
+		installDir,
+		binDir: join(f.prefix, "bin"),
+		serviceFile,
+		version: "1.0.0",
+	};
+	mkdirSync(join(installDir, "current"), { recursive: true });
+	mkdirSync(config.binDir, { recursive: true });
+	mkdirSync(join(f.configHome, "systemd/user"), { recursive: true });
+	writeFileSync(binary, "old-host");
+	writeFileSync(join(installDir, "installation.json"), JSON.stringify(config));
+	writeFileSync(serviceFile, "old-service");
+	symlinkSync(binary, command);
+	return { ...f, config, legacyBinary: binary, legacyCommand: command };
 }
 
 describe.skipIf(process.platform !== "linux")("native single-file installation", () => {
@@ -77,7 +120,7 @@ describe.skipIf(process.platform !== "linux")("native single-file installation",
 		const f = fixture();
 		const config = await installHost(f.source, ["--user", "--no-start"], "1.0.0");
 		expect(readFileSync(f.binary, "utf8")).toBe("original-binary");
-		expect(readFileSync(f.service, "utf8")).toContain('prefix with space %%/share/pier-host/current/pier-host" run');
+		expect(readFileSync(f.service, "utf8")).toContain('prefix with space %%/share/pier/current/pier" run');
 		expect(readFileSync(f.service, "utf8")).toContain("StandardOutput=null");
 		expect(readFileSync(f.service, "utf8")).not.toContain(".sh");
 		expect(findInstallation(f.command)).toEqual(config);
@@ -88,6 +131,39 @@ describe.skipIf(process.platform !== "linux")("native single-file installation",
 		expect(existsSync(config.installDir)).toBe(false);
 		expect(readFileSync(join(f.state, "config.json"), "utf8")).toBe("retained");
 	});
+	it("upgrades a legacy installation in place and adds pier while preserving its data and service identity", async () => {
+		const f = legacyFixture();
+		writeFileSync(join(f.state, "config.json"), "paired-devices");
+		const config = await installHost(f.source, ["--user", "--no-start"], "1.0.1");
+		expect(config).toEqual({ ...f.config, version: "1.0.1" });
+		expect(findInstallation(f.command)).toEqual(config);
+		expect(findInstallation(f.legacyCommand)).toEqual(config);
+		expect(readFileSync(f.legacyBinary, "utf8")).toBe("original-binary");
+		expect(readFileSync(config.serviceFile, "utf8")).toContain("current/pier-host");
+		expect(existsSync(f.service)).toBe(false);
+		uninstallHost(config);
+		expect(existsSync(f.command)).toBe(false);
+		expect(existsSync(f.legacyCommand)).toBe(false);
+		expect(readFileSync(join(f.state, "config.json"), "utf8")).toBe("paired-devices");
+	});
+	it("restores the legacy service and command if migration cannot start", async () => {
+		const f = legacyFixture();
+		vi.stubEnv("PIER_TEST_MANAGER", "1");
+		vi.stubEnv("PIER_TEST_FAIL_START", "1");
+		await expect(installHost(f.source, ["--user"], "1.0.1")).rejects.toThrow("previous binary restored");
+		expect(existsSync(f.command)).toBe(false);
+		expect(readFileSync(f.legacyBinary, "utf8")).toBe("old-host");
+		expect(readFileSync(f.config.serviceFile, "utf8")).toBe("old-service");
+		expect(findInstallation(f.legacyCommand)).toEqual(f.config);
+	});
+	it("does not overwrite an unrelated pier command during legacy migration", async () => {
+		const f = legacyFixture();
+		writeFileSync(f.command, "other-tool");
+		await expect(installHost(f.source, ["--user", "--no-start"], "1.0.1")).rejects.toThrow("Will not overwrite");
+		expect(readFileSync(f.command, "utf8")).toBe("other-tool");
+		expect(findInstallation(f.legacyCommand)).toEqual(f.config);
+	});
+
 	it("starts through systemd and verifies the Host readiness PID and version", async () => {
 		const f = fixture();
 		vi.stubEnv("PIER_TEST_MANAGER", "1");
@@ -123,7 +199,7 @@ describe.skipIf(process.platform !== "linux")("native single-file installation",
 		rmSync(f.source);
 		await expect(installHost(f.source, ["--user"], "1.0.0")).rejects.toThrow("partial installation removed");
 		expect(existsSync(f.service)).toBe(false);
-		expect(existsSync(join(f.prefix, "share/pier-host"))).toBe(false);
+		expect(existsSync(join(f.prefix, "share/pier"))).toBe(false);
 	});
 	it("refuses to replace unrelated files or delete data belonging to a live Host", async () => {
 		const f = fixture();
@@ -164,15 +240,20 @@ describe.skipIf(process.platform !== "linux")("native single-file installation",
 		expect(readFileSync(f.binary, "utf8")).toBe("original-binary");
 		expect(readFileSync(f.service, "utf8")).toBe(unit);
 	});
-	it("updates a verified executable in the recorded location while retaining state", async () => {
-		const f = fixture();
-		const config = await installHost(f.source, ["--user", "--no-start"], "1.0.0");
+	it.each([
+		{ name: "pier", legacy: false },
+		{ name: "pier-host", legacy: false },
+		{ name: "pier", legacy: true },
+	])("updates $name from legacy=$legacy in the recorded location while retaining state", async ({ name, legacy }) => {
+		const old = legacy ? legacyFixture() : undefined;
+		const f = old ?? fixture();
+		const config = old?.config ?? (await installHost(f.source, ["--user", "--no-start"], "1.0.0"));
 		writeFileSync(join(f.state, "config.json"), "retained");
-		const binary = '#!/bin/sh\necho "pier-host 1.0.1"\n';
+		const binary = `#!/bin/sh\necho "${name} 1.0.1"\n`;
 		const checksum = createHash("sha256").update(binary).digest("hex");
 		vi.stubGlobal("fetch", async (url: string) => {
 			const response = new Response(
-				url.endsWith("SHA256SUMS.txt") ? `${checksum}  pier-host-v1.0.1-linux-${process.arch}\n` : binary,
+				url.endsWith("SHA256SUMS.txt") ? `${checksum}  ${name}-v1.0.1-linux-${process.arch}\n` : binary,
 			);
 			Object.defineProperty(response, "url", { value: url });
 			return response;
@@ -180,7 +261,7 @@ describe.skipIf(process.platform !== "linux")("native single-file installation",
 		vi.stubEnv("PIER_HOST_PREFIX", join(f.root, "wrong-prefix"));
 		await updateHost(config, ["--version", "v1.0.1", "--no-start"]);
 		expect(findInstallation(f.command)?.version).toBe("1.0.1");
-		expect(readFileSync(f.binary, "utf8")).toBe(binary);
+		expect(readFileSync(join(config.installDir, "current", config.app), "utf8")).toBe(binary);
 		expect(readFileSync(join(f.state, "config.json"), "utf8")).toBe("retained");
 	});
 });

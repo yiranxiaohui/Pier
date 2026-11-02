@@ -1,0 +1,3 @@
+#!/bin/sh
+# Older desktop updaters and login entries restart this path after installing an update.
+exec /usr/bin/pier "$@"

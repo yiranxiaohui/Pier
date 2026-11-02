@@ -1,0 +1,14 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"mainBinaryName": "pier",
+	"bundle": {
+		"linux": {
+			"deb": {
+				"files": { "/usr/bin/pier-desktop": "compat/pier-desktop" }
+			},
+			"rpm": {
+				"files": { "/usr/bin/pier-desktop": "compat/pier-desktop" }
+			}
+		}
+	}
+}

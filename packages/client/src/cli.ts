@@ -556,7 +556,7 @@ async function main(): Promise<void> {
 		},
 	});
 	if (values.help) {
-		console.log(`pier-cli [--url ws://127.0.0.1:<port>] [--token <token>] [--pier-dir <dir>]\n\n${HELP}`);
+		console.log(`pier cli [--url ws://127.0.0.1:<port>] [--token <token>] [--pier-dir <dir>]\n\n${HELP}`);
 		return;
 	}
 	const { url, token } = discover(values);
@@ -604,6 +604,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-	console.error(red(`pier-cli: ${error instanceof Error ? error.message : String(error)}`));
+	console.error(red(`pier cli: ${error instanceof Error ? error.message : String(error)}`));
 	process.exit(1);
 });

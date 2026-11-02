@@ -16,13 +16,13 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
 
 export interface Installation {
 	format: 1;
-	app: "pier-host";
+	app: "pier" | "pier-host";
 	scope: "user" | "system";
 	prefix: string;
 	stateDir: string;
@@ -43,13 +43,13 @@ function within(parent: string, child: string): boolean {
 	return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
 }
 
-function layout(scope: "user" | "system", prefix: string, configHome: string) {
-	const installDir = scope === "user" ? join(prefix, "share/pier-host") : prefix;
+function layout(scope: "user" | "system", prefix: string, configHome: string, app: Installation["app"] = "pier") {
+	const installDir = scope === "user" ? join(prefix, "share", app) : prefix;
 	return {
 		installDir,
 		binDir: scope === "user" ? join(prefix, "bin") : "/usr/local/bin",
 		serviceFile:
-			scope === "user" ? join(configHome, "systemd/user/pier-host.service") : "/etc/systemd/system/pier-host.service",
+			scope === "user" ? join(configHome, `systemd/user/${app}.service`) : `/etc/systemd/system/${app}.service`,
 	};
 }
 
@@ -59,13 +59,13 @@ function readInstallation(directory: string): Installation | undefined {
 	const config = JSON.parse(readFileSync(file, "utf8")) as Installation;
 	if (
 		config.format !== 1 ||
-		config.app !== "pier-host" ||
+		!["pier", "pier-host"].includes(config.app) ||
 		!["user", "system"].includes(config.scope) ||
 		![config.prefix, config.stateDir, config.configHome].every((path) => typeof path === "string" && isAbsolute(path))
 	) {
 		throw new Error("Invalid Pier Host installation metadata");
 	}
-	const expected = layout(config.scope, config.prefix, config.configHome);
+	const expected = layout(config.scope, config.prefix, config.configHome, config.app);
 	if (
 		config.installDir !== directory ||
 		Object.entries(expected).some(([key, value]) => config[key as keyof Installation] !== value)
@@ -119,7 +119,9 @@ function assertStopped(stateDir: string): void {
 async function waitReady(config: Installation): Promise<void> {
 	const deadline = Date.now() + 15_000;
 	while (Date.now() < deadline) {
-		const pid = Number(control(config, ["show", "-p", "MainPID", "--value", "pier-host.service"]).stdout.trim());
+		const pid = Number(
+			control(config, ["show", "-p", "MainPID", "--value", basename(config.serviceFile)]).stdout.trim(),
+		);
 		try {
 			const ready = JSON.parse(readFileSync(join(config.stateDir, "run/host.json"), "utf8")) as {
 				pid: number;
@@ -129,31 +131,41 @@ async function waitReady(config: Installation): Promise<void> {
 		} catch {
 			/* Wait until Host has written its readiness file. */
 		}
-		if (control(config, ["is-active", "--quiet", "pier-host.service"], false).status !== 0) break;
+		if (control(config, ["is-active", "--quiet", basename(config.serviceFile)], false).status !== 0) break;
 		await delay(100);
 	}
 	throw new Error("Pier Host service did not become ready");
 }
 
 function unit(config: Installation): string {
-	const executable = quoteUnit(join(config.installDir, "current/pier-host")).replaceAll("$", "$$");
-	return `[Unit]\nDescription=Pier Host\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=${executable} run\nEnvironment=${quoteUnit(`PIER_DIR=${config.stateDir}`)}\nEnvironment=${quoteUnit(`HOME=${homedir()}`)}\nEnvironment=${quoteUnit(`PATH=${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`)}\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=15\nStandardOutput=null\nStandardError=journal\nUMask=0077\n\n[Install]\nWantedBy=${config.scope === "user" ? "default.target" : "multi-user.target"}\n`;
+	const executable = quoteUnit(join(config.installDir, "current", config.app)).replaceAll("$", "$$");
+	return `[Unit]\nDescription=Pier\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=${executable} run\nEnvironment=${quoteUnit(`PIER_DIR=${config.stateDir}`)}\nEnvironment=${quoteUnit(`HOME=${homedir()}`)}\nEnvironment=${quoteUnit(`PATH=${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}`)}\nRestart=on-failure\nRestartSec=3\nTimeoutStopSec=15\nStandardOutput=null\nStandardError=journal\nUMask=0077\n\n[Install]\nWantedBy=${config.scope === "user" ? "default.target" : "multi-user.target"}\n`;
 }
 
-function removeCommand(config: Installation): void {
-	const link = join(config.binDir, "pier-host");
-	try {
-		if (
-			lstatSync(link).isSymbolicLink() &&
-			resolve(dirname(link), readlinkSync(link)) === join(config.installDir, "current/pier-host")
-		)
-			rmSync(link);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+function commandLinks(config: Installation): string[] {
+	return [...new Set(["pier", config.app])].map((name) => join(config.binDir, name));
+}
+
+function removeCommand(config: Installation, links = commandLinks(config)): void {
+	for (const link of links) {
+		try {
+			if (
+				lstatSync(link).isSymbolicLink() &&
+				resolve(dirname(link), readlinkSync(link)) === join(config.installDir, "current", config.app)
+			)
+				rmSync(link);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		}
 	}
 }
 
-export async function installHost(executable: string, args: string[], version: string): Promise<Installation> {
+export async function installHost(
+	executable: string,
+	args: string[],
+	version: string,
+	existing?: Installation,
+): Promise<Installation> {
 	if (process.platform !== "linux") throw new Error("Service installation is supported on Linux");
 	const { values } = parseArgs({
 		args,
@@ -162,16 +174,24 @@ export async function installHost(executable: string, args: string[], version: s
 	if (values.user && values.system) throw new Error("Choose --user or --system");
 	const scope = values.user ? "user" : values.system || process.getuid?.() === 0 ? "system" : "user";
 	const prefix = resolve(
-		process.env.PIER_HOST_PREFIX ?? (scope === "user" ? join(homedir(), ".local") : "/opt/pier-host"),
+		process.env.PIER_PREFIX ??
+			process.env.PIER_HOST_PREFIX ??
+			(scope === "user" ? join(homedir(), ".local") : "/opt/pier"),
 	);
 	const configHome = resolve(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"));
 	const paths = layout(scope, prefix, configHome);
-	const previous = readInstallation(paths.installDir);
+	const legacyPrefix = resolve(
+		process.env.PIER_PREFIX ?? process.env.PIER_HOST_PREFIX ?? (scope === "user" ? prefix : "/opt/pier-host"),
+	);
+	const previous =
+		existing ??
+		readInstallation(paths.installDir) ??
+		readInstallation(layout(scope, legacyPrefix, configHome, "pier-host").installDir);
 	const config: Installation = previous
 		? { ...previous, version }
 		: {
 				format: 1,
-				app: "pier-host",
+				app: "pier",
 				scope,
 				prefix,
 				configHome,
@@ -193,25 +213,32 @@ export async function installHost(executable: string, args: string[], version: s
 			`Will not overwrite unmanaged directory ${config.installDir}. Uninstall the old service first; its data is preserved`,
 		);
 	if (existsSync(config.serviceFile) && !previous) throw new Error(`Will not overwrite ${config.serviceFile}`);
-	const link = join(config.binDir, "pier-host");
-	try {
-		const stat = lstatSync(link);
-		if (
-			!stat.isSymbolicLink() ||
-			resolve(dirname(link), readlinkSync(link)) !== join(config.installDir, "current/pier-host")
-		)
-			throw new Error(`Will not overwrite ${link}`);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+	const links = commandLinks(config);
+	const newLinks: string[] = [];
+	for (const link of links) {
+		try {
+			const stat = lstatSync(link);
+			if (
+				!stat.isSymbolicLink() ||
+				resolve(dirname(link), readlinkSync(link)) !== join(config.installDir, "current", config.app)
+			)
+				throw new Error(`Will not overwrite ${link}`);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			newLinks.push(link);
+		}
 	}
+	const link = links[0];
 	const available = managerAvailable(config);
 	if (!values["no-start"] && !available)
-		throw new Error("No systemd manager; use install --no-start, then run pier-host directly");
+		throw new Error("No systemd manager; use install --no-start, then run pier directly");
 	const active =
-		previous && available && control(config, ["is-active", "--quiet", "pier-host.service"], false).status === 0;
-	if (active) control(config, ["stop", "pier-host.service"]);
+		previous &&
+		available &&
+		control(config, ["is-active", "--quiet", basename(config.serviceFile)], false).status === 0;
+	if (active) control(config, ["stop", basename(config.serviceFile)]);
 	assertStopped(config.stateDir);
-	const binary = join(config.installDir, "current/pier-host");
+	const binary = join(config.installDir, "current", config.app);
 	const backup = join(config.installDir, "previous");
 	const oldUnit = previous && existsSync(config.serviceFile) ? readFileSync(config.serviceFile) : undefined;
 	let backupReady = false;
@@ -229,23 +256,24 @@ export async function installHost(executable: string, args: string[], version: s
 			mode: 0o600,
 		});
 		mkdirSync(config.binDir, { recursive: true });
-		if (!existsSync(link)) symlinkSync(binary, link);
+		for (const newLink of newLinks) symlinkSync(binary, newLink);
 		mkdirSync(dirname(config.serviceFile), { recursive: true });
 		writeFileSync(config.serviceFile, unit(config), { mode: 0o644 });
 		if (available) control(config, ["daemon-reload"]);
 		if (!values["no-start"]) {
 			attemptedStart = true;
-			control(config, ["enable", "--now", "pier-host.service"]);
+			control(config, ["enable", "--now", basename(config.serviceFile)]);
 			await waitReady(config);
 		}
 		rmSync(backup, { force: true });
 	} catch (error) {
 		if (available && attemptedStart) {
 			// Keep the installed executable if we cannot confirm that the failed service stopped.
-			control(config, ["stop", "pier-host.service"]);
+			control(config, ["stop", basename(config.serviceFile)]);
 		}
 		assertStopped(config.stateDir);
 		if (previous) {
+			removeCommand(config, newLinks);
 			if (backupReady) renameSync(backup, binary);
 			else rmSync(backup, { force: true });
 			rmSync(`${binary}.new`, { force: true });
@@ -255,21 +283,22 @@ export async function installHost(executable: string, args: string[], version: s
 			if (oldUnit) writeFileSync(config.serviceFile, oldUnit);
 			else rmSync(config.serviceFile, { force: true });
 		} else {
-			if (available) control(config, ["disable", "pier-host.service"], false);
+			if (available) control(config, ["disable", basename(config.serviceFile)], false);
 			removeCommand(config);
 			rmSync(config.serviceFile, { force: true });
 			rmSync(config.installDir, { recursive: true, force: true });
 		}
 		if (available) {
 			control(config, ["daemon-reload"]);
-			if (active) control(config, ["start", "pier-host.service"]);
+			if (active) control(config, ["start", basename(config.serviceFile)]);
 		}
 		throw new Error(
 			`Installation failed; ${previous ? "previous binary restored" : "partial installation removed"}: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
-	console.log(`Installed Pier Host ${version}. Commands: ${link} {cli|start|stop|status|logs|update|uninstall}`);
-	if (values["no-start"]) console.log(`Service was not started. Run ${link} or enable pier-host.service.`);
+	console.log(`Installed Pier ${version}. Commands: ${link} {cli|start|stop|status|logs|update|uninstall}`);
+	if (values["no-start"])
+		console.log(`Service was not started. Run ${link} or enable ${basename(config.serviceFile)}.`);
 	else if (scope === "user")
 		console.log(`For startup before login and after SSH logout: sudo loginctl enable-linger ${userInfo().username}`);
 	return config;
@@ -284,7 +313,7 @@ export function uninstallHost(config: Installation, purge = false): void {
 			within(config.stateDir, config.installDir))
 	)
 		throw new Error("Refusing to purge a system directory or a directory containing home or the installation");
-	if (managerAvailable(config)) control(config, ["disable", "--now", "pier-host.service"]);
+	if (managerAvailable(config)) control(config, ["disable", "--now", basename(config.serviceFile)]);
 	assertStopped(config.stateDir);
 	rmSync(config.serviceFile, { force: true });
 	if (managerAvailable(config)) control(config, ["daemon-reload"]);
@@ -292,7 +321,7 @@ export function uninstallHost(config: Installation, purge = false): void {
 	rmSync(config.installDir, { recursive: true, force: true });
 	if (purge) rmSync(config.stateDir, { recursive: true, force: true });
 	console.log(
-		`Pier Host uninstalled. ${purge ? "Removed" : "Kept"} Pier state: ${config.stateDir}. Shared Agent data and project files were kept.`,
+		`Pier uninstalled. ${purge ? "Removed" : "Kept"} Pier state: ${config.stateDir}. Shared Agent data and project files were kept.`,
 	);
 }
 
@@ -301,12 +330,12 @@ export function serviceCommand(config: Installation, command: string): void {
 	if (command === "logs") {
 		const result = spawnSync(
 			"journalctl",
-			[...(config.scope === "user" ? ["--user"] : []), "-u", "pier-host.service", "-f"],
+			[...(config.scope === "user" ? ["--user"] : []), "-u", basename(config.serviceFile), "-f"],
 			{ stdio: "inherit" },
 		);
 		process.exitCode = result.status ?? 1;
 	} else {
-		const result = control(config, [command, "pier-host.service"], false, true);
+		const result = control(config, [command, basename(config.serviceFile)], false, true);
 		process.exitCode = result.status ?? 1;
 	}
 }
@@ -328,28 +357,32 @@ export async function updateHost(config: Installation, args: string[]): Promise<
 			}
 		).tag_name;
 	if (!/^v\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(tag)) throw new Error("Invalid release tag");
-	const name = `pier-host-${tag}-linux-${process.arch}`;
+	const names = [`pier-${tag}-linux-${process.arch}`, `pier-host-${tag}-linux-${process.arch}`];
 	const base = `https://github.com/yiranxiaohui/Pier/releases/download/${tag}`;
 	const checksums = await (await download(`${base}/SHA256SUMS.txt`)).text();
-	const checksum = checksums
-		.split("\n")
-		.map((line) => line.trim().split(/\s+/))
-		.find((parts) => parts[1]?.replace(/^\*/, "") === name)?.[0];
-	if (!checksum || !/^[a-f0-9]{64}$/.test(checksum))
-		throw new Error("No single-binary Host for this release and architecture");
+	const entries = checksums.split("\n").map((line) => line.trim().split(/\s+/));
+	const name = names.find((candidate) => entries.some((parts) => parts[1]?.replace(/^\*/, "") === candidate));
+	const checksum = entries.find((parts) => parts[1]?.replace(/^\*/, "") === name)?.[0];
+	if (!name || !checksum || !/^[a-f0-9]{64}$/.test(checksum))
+		throw new Error("No single-binary Pier for this release and architecture");
 	const bytes = Buffer.from(await (await download(`${base}/${name}`)).arrayBuffer());
 	if (createHash("sha256").update(bytes).digest("hex") !== checksum)
 		throw new Error("Release checksum mismatch; installation was kept");
 	const directory = mkdtempSync(join(tmpdir(), "pier-host-update-"));
 	try {
-		const binary = join(directory, "pier-host");
+		const binary = join(directory, "pier");
 		writeFileSync(binary, bytes, { mode: 0o700 });
 		const check = spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 30_000 });
-		if (check.status !== 0 || check.stdout.trim() !== `pier-host ${tag.slice(1)}`)
+		if (check.status !== 0 || ![`pier ${tag.slice(1)}`, `pier-host ${tag.slice(1)}`].includes(check.stdout.trim()))
 			throw new Error("Downloaded Host version check failed");
 		process.env.PIER_HOST_PREFIX = config.prefix;
 		process.env.XDG_CONFIG_HOME = config.configHome;
-		await installHost(binary, [`--${config.scope}`, ...(values["no-start"] ? ["--no-start"] : [])], tag.slice(1));
+		await installHost(
+			binary,
+			[`--${config.scope}`, ...(values["no-start"] ? ["--no-start"] : [])],
+			tag.slice(1),
+			config,
+		);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
