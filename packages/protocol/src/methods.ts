@@ -17,6 +17,7 @@ import {
 	AgentConfigRuntimeSchema,
 	AgentConfigScopeSchema,
 	type AgentInstallationResult,
+	AgentInstallSourceSchema,
 	type AgentRuntimeInfo,
 	ApprovalPolicySchema,
 	type AppUpdateStatus,
@@ -411,8 +412,11 @@ export const MethodParamsSchemas = {
 	"runtime.list": z.object({}).optional(),
 	/** Native CLI installation and progress on the Host computer (1.32). */
 	"runtime.installStatus": z.object({ runtime: AgentConfigRuntimeSchema, refresh: z.boolean().optional() }),
-	/** Starts an asynchronous install/update of the latest official native CLI. */
-	"runtime.install": z.object({ runtime: AgentConfigRuntimeSchema }),
+	/**
+	 * Starts an asynchronous install/update of the latest official native CLI. `source` (1.50) picks
+	 * a download route the runtime accepts; it defaults to `official`.
+	 */
+	"runtime.install": z.object({ runtime: AgentConfigRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
 
 	"session.list": z.object({ workspaceId: Id }),
 	/** `runtime` (1.22) picks the agent runtime; the default is `pi`. */

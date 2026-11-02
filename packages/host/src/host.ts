@@ -287,7 +287,7 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 		case "task.readRun":
 			return { runId: params.runId };
 		case "runtime.install":
-			return { runtime: params.runtime };
+			return { runtime: params.runtime, ...(params.source ? { source: params.source } : {}) };
 		case "session.prompt":
 		case "session.steer":
 		case "session.followUp":
@@ -1276,7 +1276,7 @@ export class PierHost implements RequestHandler {
 						`当前使用 ${override} 指定的程序，请先移除此环境变量再使用 Pier 安装`,
 					);
 				// Publication retains the old command if Windows prevents replacing an executable in use.
-				const installation = this.agentInstaller.start(params.runtime);
+				const installation = this.agentInstaller.start(params.runtime, params.source);
 				const device = ctx.connection.device;
 				if (device)
 					this.broadcastLocal({

@@ -1215,10 +1215,26 @@ export interface PiSettingsChangeResult {
 export const AgentConfigRuntimeSchema = z.enum(["claude-code", "codex"]);
 export type AgentConfigRuntime = z.infer<typeof AgentConfigRuntimeSchema>;
 
+/**
+ * Download routes of the native CLI installer (1.50). `official` downloads from Anthropic or GitHub;
+ * `npmmirror` fetches Claude Code's npm package and the others relay Codex's GitHub release. Every
+ * route is verified against the official SHA-256.
+ */
+export const AgentInstallSourceSchema = z.enum(["official", "npmmirror", "ghfast", "gh-proxy", "ghproxy"]);
+export type AgentInstallSource = z.infer<typeof AgentInstallSourceSchema>;
+
+/** Routes each runtime accepts, the default first. */
+export const AGENT_INSTALL_SOURCES: Record<AgentConfigRuntime, readonly AgentInstallSource[]> = {
+	"claude-code": ["official", "npmmirror"],
+	codex: ["official", "ghfast", "gh-proxy", "ghproxy"],
+};
+
 /** A native CLI installation on the Host computer (1.32). Jobs survive client disconnects. */
 export interface AgentInstallationStatus {
 	runtime: AgentConfigRuntime;
 	state: "idle" | "checking" | "downloading" | "verifying" | "installing" | "ready" | "error";
+	/** The route of the current or last job (1.50). */
+	source?: AgentInstallSource;
 	version?: string;
 	downloadedBytes?: number;
 	totalBytes?: number;

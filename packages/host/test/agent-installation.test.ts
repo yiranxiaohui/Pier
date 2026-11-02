@@ -268,6 +268,167 @@ describe("verified native Agent installation", () => {
 		expect(readFileSync(join(path, "..", "companion"), "utf8")).toBe("sandbox-companion");
 	});
 
+	const claudeName = process.platform === "win32" ? "claude.exe" : "claude";
+	/** An npm package tarball like Claude Code's per-platform packages on npmmirror. */
+	const npmPackage = (bytes: Buffer) => {
+		const packageDir = join(root, "npm-fixture");
+		mkdirSync(join(packageDir, "package"), { recursive: true });
+		writeFileSync(join(packageDir, "package", claudeName), bytes);
+		writeFileSync(join(packageDir, "package", "README.md"), "readme");
+		const archive = join(root, "npm-fixture.tgz");
+		execFileSync("tar", ["-czf", archive, "-C", packageDir, "package"]);
+		rmSync(packageDir, { recursive: true });
+		return readFileSync(archive);
+	};
+	const mirrorUrl = (version: string) => {
+		const target = installationTarget().claude;
+		return `https://registry.npmmirror.com/@anthropic-ai/claude-code-${target}/-/claude-code-${target}-${version}.tgz`;
+	};
+
+	it("installs Claude Code from npmmirror, verified against the official checksum", async () => {
+		const bytes = Buffer.from("mirrored-native-cli");
+		const tarball = npmPackage(bytes);
+		const official = claudeDownloads("2.1.0", bytes);
+		const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) =>
+			String(url) === mirrorUrl("2.1.0") ? new Response(new Uint8Array(tarball)) : official(url, init),
+		);
+		const installer = create({ fetch, probe: async () => "2.1.0" });
+		expect(installer.start("claude-code", "npmmirror")).toMatchObject({ state: "checking", source: "npmmirror" });
+		expect(await finished(installer, "claude-code")).toMatchObject({ state: "ready", source: "npmmirror" });
+		const executable = AgentInstaller.executable(root, "claude-code", root) ?? "";
+		expect(readFileSync(executable, "utf8")).toBe("mirrored-native-cli");
+		// Only the executable is extracted; the tarball and other package files are not kept.
+		const [release = ""] = readdirSync(sharedAgentPaths("claude-code", root).versions);
+		expect(readdirSync(join(sharedAgentPaths("claude-code", root).versions, release))).toEqual([claudeName]);
+		expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+			"https://downloads.claude.ai/claude-code-releases/latest",
+			"https://downloads.claude.ai/claude-code-releases/2.1.0/manifest.json",
+			mirrorUrl("2.1.0"),
+		]);
+	});
+
+	it("rejects a mirrored executable that does not match the official checksum", async () => {
+		const tarball = npmPackage(Buffer.from("tampered"));
+		const official = claudeDownloads("2.1.0", Buffer.from("native-cli"));
+		const probe = vi.fn(async () => "2.1.0");
+		const installer = create({
+			fetch: async (url, init) =>
+				String(url) === mirrorUrl("2.1.0") ? new Response(new Uint8Array(tarball)) : official(url, init),
+			probe,
+		});
+		installer.start("claude-code", "npmmirror");
+		expect(await finished(installer, "claude-code")).toMatchObject({
+			state: "error",
+			error: expect.stringContaining("SHA-256"),
+		});
+		expect(probe).not.toHaveBeenCalled();
+		expect(AgentInstaller.executable(root, "claude-code", root)).toBeUndefined();
+	});
+
+	it("explains a version npmmirror has not synchronized yet", async () => {
+		const official = claudeDownloads("2.1.0");
+		const installer = create({
+			fetch: async (url, init) =>
+				String(url) === mirrorUrl("2.1.0") ? new Response("not found", { status: 404 }) : official(url, init),
+		});
+		installer.start("claude-code", "npmmirror");
+		expect(await finished(installer, "claude-code")).toMatchObject({
+			state: "error",
+			error: expect.stringContaining("尚未同步"),
+		});
+	});
+
+	it("downloads Codex through a GitHub acceleration route", async () => {
+		const packageDir = join(root, "fixture");
+		mkdirSync(join(packageDir, "bin"), { recursive: true });
+		writeFileSync(join(packageDir, "bin", process.platform === "win32" ? "codex.exe" : "codex"), "codex-native");
+		const archive = join(root, "fixture.tar.gz");
+		execFileSync("tar", ["-czf", archive, "-C", packageDir, "bin"]);
+		const bytes = readFileSync(archive);
+		const asset = "https://github.com/openai/codex/releases/download/rust-v0.162.0/package.tar.gz";
+		const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+			String(url).endsWith("/latest")
+				? Response.json({
+						tag_name: "rust-v0.162.0",
+						assets: [
+							{
+								name: `codex-package-${installationTarget().codex}.tar.gz`,
+								browser_download_url: asset,
+								digest: `sha256:${sha256(bytes)}`,
+							},
+						],
+					})
+				: new Response(new Uint8Array(bytes)),
+		);
+		const installer = create({ fetch, probe: async () => "0.162.0" });
+		installer.start("codex", "ghfast");
+		expect(await finished(installer, "codex")).toMatchObject({ state: "ready", source: "ghfast" });
+		expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+			"https://api.github.com/repos/openai/codex/releases/latest",
+			`https://ghfast.top/${asset}`,
+		]);
+	});
+
+	it("restarts a slow download on another route without the old job overwriting progress", async () => {
+		const bytes = Buffer.from("mirrored-native-cli");
+		const tarball = npmPackage(bytes);
+		const official = claudeDownloads("2.1.0", bytes);
+		const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+			if (String(url) === mirrorUrl("2.1.0")) return new Response(new Uint8Array(tarball));
+			if (!String(url).endsWith(`/${claudeName}`)) return official(url, init);
+			// The official download stalls after its first bytes until it is aborted.
+			return new Response(
+				new ReadableStream({
+					start: (controller) => controller.enqueue(new Uint8Array([1])),
+				}),
+				{ headers: { "content-length": String(bytes.length) } },
+			);
+		});
+		const installer = create({ fetch, probe: async () => "2.1.0" });
+		installer.start("claude-code");
+		await vi.waitFor(() => expect(installer.status("claude-code")).toMatchObject({ state: "downloading" }));
+		expect(() => installer.start("claude-code")).toThrow("正在安装");
+		expect(installer.start("claude-code", "npmmirror")).toMatchObject({ state: "checking", source: "npmmirror" });
+		expect(installer.status("claude-code")).not.toHaveProperty("downloadedBytes");
+		expect(await finished(installer, "claude-code")).toMatchObject({ state: "ready", source: "npmmirror" });
+		expect(readFileSync(AgentInstaller.executable(root, "claude-code", root) ?? "", "utf8")).toBe(
+			"mirrored-native-cli",
+		);
+		expect(readdirSync(sharedAgentPaths("claude-code", root).versions)).toHaveLength(1);
+	});
+
+	it("names the unreachable route so users can switch away from it", async () => {
+		const asset = "https://github.com/openai/codex/releases/download/rust-v0.162.0/package.tar.gz";
+		const installer = create({
+			fetch: async (url) => {
+				if (String(url).startsWith("https://ghfast.top/"))
+					throw new TypeError("fetch failed", { cause: new Error("unexpected eof while reading") });
+				return Response.json({
+					tag_name: "rust-v0.162.0",
+					assets: [
+						{
+							name: `codex-package-${installationTarget().codex}.tar.gz`,
+							browser_download_url: asset,
+							digest: `sha256:${"0".repeat(64)}`,
+						},
+					],
+				});
+			},
+		});
+		installer.start("codex", "ghfast");
+		expect(await finished(installer, "codex")).toMatchObject({
+			state: "error",
+			error: "GHFast 加速线路连接失败（unexpected eof while reading），请稍后重试或切换下载线路",
+		});
+	});
+
+	it("rejects download routes the runtime does not offer", () => {
+		const installer = create({});
+		expect(() => installer.start("codex", "npmmirror")).toThrow("不支持所选下载线路");
+		expect(() => installer.start("claude-code", "ghfast")).toThrow("不支持所选下载线路");
+		expect(installer.status("codex").state).toBe("idle");
+	});
+
 	it("maps native platforms and rejects unsupported architectures", () => {
 		expect(installationTarget("darwin", "arm64")).toEqual({ claude: "darwin-arm64", codex: "aarch64-apple-darwin" });
 		expect(installationTarget("win32", "x64")).toEqual({ claude: "win32-x64", codex: "x86_64-pc-windows-msvc" });
@@ -311,6 +472,9 @@ it("starts installation over the protocol, survives a disconnected client and re
 		await expect(observer.request("runtime.install", { runtime: "pi" as AgentConfigRuntime })).rejects.toMatchObject({
 			code: "BAD_REQUEST",
 		});
+		await expect(
+			observer.request("runtime.install", { runtime: "claude-code", source: "ghfast" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	} finally {
 		await host.close();
 		vi.unstubAllEnvs();

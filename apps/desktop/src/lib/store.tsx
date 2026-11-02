@@ -5,6 +5,7 @@ import type {
 	AgentConfigResult,
 	AgentConfigRuntime,
 	AgentConfigScope,
+	AgentInstallSource,
 	AgentRuntimeId,
 	AgentRuntimeInfo,
 	ApprovalPolicy,
@@ -2007,10 +2008,14 @@ export class PierStore {
 		return client.request("runtime.installStatus", { runtime, ...(refresh ? { refresh } : {}) });
 	}
 
-	async installAgent(runtime: AgentConfigRuntime): Promise<MethodResult<"runtime.install">> {
+	/** `source` needs protocol 1.50; older Hosts always download from the official route. */
+	async installAgent(
+		runtime: AgentConfigRuntime,
+		source?: AgentInstallSource,
+	): Promise<MethodResult<"runtime.install">> {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
-		return client.request("runtime.install", { runtime });
+		return client.request("runtime.install", { runtime, ...(source ? { source } : {}) });
 	}
 
 	/** Models offered by an agent on the computer the settings screen manages. */
