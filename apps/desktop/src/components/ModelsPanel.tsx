@@ -17,7 +17,7 @@ import {
 	useStore,
 	type YunlianLoginState,
 } from "../lib/store.tsx";
-import { isYunlianProvider, YUNLIAN_NAME, YUNLIAN_SITE, yunlianGroupOf } from "../lib/yunlian.ts";
+import { isYunlianProvider, YUNLIAN_NAME, yunlianGroupOf } from "../lib/yunlian.ts";
 import {
 	IconAlert,
 	IconCheck,
@@ -321,46 +321,7 @@ function LoginButtons({ provider }: { provider: ProviderInfo }) {
 	);
 }
 
-/** 云链API, listed first: signing in only takes a browser authorization (on this computer). */
-function YunlianRow() {
-	const store = useStore();
-	const { local } = useSettingsTarget();
-	return (
-		<div className="provider-row">
-			<div className="provider-main">
-				<div className="provider-name">
-					{YUNLIAN_NAME}
-					<span className="mini-tag">推荐</span>
-				</div>
-				<div className="muted small">
-					<span className="mono">{new URL(YUNLIAN_SITE).host}</span> ·{" "}
-					{local ? "在浏览器中登录授权，自动获取令牌和全部模型" : "在个人中心登录账号，按分组把令牌配置到这台电脑"}
-				</div>
-			</div>
-			<div className="row-actions">
-				<button
-					type="button"
-					className={local ? undefined : "primary"}
-					title="登录账号，查看余额，按分组配置令牌"
-					onClick={() => store.openSettings("account")}
-				>
-					<IconUser size={13} />
-					个人中心
-				</button>
-				{local ? (
-					<button type="button" className="primary" onClick={() => void store.loginYunlian()}>
-						<IconExternal size={13} />
-						浏览器登录
-					</button>
-				) : null}
-			</div>
-		</div>
-	);
-}
-
-const YUNLIAN_KEYWORDS = `yunlian yunnet newapi ${YUNLIAN_NAME} ${YUNLIAN_SITE}`.toLowerCase();
-
-function AddProviderList({ providers, yunlian }: { providers: ProviderInfo[]; yunlian: boolean }) {
+function AddProviderList({ providers }: { providers: ProviderInfo[] }) {
 	const [filter, setFilter] = useState("");
 	const [showAll, setShowAll] = useState(false);
 	const query = filter.trim().toLowerCase();
@@ -373,7 +334,6 @@ function AddProviderList({ providers, yunlian }: { providers: ProviderInfo[]; yu
 	}, [providers]);
 	const matches = sorted.filter((p) => !query || `${p.id} ${p.name}`.toLowerCase().includes(query));
 	const visible = query || showAll ? matches : matches.slice(0, 8);
-	const showYunlian = yunlian && (!query || YUNLIAN_KEYWORDS.includes(query));
 	return (
 		<>
 			<div className="provider-search">
@@ -385,7 +345,6 @@ function AddProviderList({ providers, yunlian }: { providers: ProviderInfo[]; yu
 				/>
 			</div>
 			<div className="provider-list">
-				{showYunlian ? <YunlianRow /> : null}
 				{visible.map((provider) => (
 					<div key={provider.id} className="provider-row">
 						<div className="provider-main">
@@ -395,7 +354,7 @@ function AddProviderList({ providers, yunlian }: { providers: ProviderInfo[]; yu
 						<LoginButtons provider={provider} />
 					</div>
 				))}
-				{!visible.length && !showYunlian ? <div className="provider-row muted small">没有匹配的服务商。</div> : null}
+				{!visible.length ? <div className="provider-row muted small">没有匹配的服务商。</div> : null}
 			</div>
 			{!query && !showAll && matches.length > visible.length ? (
 				<button type="button" className="ghost show-all" onClick={() => setShowAll(true)}>
@@ -413,7 +372,6 @@ function ProviderList({ onCustom }: { onCustom: (provider?: ProviderInfo) => voi
 	if (!providers) return <p className="muted">正在读取模型配置…</p>;
 	const configured = providers.providers.filter((p) => p.status.configured || p.stored || p.custom);
 	const others = providers.providers.filter((p) => !configured.includes(p));
-	const hasYunlian = configured.some(isYunlianProvider);
 	return (
 		<>
 			<p className="settings-intro">
@@ -463,7 +421,7 @@ function ProviderList({ onCustom }: { onCustom: (provider?: ProviderInfo) => voi
 					使用其他中转站、公司网关或本地模型（Ollama、LM Studio、vLLM 等）时，选择「自定义接口」填写 Base URL 和 API
 					Key。
 				</p>
-				<AddProviderList providers={others} yunlian={!hasYunlian} />
+				<AddProviderList providers={others} />
 			</SettingsGroup>
 		</>
 	);
