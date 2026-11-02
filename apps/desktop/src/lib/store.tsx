@@ -50,6 +50,8 @@ import type {
 	SessionCleanupResult,
 	SessionRunState,
 	SessionSummary,
+	SshAddProgress,
+	SshAddResult,
 	ThinkingLevel,
 	WorkspaceFileContent,
 	WorkspaceFilesResult,
@@ -1371,14 +1373,57 @@ export class PierStore {
 		} catch (error) {
 			throw new Error(peerPairingErrorText(error));
 		}
+		this.peerAdded(peer, `已与 ${peer.name} 配对，它的工作区会出现在左侧列表中`);
+		return peer;
+	}
+
+	private peerAdded(peer: PeerInfo, message: string): void {
 		this.set((s) => ({ peers: [...s.peers.filter((p) => p.id !== peer.id), peer] }));
-		this.toast("info", `已与 ${peer.name} 配对，它的工作区会出现在左侧列表中`);
+		this.toast("info", message);
 		// Paired again after being removed there: connect afresh.
 		this.closeNode(peer.id);
 		this.patchNode(peer.id, { revoked: false, connectError: undefined });
 		void this.connectPeer(peer.id);
 		void this.loadPeers();
-		return peer;
+	}
+
+	/**
+	 * Add a Linux computer over SSH: this computer's Pier signs in, installs or starts Pier
+	 * there when needed and pairs with it. Rejects with the host's `PierProtocolError` (its
+	 * `data.reason`, e.g. `HOST_KEY_UNKNOWN`, tells the dialog what to ask).
+	 */
+	async sshAddPeer(
+		params: Omit<MethodParams<"peer.sshAdd">, "operationId" | "mirrorPrefix">,
+		operationId: string,
+		onProgress: (progress: SshAddProgress) => void,
+	): Promise<SshAddResult> {
+		const client = this.localClient;
+		if (!client) throw new Error("尚未连接到本机的 Pier Host");
+		const off = client.onEvent((frame) => {
+			const event = frame.event;
+			if (event.type === "peer.sshProgress" && event.operationId === operationId)
+				onProgress(event as unknown as SshAddProgress);
+		});
+		const mirrorPrefix = this.state.update.mirrorPrefix;
+		let result: SshAddResult;
+		try {
+			result = await client.request(
+				"peer.sshAdd",
+				{ ...params, operationId, ...(mirrorPrefix ? { mirrorPrefix } : {}) },
+				{ timeoutMs: 60 * 60_000 },
+			);
+		} finally {
+			off();
+		}
+		const done = { installed: "已安装并添加", updated: "已更新并添加", started: "已启动并添加", existing: "已添加" }[
+			result.action
+		];
+		this.peerAdded(result.peer, `${done} ${result.peer.name}，它的工作区会出现在左侧列表中`);
+		return result;
+	}
+
+	cancelSshAddPeer(operationId: string): void {
+		void this.localClient?.request("peer.sshCancel", { operationId }).catch(() => undefined);
 	}
 
 	openAddPeer(): void {

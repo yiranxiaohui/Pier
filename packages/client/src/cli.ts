@@ -23,6 +23,7 @@ import type {
 	WorkspaceInfo,
 } from "@pier/protocol";
 import { PierClient } from "./client.ts";
+import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
 
 export const PIER_CLI_VERSION = "0.2.56";
 
@@ -552,11 +553,14 @@ async function main(): Promise<void> {
 			url: { type: "string" },
 			token: { type: "string" },
 			"pier-dir": { type: "string" },
+			"ssh-pair": { type: "boolean" },
 			help: { type: "boolean", short: "h" },
 		},
 	});
 	if (values.help) {
-		console.log(`pier cli [--url ws://127.0.0.1:<port>] [--token <token>] [--pier-dir <dir>]\n\n${HELP}`);
+		console.log(
+			`pier cli [--url ws://127.0.0.1:<port>] [--token <token>] [--pier-dir <dir>]\n         [--ssh-pair]  pair the computer adding this one over SSH (JSON on stdin and stdout)\n\n${HELP}`,
+		);
 		return;
 	}
 	const { url, token } = discover(values);
@@ -564,8 +568,13 @@ async function main(): Promise<void> {
 		url,
 		...(token ? { token } : {}),
 		client: { name: "pier-cli", version: PIER_CLI_VERSION, platform: process.platform },
+		...(values["ssh-pair"] ? { reconnect: { enabled: false } } : {}),
 	});
 	await client.connect();
+	if (values["ssh-pair"]) {
+		await sshPair(client);
+		return;
+	}
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
 	let inputClosed = false;
@@ -601,6 +610,25 @@ async function main(): Promise<void> {
 			process.exit(0);
 		});
 	});
+}
+
+/** Non-interactive pairing driven by `peer.sshAdd` on the other computer. */
+async function sshPair(client: PierClient): Promise<void> {
+	const controller = new AbortController();
+	const rl = createInterface({ input: process.stdin });
+	const lines = rl[Symbol.asyncIterator]();
+	const first = await lines.next();
+	if (first.done) throw new Error("Expected the pairing request on stdin");
+	// The SSH session closed: give up instead of leaving a pairing code behind.
+	rl.on("close", () => controller.abort());
+	const output = await runSshPair(
+		client,
+		parseSshPairRequest(first.value),
+		(line) => process.stdout.write(`${JSON.stringify(line)}\n`),
+		controller.signal,
+	);
+	client.close();
+	process.exit(output.type === "done" ? 0 : 1);
 }
 
 main().catch((error: unknown) => {

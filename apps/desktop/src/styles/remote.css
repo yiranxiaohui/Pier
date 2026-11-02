@@ -153,3 +153,109 @@ button.small-icon {
 .relay-input {
 	width: min(420px, 100%);
 }
+
+/* ---- add a computer over SSH ------------------------------------------------------ */
+
+.add-peer-mode {
+	margin-bottom: 14px;
+}
+
+.ssh-add p {
+	margin: 0 0 12px;
+}
+
+.ssh-add-grid {
+	grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+	margin-bottom: 12px;
+}
+
+.ssh-add-grid input {
+	flex: 1;
+	width: 100%;
+	min-width: 0;
+}
+
+.ssh-add-relay {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin-bottom: 12px;
+	font-size: 13px;
+	line-height: 1.5;
+	cursor: pointer;
+}
+
+.ssh-add-relay > input {
+	margin-top: 3px;
+}
+
+.ssh-add-progress {
+	margin-bottom: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+.ssh-add-progress .update-progress-track {
+	margin: 8px 0 0;
+}
+
+.ssh-add-steps {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	margin: 0 0 6px;
+	padding: 0;
+	list-style: none;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.ssh-add-steps li {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.ssh-add-steps li.current {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.ssh-add-steps li.done {
+	color: var(--success, var(--text-muted));
+}
+
+.ssh-add-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--border-strong);
+}
+
+.ssh-add-hostkey,
+.ssh-add-error {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 4px;
+	text-align: left;
+	word-break: break-word;
+}
+
+.ssh-add-hostkey > div:first-child {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.ssh-add-done {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-bottom: 10px;
+	font-weight: 600;
+}
+
+.ssh-add .banner + .banner {
+	margin-top: 8px;
+}

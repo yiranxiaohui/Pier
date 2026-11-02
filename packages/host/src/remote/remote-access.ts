@@ -191,6 +191,12 @@ export class RemoteAccess {
 		return relay?.enabled && relay.url ? { url: relay.url, ...(relay.token ? { token: relay.token } : {}) } : undefined;
 	}
 
+	/** The relay this host registers with, if any (offered to computers added over SSH). */
+	relaySettings(): { url: string; token?: string } | undefined {
+		const relay = this.desiredRelay;
+		return relay ? { ...relay } : undefined;
+	}
+
 	get p2pEnabled(): boolean {
 		return this.p2pOverride ?? this.config.remote.p2p ?? true;
 	}

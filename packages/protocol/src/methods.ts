@@ -94,6 +94,7 @@ import {
 import { type ScheduledTask, ScheduledTaskInputSchema, type ScheduledTaskRun } from "./scheduled-tasks.ts";
 
 import { SpeechMethodSchemas, type SpeechStatus } from "./speech.ts";
+import { SshAddParamsSchema, type SshAddResult } from "./ssh.ts";
 
 const Id = z.string().min(1).max(256);
 /** Repository-relative paths for `git.*` (1.28). */
@@ -824,6 +825,13 @@ export const MethodParamsSchemas = {
 		}),
 	/** Forget a paired computer here (its device list is not changed). */
 	"peer.remove": z.object({ peerId: Id }),
+	/**
+	 * Sign in to a Linux computer over SSH, install or start Pier there when needed, and pair
+	 * with it (1.49). Progress arrives as `peer.sshProgress` events on this connection.
+	 */
+	"peer.sshAdd": SshAddParamsSchema,
+	/** Stop a running `peer.sshAdd` (1.49). */
+	"peer.sshCancel": z.object({ operationId: z.string().min(1).max(128) }),
 } as const;
 
 export type MethodName = keyof typeof MethodParamsSchemas;
@@ -860,6 +868,8 @@ export const LOCAL_ONLY_METHODS: ReadonlySet<MethodName> = new Set([
 	"peer.pair",
 	"peer.update",
 	"peer.remove",
+	"peer.sshAdd",
+	"peer.sshCancel",
 	"loopback.open",
 	"loopback.next",
 	"loopback.respond",
@@ -1089,6 +1099,8 @@ export interface MethodResults {
 	"peer.pair": { peer: PeerInfo };
 	"peer.update": { peer: PeerInfo };
 	"peer.remove": { removed: boolean };
+	"peer.sshAdd": SshAddResult;
+	"peer.sshCancel": { cancelled: boolean };
 }
 
 export type MethodParams<M extends MethodName> = z.input<(typeof MethodParamsSchemas)[M]>;

@@ -20,6 +20,7 @@ import type {
 	UiResponse,
 } from "./domain.ts";
 import type { ResourceRuntime } from "./resources.ts";
+import type { SshAddStep } from "./ssh.ts";
 
 /**
  * Pi session events forwarded verbatim (after pi's JSON wire transformation, which
@@ -116,6 +117,15 @@ export type PierHostEvent =
 	| { type: "pairing.resolved"; requestId: string; resolution: PairingResolution; deviceId?: string }
 	/** Paired peer computers were added, removed, renamed or (dis)connected (1.9). Local only. */
 	| { type: "peer.changed" }
+	/** Progress of `peer.sshAdd` (1.49), sent only to the connection that called it. */
+	| {
+			type: "peer.sshProgress";
+			operationId: string;
+			step: SshAddStep;
+			message: string;
+			transferred?: number;
+			total?: number;
+	  }
 	/** Providers, credentials, models.json or the default model changed (1.2). Sent to every connection. */
 	| { type: "provider.changed" }
 	/**

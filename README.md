@@ -10,7 +10,7 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 
 - 桌面端：Tauri 2，内置 Pier Host（Agent 运行时：内置的 pi SDK，以及电脑上安装的 Claude Code、Codex）
 - 手机端：Expo / React Native 原生 App，通过配对后的加密连接驱动桌面 Agent
-- 电脑之间：每台电脑都是一个节点，桌面端可以添加其他电脑，那台电脑的工作区和会话与本机的一起列在侧边栏中，直接查看和驱动那台电脑上的 Agent，并管理它的工作区（配对即完全信任）
+- 电脑之间：每台电脑都是一个节点，桌面端可以添加其他电脑（粘贴配对链接，或通过 SSH 登录 Linux 电脑后自动安装 Pier 并配对），那台电脑的工作区和会话与本机的一起列在侧边栏中，直接查看和驱动那台电脑上的 Agent，并管理它的工作区（配对即完全信任）
 - 不在同一网络：通过自建的 [Pier Relay](apps/relay/README.md) 连接（私有 / 开放两种模式，带网页管理后台：账号、访问令牌、在线切换模式），优先打洞 P2P 直连，打不通时经中继转发；中继只看得到密文
 
 开发计划见 [docs/PLAN.md](docs/PLAN.md)，协议见 [docs/protocol.md](docs/protocol.md)，远程访问的安全设计见 [docs/security.md](docs/security.md)，技术验证结论见 [docs/spikes.md](docs/spikes.md)。
@@ -344,6 +344,8 @@ packages/host/bin/pier-host --help
 Pier 自身状态保存在 `~/.pier`（可用 `PIER_DIR` 覆盖）：`config.json`（工作区、审批策略与远程访问设置）、`run/host.json`（运行中 Host 的端口与本地 token，权限 0600）、`locks/`（会话文件锁）、`identity.json`（Host 的 X25519 私钥）、`devices.json`（已配对设备）、`audit.log`（远程设备的操作记录）。后三个文件权限均为 0600。
 
 配对过的其他电脑保存在 `peers.json`（0600）中；桌面界面经本地 Gateway 的 `/peer/<id>` 连接它们，由 Host 用自己的密钥完成加密握手（见 [docs/security.md](docs/security.md) §4.4）。那台电脑的 IP 变了时，在「设置 → 设备与远程 → 可连接的其他电脑」中点「编辑」修改它的地址即可，无需重新配对（省略端口时沿用原来的端口）。
+
+**通过 SSH 添加 Linux 电脑**：在「添加电脑 → 通过 SSH 添加」中填写主机、端口、用户名，用密码或密钥（私钥文件；留空时使用 SSH agent 与 `~/.ssh` 中的默认密钥）登录。本机的 Pier 会登录那台 Linux 电脑（x86_64 / arm64）：没有 Pier 时安装与本机相同版本的 `pier` 后台服务（普通账号为用户服务，root 为系统服务），已安装的旧版服务会升级，已停止的服务会启动，已在运行的 Pier（包括桌面版和手动 `pier run`）保持不变；随后开启它的局域网访问，生成配对链接并只接受本机的密钥，无需在那台电脑上确认。安装文件优先直接复制本机的 Linux 单文件（同架构时），否则由那台电脑从 GitHub Release 下载（沿用「关于与更新」中的更新线路），它无法下载时由本机下载后经 SSH 上传，并按 Release 的 `SHA256SUMS.txt` 校验；装好后删除临时文件。本机已开启中继时，默认把同一个中继（包括访问令牌）配置到那台没有中继的电脑上，直连不通时经中继连接；配对时还会先尝试 SSH 使用的地址。首次连接会显示服务器的 SSH 密钥指纹供核对，确认后记在 `~/.pier/ssh_known_hosts`（也认 `~/.ssh/known_hosts`，记录的密钥不一致时拒绝连接）。密码与私钥只用于这次登录，不保存、不写日志；普通账号未开启 linger 时 Pier 会尝试 `loginctl enable-linger`（用密码登录时也会尝试 `sudo`），仍失败则提示管理员手动开启，否则退出 SSH 后服务可能停止。没有 systemd 的系统（例如容器）中 Pier 在后台运行，但重启后不会自动启动。需要两端都是支持该功能的版本：本机的 Host 协议 1.49+，安装到那台电脑的 Release 需包含 `pier cli --ssh-pair`。
 
 远程访问相关的命令行参数：`--no-remote`（本次运行不开启远程访问）、`--remote-port <n>`、`--remote-address <host:port>`（写进配对二维码的地址，可重复，例如 Tailscale 域名）、`--no-mdns`、`--relay <url>`（本次运行注册到这个中继，令牌取 `PIER_RELAY_TOKEN`）、`--no-p2p`。
 

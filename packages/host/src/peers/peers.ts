@@ -186,8 +186,11 @@ export class PeerManager {
 		return record ? this.info(record) : undefined;
 	}
 
-	/** Pair with another computer from its pairing link; resolves once its user allowed it. */
-	async pair(uri: string): Promise<PeerInfo> {
+	/**
+	 * Pair with another computer from its pairing link; resolves once its user allowed it.
+	 * `extraAddresses` are tried before the link's own (e.g. the address used for SSH).
+	 */
+	async pair(uri: string, extraAddresses: string[] = []): Promise<PeerInfo> {
 		let info: ReturnType<typeof parsePairingUri>;
 		try {
 			info = parsePairingUri(uri);
@@ -195,6 +198,7 @@ export class PeerManager {
 			const message = error instanceof PairingUriError ? error.message : "Malformed pairing link";
 			throw new PierProtocolError("BAD_REQUEST", `Invalid pairing link: ${message}`, { reason: "INVALID_LINK" });
 		}
+		if (extraAddresses.length) info = { ...info, addresses: [...new Set([...extraAddresses, ...info.addresses])] };
 		const identity = this.hooks.identity();
 		if (info.hostId === this.hooks.hostId() || equalBytes(info.hostPublicKey, identity.publicKey)) {
 			throw new PierProtocolError("CONFLICT", "This is this computer's own pairing link", { reason: "SELF" });

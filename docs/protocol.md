@@ -1,4 +1,4 @@
-# Pier 协议 v1.46
+# Pier 协议 v1.49
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -421,6 +421,8 @@ Host 由桌面端启动时（`--watch-stdin`，macOS / Linux），启动过程�
 | `peer.pair` 🔒 | `{ uri }`（那台电脑显示的 `pier://pair?...` 链接） | `{ peer }`；在那台电脑的用户确认后返回。失败时 `data.reason` 为 `INVALID_LINK`（`BAD_REQUEST`）、`SELF`（本机自己的链接）、`UNREACHABLE`、`PAIRING_INVALID`、`PAIRING_REJECTED`、`PAIRING_TIMEOUT`、`BAD_HANDSHAKE` 等（`CONFLICT`）。可能耗时数分钟，客户端请放宽超时 |
 | `peer.update` 🔒 | `{ peerId, addresses, relays? }`（`host:port` 列表，0–16 个，IPv6 加方括号；`relays` 为中继地址，0–4 个，省略时不变；两者至少一项非空） | `{ peer }`；修改连接那台电脑使用的地址（例如它的 IP 变了），去重后按顺序尝试，地址都连不上时再经中继；有变化时以 1012 断开经本机到它的连接以便用新地址重连。固定的公钥不变，新地址上若是另一台电脑会握手失败。未配对时 `NOT_FOUND`，地址无效时 `BAD_REQUEST`（1.24；`relays` 1.26） |
 | `peer.remove` 🔒 | `{ peerId }` | `{ removed }`；只在本机忘记那台电脑，并断开经本机到它的连接（4404）；那台电脑的设备列表不变 |
+| `peer.sshAdd` 🔒 | `{ operationId, host, port?(默认 22), username, auth, hostKeyFingerprint?, relay?, mirrorPrefix? }` | `SshAddResult = { peer, action: "installed" \| "updated" \| "started" \| "existing", version?, warnings }`（1.49）。Host 通过 SSH 登录那台 Linux 电脑（x86_64 / arm64），按需安装（`pier install`）、升级或启动与本机相同版本的 Pier，已在运行的 Pier 保持不变；再在那里运行 `pier cli --ssh-pair` 开启远程访问、生成配对链接并只接受本机的密钥，本机随即按 `peer.pair` 配对（先尝试 `host` 上的 Pier 端口）。`auth` 为 `{ type: "password", password }`（也回答 keyboard-interactive）或 `{ type: "key", privateKeyPath?, privateKey?, passphrase? }`（都省略时依次尝试 SSH agent 与 `~/.ssh/id_ed25519` / `id_ecdsa` / `id_rsa`）；凭据不保存、不记录。服务器密钥按 `~/.ssh/known_hosts` 与 `~/.pier/ssh_known_hosts` 校验：未知时 `CONFLICT`，`data = { reason: "HOST_KEY_UNKNOWN", fingerprint: "SHA256:…", keyType }`，用户核对后带上 `hostKeyFingerprint` 重试，Host 把它记入 `~/.pier/ssh_known_hosts`；与记录不一致或被吊销时 `HOST_KEY_MISMATCH`（`data.knownHostsFile`）。`relay`（默认 `true`）：那台电脑没有中继时配置本机的中继（含令牌）。`mirrorPrefix` 为下载 GitHub Release 的 HTTPS 加速前缀。执行文件依次取本机的 Linux 单文件（同架构同版本）、本机缓存（`~/.pier/cache/releases`）、那台电脑用 curl / wget 下载、本机下载后经 SSH 上传，均按 `SHA256SUMS.txt` 校验。进度以 `peer.sshProgress` 事件发给调用的连接，该连接断开或调用 `peer.sshCancel` 时停止（包括那台电脑上的下载）。其他失败的 `data.reason`：`CANCELLED`、`SSH_UNREACHABLE`、`SSH_AUTH_FAILED`、`SSH_KEY_INVALID`、`UNSUPPORTED_SYSTEM`、`DOWNLOAD_FAILED`、`INSTALL_FAILED`、`START_FAILED`、`PAIRING_FAILED`，以及 `peer.pair` 的原因。可能耗时数分钟，客户端请放宽超时 |
+| `peer.sshCancel` 🔒 | `{ operationId }` | `{ cancelled }`；停止本连接上正在运行的 `peer.sshAdd`（1.49） |
 
 Host 保存已配对的电脑于 `~/.pier/peers.json`（0600），每次经代理连接成功后更新名称、系统、版本、最近连接时间，并把成功的地址排到最前。
 
@@ -522,6 +524,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 | `pairing.request` | `request: { id, device, fingerprint, address?, createdAt, expiresAt }` | 设备出示了正确的配对码，等待用户用 `pairing.respond` 确认 |
 | `pairing.resolved` | `requestId, resolution: accepted\|rejected\|expired\|cancelled, deviceId?` | 配对请求结束（`cancelled`：设备在等待中断开） |
 | `peer.changed` | – | 已配对的其他电脑增删、改名，或经本机的连接建立 / 断开（1.9）；重新调用 `peer.list` |
+| `peer.sshProgress` | `operationId, step: connect\|detect\|download\|upload\|install\|start\|pair, message, transferred?, total?` | `peer.sshAdd` 的进度（1.49），只发给调用它的连接；`transferred` / `total` 为下载、上传的字节数 |
 
 发给所有连接（1.9 及以前仅发给本地连接）：
 

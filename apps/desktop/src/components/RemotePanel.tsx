@@ -7,7 +7,7 @@ import {
 	type PeerInfo,
 	parsePeerAddresses,
 } from "@pier/protocol";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { encode } from "uqr";
 import { relativeTime } from "../lib/format.ts";
 
@@ -16,6 +16,7 @@ import { IconLoader, IconMonitor, IconPencil, IconPlus, IconSmartphone } from ".
 import { CopyButton } from "./Markdown.tsx";
 import { Modal } from "./Modal.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
+import { SshAddPeerForm } from "./SshAddPeer.tsx";
 
 function useNow(intervalMs = 1000): number {
 	const [now, setNow] = useState(() => Date.now());
@@ -405,22 +406,59 @@ function PeersSection() {
 	);
 }
 
-/** Pair with another computer by pasting the pairing link its Pier shows. */
+/** Add another computer: over SSH (installing Pier there when needed), or with its pairing link. */
 export function AddPeerDialog() {
 	const store = useStore();
 	const open = useAppState((s) => s.addPeerOpen);
+	const [mode, setMode] = useState<"ssh" | "link">("ssh");
+	const [busy, setBusy] = useState(false);
+	const onBusyChange = useCallback((value: boolean) => setBusy(value), []);
+	useEffect(() => {
+		if (!open) setBusy(false);
+	}, [open]);
+	if (!open) return null;
+	const close = () => store.closeAddPeer();
+	return (
+		<Modal title="添加电脑" onClose={close}>
+			<div className="segmented add-peer-mode" role="tablist" aria-label="添加方式">
+				<button
+					type="button"
+					role="tab"
+					aria-selected={mode === "ssh"}
+					className={mode === "ssh" ? "active" : ""}
+					disabled={busy}
+					onClick={() => setMode("ssh")}
+				>
+					通过 SSH 添加
+				</button>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={mode === "link"}
+					className={mode === "link" ? "active" : ""}
+					disabled={busy}
+					onClick={() => setMode("link")}
+				>
+					粘贴配对链接
+				</button>
+			</div>
+			{mode === "ssh" ? (
+				<SshAddPeerForm onClose={close} onBusyChange={onBusyChange} />
+			) : (
+				<PairingLinkForm onClose={close} onBusyChange={onBusyChange} />
+			)}
+		</Modal>
+	);
+}
+
+/** Pair with another computer by pasting the pairing link its Pier shows. */
+function PairingLinkForm({ onClose, onBusyChange }: { onClose: () => void; onBusyChange(busy: boolean): void }) {
+	const store = useStore();
 	const fingerprint = useAppState((s) => s.remote?.hostFingerprint);
 	const [link, setLink] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | undefined>();
-	useEffect(() => {
-		if (!open) {
-			setLink("");
-			setError(undefined);
-			setBusy(false);
-		}
-	}, [open]);
-	if (!open) return null;
+	useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
 	const trimmed = link.trim();
 	const target = (() => {
 		const query = /^pier:\/\/pair\/?\?(.*)$/i.exec(trimmed)?.[1];
@@ -437,14 +475,14 @@ export function AddPeerDialog() {
 		setError(undefined);
 		try {
 			await store.pairPeer(trimmed);
-			store.closeAddPeer();
+			onClose();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 			setBusy(false);
 		}
 	};
 	return (
-		<Modal title="添加电脑" onClose={() => store.closeAddPeer()}>
+		<>
 			<div className="add-peer">
 				<p className="muted">
 					每台运行 Pier 的电脑都是一个节点。添加后，可以在这台电脑上查看、驱动那台电脑上的会话并审批命令（Agent
@@ -480,14 +518,14 @@ export function AddPeerDialog() {
 				{error ? <div className="banner error inline">{error}</div> : null}
 			</div>
 			<div className="modal-actions">
-				<button type="button" onClick={() => store.closeAddPeer()}>
+				<button type="button" onClick={onClose}>
 					{busy ? "关闭" : "取消"}
 				</button>
 				<button type="button" className="primary" disabled={!target || busy} onClick={() => void submit()}>
 					{busy ? "等待确认…" : "配对"}
 				</button>
 			</div>
-		</Modal>
+		</>
 	);
 }
 

@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { type DesktopImage, launchDesktop } from "./desktop.ts";
 import { launchMode } from "./mode.ts";
 import { prepareResources } from "./resources.ts";
+import { standaloneExecutable } from "./self.ts";
 import { findInstallation, installHost, serviceCommand, uninstallHost, updateHost } from "./service.ts";
 
 export async function runStandalone(
@@ -64,5 +65,7 @@ export async function runStandalone(
 	}
 	if (command === "--autostart") throw new Error("No graphical display available for desktop autostart");
 	process.env.PI_PACKAGE_DIR = prepareResources(archive, stateDir);
+	standaloneExecutable.path = process.execPath;
+	standaloneExecutable.version = version;
 	await import("../main.ts");
 }

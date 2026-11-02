@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
+import { keyFingerprint } from "@pier/crypto";
 import {
 	type AccountLine,
 	type AgentConfigRuntime,
@@ -62,6 +63,7 @@ import {
 	sessionTrashDir,
 } from "./paths.ts";
 import { PeerManager, type PeerManagerOptions } from "./peers/peers.ts";
+import { addPeerOverSsh, type SshAddHooks } from "./peers/ssh/add.ts";
 import { AccountManager } from "./pi/account.ts";
 import { PI_VERSION, PiEnvironment, type PiEnvironmentOptions } from "./pi/environment.ts";
 import { ExtensionManager, type ExtensionTarget } from "./pi/extensions.ts";
@@ -124,6 +126,8 @@ export interface PierHostOptions {
 	remote?: RemoteAccessOptions;
 	/** Outgoing connections to paired computers (tests). */
 	peers?: PeerManagerOptions;
+	/** Adding computers over SSH (tests). */
+	sshAdd?: Pick<SshAddHooks, "knownHostsFiles" | "sshDir" | "executable" | "fetch">;
 	/** Diagnostic log sink (stderr in the sidecar). */
 	log?: (message: string) => void;
 	/** Site of the personal center (tests). Defaults to 云链API and its lines. */
@@ -494,6 +498,9 @@ export class PierHost implements RequestHandler {
 	private readonly uploads: WorkspaceUploads;
 	private readonly git = new GitService();
 	private readonly offShellStatus: (() => void) | undefined;
+	/** Running `peer.sshAdd` operations by `<connectionId>:<operationId>`. */
+	private readonly sshOperations = new Map<string, AbortController>();
+	private readonly sshAddOptions: PierHostOptions["sshAdd"];
 	private shuttingDown = false;
 
 	private constructor(options: PierHostOptions, env: PiEnvironment) {
@@ -637,6 +644,7 @@ export class PierHost implements RequestHandler {
 			options.peers,
 		);
 		this.shell = options.shell;
+		this.sshAddOptions = options.sshAdd;
 		this.portForwards = new LocalPortForwards((peerId) => this.peers.openClient(peerId));
 		this.browsers = new LocalBrowsers(
 			this.pierDir,
@@ -747,6 +755,9 @@ export class PierHost implements RequestHandler {
 		this.loopback.connectionClosed(connection.connectionId);
 		this.terminals.connectionClosed(connection);
 		this.uploads.connectionClosed(connection.connectionId);
+		for (const [key, controller] of this.sshOperations) {
+			if (key.startsWith(`${connection.connectionId}:`)) controller.abort();
+		}
 		for (const session of connection.subscriptions) session.unsubscribe(connection.connectionId);
 		connection.subscriptions.clear();
 	}
@@ -1618,6 +1629,39 @@ export class PierHost implements RequestHandler {
 			"peer.pair": async (_ctx, params) => ({ peer: await this.peers.pair(params.uri) }),
 			"peer.update": (_ctx, params) => ({ peer: this.peers.update(params.peerId, params.addresses, params.relays) }),
 			"peer.remove": (_ctx, params) => ({ removed: this.peers.remove(params.peerId) }),
+			"peer.sshAdd": async (ctx, params) => {
+				const key = `${ctx.connection.connectionId}:${params.operationId}`;
+				if (this.sshOperations.has(key)) throw new PierProtocolError("CONFLICT", "This operation is already running");
+				const controller = new AbortController();
+				this.sshOperations.set(key, controller);
+				try {
+					return await addPeerOverSsh(
+						params,
+						{
+							...this.sshAddOptions,
+							pierDir: this.pierDir,
+							version: PIER_HOST_VERSION,
+							deviceFingerprint: () => keyFingerprint(this.remote.identity.publicKey),
+							relay: () => this.remote.relaySettings(),
+							pair: (uri, extraAddresses) => this.peers.pair(uri, extraAddresses),
+							log: this.log,
+						},
+						(update) =>
+							ctx.connection.send({
+								type: "evt",
+								event: { type: "peer.sshProgress", operationId: params.operationId, ...update },
+							}),
+						controller.signal,
+					);
+				} finally {
+					this.sshOperations.delete(key);
+				}
+			},
+			"peer.sshCancel": (ctx, params) => {
+				const controller = this.sshOperations.get(`${ctx.connection.connectionId}:${params.operationId}`);
+				controller?.abort();
+				return { cancelled: controller !== undefined };
+			},
 		};
 	}
 
