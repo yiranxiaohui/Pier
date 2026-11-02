@@ -235,6 +235,7 @@ export function createAdmin(options: AdminOptions): RelayAdmin {
 		id: token.id,
 		name: token.name,
 		hint: token.hint,
+		recoverable: !!token.secret,
 		createdAt: token.createdAt,
 		lastUsedAt: token.lastUsedAt ?? null,
 		lastUsedFrom: token.lastUsedFrom ?? null,
@@ -373,6 +374,12 @@ export function createAdmin(options: AdminOptions): RelayAdmin {
 				const { token, item } = await store.createToken(me.id, body.name);
 				log(`admin panel: ${me.username} created access token ${item.hint}…`);
 				return sendJson(res, 200, { token, item: tokenView(item, hosts) });
+			}
+			case "GET tokens/:id": {
+				const token = id ? store.token(id) : undefined;
+				if (!token || token.userId !== me.id) throw new HttpError(404, "令牌不存在");
+				if (!token.secret) throw new HttpError(404, "这个令牌是在旧版本创建的，无法再次显示；请删除后重新创建");
+				return sendJson(res, 200, { token: token.secret });
 			}
 			case "DELETE tokens/:id": {
 				const token = id ? store.token(id) : undefined;

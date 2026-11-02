@@ -233,9 +233,15 @@ describe("relay admin panel", () => {
 		const mine = await bob.call("GET", "hosts");
 		expect(mine.data.hosts).toMatchObject([{ username: "bob", tokenName: "laptop", mine: true }]);
 		const tokens = await bob.call("GET", "tokens");
-		expect(tokens.data.tokens).toMatchObject([{ name: "laptop", online: 1, hint: token.slice(0, 8) }]);
+		expect(tokens.data.tokens).toMatchObject([
+			{ name: "laptop", online: 1, hint: token.slice(0, 8), recoverable: true },
+		]);
 		expect(JSON.stringify(tokens.data)).not.toContain(token);
-		expect(await readFile(join(dir, DATA_FILE), "utf8")).not.toContain(token);
+
+		// The owner can copy the token again; other accounts cannot.
+		const tokenId = (created.data.item as { id: string }).id;
+		expect((await bob.call("GET", `tokens/${tokenId}`)).data.token).toBe(token);
+		expect((await admin.call("GET", `tokens/${tokenId}`)).status).toBe(404);
 
 		// Other accounts see neither the computer nor the token.
 		const { data: others } = await admin.call("GET", "tokens");
@@ -243,7 +249,6 @@ describe("relay admin panel", () => {
 		expect((await admin.call("GET", "hosts")).data.hosts).toMatchObject([{ username: "bob", mine: false }]);
 
 		const dropped = closed(host.socket);
-		const tokenId = (created.data.item as { id: string }).id;
 		expect((await admin.call("DELETE", `tokens/${tokenId}`)).status).toBe(404);
 		expect((await bob.call("DELETE", `tokens/${tokenId}`)).status).toBe(200);
 		expect(await dropped).toBe(RELAY_CLOSE.unauthorized);

@@ -43,6 +43,7 @@ export function panel(): void {
 		id: string;
 		name: string;
 		hint: string;
+		recoverable: boolean;
 		createdAt: number;
 		lastUsedAt: number | null;
 		lastUsedFrom: string | null;
@@ -733,6 +734,25 @@ export function panel(): void {
 				table(
 					["名称", "令牌", "在线电脑", "创建时间", "最近使用", ""],
 					items.map((token) => {
+						const copyButton = token.recoverable
+							? h(
+									"button",
+									{
+										class: "btn sm",
+										title: "复制令牌",
+										onclick: (event: Event) =>
+											void busy(event.currentTarget as HTMLButtonElement, null, async () => {
+												const { token: value } = await call<{ token: string }>(
+													"GET",
+													`tokens/${encodeURIComponent(token.id)}`,
+												);
+												await copy(value);
+											}),
+									},
+									icon("copy"),
+									"复制",
+								)
+							: null;
 						const remove = h(
 							"button",
 							{
@@ -773,7 +793,7 @@ export function panel(): void {
 								ago(token.lastUsedAt),
 								token.lastUsedFrom ? h("div", { class: "small faint mono" }, token.lastUsedFrom) : null,
 							),
-							h("td", { class: "actions" }, remove),
+							h("td", { class: "actions" }, copyButton, remove),
 						);
 					}),
 					"还没有令牌。创建一个，填到电脑上 Pier 的中继设置中。",
@@ -794,7 +814,7 @@ export function panel(): void {
 							"p",
 							null,
 							h("b", null, `令牌「${result.item.name}」已创建。`),
-							"它只显示这一次，请现在复制并填到 Pier 中。",
+							"请复制并填到 Pier 中；之后也可以随时在下方列表中再次复制。",
 						),
 						copyRow(result.token),
 					),
@@ -809,7 +829,7 @@ export function panel(): void {
 			pageHead("访问令牌", "电脑用访问令牌注册到这个中继。每台电脑可以用单独的令牌，便于单独撤销。"),
 			card(
 				"创建令牌",
-				"令牌只在创建时显示一次；丢失后删除它再创建一个即可。",
+				"令牌创建后可以随时在下方列表中再次复制；不再使用的令牌请及时删除。",
 				h(
 					"div",
 					{ class: "card-body" },

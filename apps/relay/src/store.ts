@@ -3,8 +3,8 @@
  * and the settings changed in the panel. Kept in one JSON file (mode 0600) in the data
  * directory; writes go to a temporary file first and are renamed into place.
  *
- * Passwords are stored as scrypt hashes; access tokens and session tokens only as SHA-256
- * hashes, so the file alone does not let anyone register a computer or log in.
+ * Passwords are stored as scrypt hashes and session tokens only as SHA-256 hashes. Access
+ * tokens keep their value so an account can copy them again from the panel at any time.
  */
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -45,6 +45,8 @@ export interface StoredToken {
 	name: string;
 	/** SHA-256 of the token (hex). */
 	hash: string;
+	/** The token itself, so the owner can copy it again (missing for old tokens). */
+	secret?: string;
 	/** The first characters, to tell tokens apart. */
 	hint: string;
 	createdAt: number;
@@ -323,7 +325,7 @@ export class RelayStore {
 		return this.data.tokens.find((t) => t.id === id);
 	}
 
-	/** Create an access token; the value is only returned here. */
+	/** Create an access token; the owner can read its value again later. */
 	async createToken(userId: string, nameInput: unknown): Promise<{ token: string; item: StoredToken }> {
 		const name = typeof nameInput === "string" ? nameInput.trim() : "";
 		if (!name || name.length > 40) throw new StoreError(400, "令牌名称需要 1–40 个字符");
@@ -336,6 +338,7 @@ export class RelayStore {
 			userId,
 			name,
 			hash: sha256(token),
+			secret: token,
 			hint: token.slice(0, 8),
 			createdAt: Date.now(),
 		};
