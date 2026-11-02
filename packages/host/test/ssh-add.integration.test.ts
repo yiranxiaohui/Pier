@@ -160,37 +160,42 @@ describe("peer.sshAdd", () => {
 		...extra,
 	});
 
-	it("asks to confirm a new server key, then copies Pier there and pairs without a confirmation", async () => {
-		const data = await expectFailure(aDesktop.request("peer.sshAdd", params()), "HOST_KEY_UNKNOWN");
-		expect(data).toMatchObject({ fingerprint: ssh.fingerprint, keyType: "ssh-ed25519" });
+	// The sandbox "server" runs this machine's own `sh`, which is only a Linux one on Linux.
+	it.skipIf(process.platform !== "linux")(
+		"asks to confirm a new server key, then copies Pier there and pairs without a confirmation",
+		async () => {
+			const data = await expectFailure(aDesktop.request("peer.sshAdd", params()), "HOST_KEY_UNKNOWN");
+			expect(data).toMatchObject({ fingerprint: ssh.fingerprint, keyType: "ssh-ed25519" });
 
-		const progress: SshAddProgress[] = [];
-		aDesktop.onEvent((frame: EventFrame) => {
-			if (frame.event.type === "peer.sshProgress") progress.push(frame.event as unknown as SshAddProgress);
-		});
-		const result = await aDesktop.request("peer.sshAdd", params({ hostKeyFingerprint: ssh.fingerprint }), {
-			timeoutMs: 60_000,
-		});
-		expect(result.action).toBe("existing");
-		expect(result.version).toBe(PIER_HOST_VERSION);
-		expect(result.peer.addresses[0]).toMatch(/^127\.0\.0\.1:\d+$/);
-		expect(new Set(progress.map((p) => p.step))).toEqual(new Set(["connect", "detect", "upload", "pair"]));
-		expect(progress.every((p) => p.operationId === "op-1")).toBe(true);
-		expect((await aDesktop.request("peer.list")).peers.map((p) => p.id)).toEqual([result.peer.id]);
-		const bDesktop = await b.connect();
-		expect((await bDesktop.request("device.list")).devices.map((d) => d.id)).toEqual([result.peer.deviceId]);
-		// The copied executable was removed again; the key was remembered.
-		expect(readFileSync(join(a.root, "pier", "ssh_known_hosts"), "utf8")).toContain(
-			`[127.0.0.1]:${ssh.port} ssh-ed25519`,
-		);
-		const leftovers = spawn("sh", ["-c", `ls -A ${JSON.stringify(join(home, ".cache/pier/ssh-install"))}`]);
-		let listing = "";
-		leftovers.stdout.on("data", (d: Buffer) => {
-			listing += d.toString();
-		});
-		await new Promise((done) => leftovers.on("close", done));
-		expect(listing.trim()).toBe("");
-	}, 90_000);
+			const progress: SshAddProgress[] = [];
+			aDesktop.onEvent((frame: EventFrame) => {
+				if (frame.event.type === "peer.sshProgress") progress.push(frame.event as unknown as SshAddProgress);
+			});
+			const result = await aDesktop.request("peer.sshAdd", params({ hostKeyFingerprint: ssh.fingerprint }), {
+				timeoutMs: 60_000,
+			});
+			expect(result.action).toBe("existing");
+			expect(result.version).toBe(PIER_HOST_VERSION);
+			expect(result.peer.addresses[0]).toMatch(/^127\.0\.0\.1:\d+$/);
+			expect(new Set(progress.map((p) => p.step))).toEqual(new Set(["connect", "detect", "upload", "pair"]));
+			expect(progress.every((p) => p.operationId === "op-1")).toBe(true);
+			expect((await aDesktop.request("peer.list")).peers.map((p) => p.id)).toEqual([result.peer.id]);
+			const bDesktop = await b.connect();
+			expect((await bDesktop.request("device.list")).devices.map((d) => d.id)).toEqual([result.peer.deviceId]);
+			// The copied executable was removed again; the key was remembered.
+			expect(readFileSync(join(a.root, "pier", "ssh_known_hosts"), "utf8")).toContain(
+				`[127.0.0.1]:${ssh.port} ssh-ed25519`,
+			);
+			const leftovers = spawn("sh", ["-c", `ls -A ${JSON.stringify(join(home, ".cache/pier/ssh-install"))}`]);
+			let listing = "";
+			leftovers.stdout.on("data", (d: Buffer) => {
+				listing += d.toString();
+			});
+			await new Promise((done) => leftovers.on("close", done));
+			expect(listing.trim()).toBe("");
+		},
+		90_000,
+	);
 
 	it("reports changed server keys and wrong passwords", async () => {
 		const other = utils.generateKeyPairSync("ed25519").public.trim().split(/\s+/)[1];
