@@ -25,7 +25,7 @@ import type {
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
 
-export const PIER_CLI_VERSION = "0.2.56";
+export const PIER_CLI_VERSION = "0.2.57";
 
 const HELP = `Commands:
   /ws                        list workspaces

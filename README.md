@@ -323,7 +323,7 @@ pier uninstall --purge        # 另行删除该安装使用的 Pier 配置、配
 指定版本或仅安装、不启动：
 
 ```bash
-pier update --version v0.2.56
+pier update --version v0.2.57
 pier update --no-start
 ```
 
