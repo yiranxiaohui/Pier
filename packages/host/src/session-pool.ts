@@ -25,6 +25,8 @@ export interface SessionCleanupOptions {
 	modifiedBefore?: Date;
 	scope?: SessionCleanupScope;
 	dryRun?: boolean;
+	/** Called with the number of targets handled so far: first with 0, then after each one. */
+	onProgress?: (done: number, total: number) => void;
 }
 
 export interface SessionPoolOptions {
@@ -331,11 +333,15 @@ export class SessionPool {
 			}
 		}
 		if (options.dryRun) return { ...result, sessionIds: targets };
+		const total = targets.length;
+		options.onProgress?.(0, total);
 		if (options.action === "archive") {
 			this.options.archive.set(targets, true);
+			options.onProgress?.(total, total);
 			return { ...result, sessionIds: targets };
 		}
-		for (const id of targets) {
+		for (const [index, id] of targets.entries()) {
+			if (index > 0) options.onProgress?.(index, total);
 			try {
 				if (await this.delete(workspace, id)) result.sessionIds.push(id);
 			} catch (error) {
@@ -348,6 +354,7 @@ export class SessionPool {
 				});
 			}
 		}
+		if (total) options.onProgress?.(total, total);
 		return result;
 	}
 

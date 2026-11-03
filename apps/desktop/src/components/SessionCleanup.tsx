@@ -1,7 +1,7 @@
 import type { SessionCleanupResult, WorkspaceInfo } from "@pier/protocol";
 import { useEffect, useState } from "react";
 import { sessionTitle } from "../lib/format.ts";
-import { type SessionCleanupRequest, useAppState, useStore } from "../lib/store.tsx";
+import { type SessionCleanupProgress, type SessionCleanupRequest, useAppState, useStore } from "../lib/store.tsx";
 import { Modal } from "./Modal.tsx";
 import { Select } from "./Select.tsx";
 
@@ -31,6 +31,12 @@ export function cleanupRequest(action: Action, days: number, archivedOnly: boole
 	return request;
 }
 
+/** Percentage of a cleanup done, or undefined while the host has not reported a total. */
+export function cleanupPercent(progress: SessionCleanupProgress | undefined): number | undefined {
+	if (!progress?.total) return undefined;
+	return Math.min(100, Math.round((progress.done / progress.total) * 100));
+}
+
 /**
  * Archive or delete a workspace's sessions in bulk. Shows a preview (a `dryRun`) of the
  * sessions affected before anything changes.
@@ -44,6 +50,7 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 	const [preview, setPreview] = useState<SessionCleanupResult | undefined>();
 	const [previewError, setPreviewError] = useState<string | undefined>();
 	const [running, setRunning] = useState(false);
+	const [progress, setProgress] = useState<SessionCleanupProgress | undefined>();
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh the preview when the list changes.
 	useEffect(() => {
@@ -71,6 +78,8 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 		.filter((s) => s !== undefined)
 		.map((s) => ({ id: s.id, title: sessionTitle(s) }));
 	const verb = action === "archive" ? "归档" : "删除";
+	const percent = cleanupPercent(progress);
+	const progressText = progress?.total ? `${Math.min(progress.done, progress.total)} / ${progress.total}` : undefined;
 
 	return (
 		<Modal title={`清理会话 · ${workspace.name}`} onClose={onClose}>
@@ -81,6 +90,7 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 						type="radio"
 						name="cleanup-action"
 						checked={action === "archive"}
+						disabled={running}
 						onChange={() => setAction("archive")}
 					/>
 					<div>
@@ -93,6 +103,7 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 						type="radio"
 						name="cleanup-action"
 						checked={action === "delete"}
+						disabled={running}
 						onChange={() => setAction("delete")}
 					/>
 					<div>
@@ -106,17 +117,50 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 				<Select
 					value={days}
 					onChange={setDays}
+					disabled={running}
 					options={AGE_OPTIONS.map((option) => ({ value: option.days, label: option.label }))}
 				/>
 				{action === "delete" ? (
 					<label className="cleanup-checkbox">
-						<input type="checkbox" checked={archivedOnly} onChange={(e) => setArchivedOnly(e.target.checked)} />
+						<input
+							type="checkbox"
+							checked={archivedOnly}
+							disabled={running}
+							onChange={(e) => setArchivedOnly(e.target.checked)}
+						/>
 						只删除已归档的会话
 					</label>
 				) : null}
 			</div>
 			<div className="cleanup-preview">
-				{previewError ? (
+				{running ? (
+					<div className="cleanup-progress" role="status" aria-live="polite">
+						<div>
+							正在{verb}
+							{progressText ? (
+								<>
+									{" "}
+									<strong>{progressText}</strong> 个会话
+								</>
+							) : (
+								` ${count} 个会话…`
+							)}
+						</div>
+						<div
+							className="update-progress-track"
+							role="progressbar"
+							aria-valuemin={0}
+							aria-valuemax={100}
+							aria-valuenow={percent}
+						>
+							<div
+								className={`update-progress-bar${percent === undefined ? " indeterminate" : ""}`}
+								style={percent === undefined ? undefined : { width: `${percent}%` }}
+							/>
+						</div>
+						<div className="muted small">关闭窗口不会中断{verb}，完成后会有提示</div>
+					</div>
+				) : previewError ? (
 					<span className="error-text">无法预览：{previewError}</span>
 				) : !preview ? (
 					<span className="muted">正在统计…</span>
@@ -139,7 +183,7 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 			</div>
 			<div className="modal-actions">
 				<button type="button" onClick={onClose}>
-					取消
+					{running ? "关闭" : "取消"}
 				</button>
 				<button
 					type="button"
@@ -147,12 +191,19 @@ export function SessionCleanupDialog({ workspace, onClose }: { workspace: Worksp
 					disabled={!count || running}
 					onClick={async () => {
 						setRunning(true);
-						const result = await store.cleanupSessions(workspace.id, cleanupRequest(action, days, archivedOnly));
+						setProgress(undefined);
+						const result = await store.cleanupSessions(
+							workspace.id,
+							cleanupRequest(action, days, archivedOnly),
+							false,
+							setProgress,
+						);
 						setRunning(false);
+						setProgress(undefined);
 						if (result) onClose();
 					}}
 				>
-					{running ? `正在${verb}…` : count ? `${verb} ${count} 个会话` : verb}
+					{running ? `正在${verb}${progressText ? ` ${progressText}` : "…"}` : count ? `${verb} ${count} 个会话` : verb}
 				</button>
 			</div>
 		</Modal>

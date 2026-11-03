@@ -629,8 +629,22 @@ describe("sessions end to end", () => {
 
 		gate.resolve();
 		await running.rec.waitForType("agent_settled");
-		const all = await client.request("session.cleanup", { ...ws, action: "delete" });
+		const progress: Array<{ done: number; total: number }> = [];
+		const off = client.onEvent((frame) => {
+			const event = frame.event;
+			if (event.type === "session.cleanupProgress" && event.operationId === "op-1") {
+				expect(event).toMatchObject({ workspaceId: workspace.id, action: "delete" });
+				progress.push({ done: Number(event.done), total: Number(event.total) });
+			}
+		});
+		const all = await client.request("session.cleanup", { ...ws, action: "delete", operationId: "op-1" });
+		off();
 		expect(new Set(all.sessionIds)).toEqual(new Set([second.session.id, running.session.id]));
+		expect(progress).toEqual([
+			{ done: 0, total: 2 },
+			{ done: 1, total: 2 },
+			{ done: 2, total: 2 },
+		]);
 		expect((await client.request("session.list", ws)).sessions).toEqual([]);
 		expect(t.host.pool.size).toBe(0);
 	});

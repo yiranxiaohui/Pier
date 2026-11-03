@@ -1341,13 +1341,30 @@ export class PierHost implements RequestHandler {
 				this.broadcast({ type: "session.listChanged", workspaceId: workspace.id });
 				return { session };
 			},
-			"session.cleanup": async (_ctx, params) => {
+			"session.cleanup": async (ctx, params) => {
 				const workspace = this.requireWorkspace(params.workspaceId);
+				const { operationId } = params;
 				const result = await this.pool.cleanup(workspace, {
 					action: params.action,
 					...(params.modifiedBefore ? { modifiedBefore: new Date(params.modifiedBefore) } : {}),
 					...(params.scope ? { scope: params.scope } : {}),
 					...(params.dryRun ? { dryRun: true } : {}),
+					...(operationId
+						? {
+								onProgress: (done: number, total: number) =>
+									ctx.connection.send({
+										type: "evt",
+										event: {
+											type: "session.cleanupProgress",
+											operationId,
+											workspaceId: workspace.id,
+											action: params.action,
+											done,
+											total,
+										},
+									}),
+							}
+						: {}),
 				});
 				if (!params.dryRun && result.sessionIds.length) {
 					this.broadcast({ type: "session.listChanged", workspaceId: workspace.id });

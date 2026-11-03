@@ -110,6 +110,18 @@ export type PierHostEvent =
 			state: SessionRunState;
 			pendingUi: number;
 	  }
+	/**
+	 * Progress of a `session.cleanup` called with `operationId` (1.52), sent only to the
+	 * connection that called it: `done` of `total` sessions handled so far.
+	 */
+	| {
+			type: "session.cleanupProgress";
+			operationId: string;
+			workspaceId: string;
+			action: "archive" | "delete";
+			done: number;
+			total: number;
+	  }
 	// The following are only sent to local (desktop) connections.
 	| { type: "remote.changed"; status: RemoteAccessStatus }
 	| { type: "device.changed" }

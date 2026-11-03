@@ -365,6 +365,20 @@
 	color: var(--text-muted);
 }
 
+.cleanup-progress {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.cleanup-progress .update-progress-track {
+	margin: 0;
+}
+
+.cleanup-progress strong {
+	font-variant-numeric: tabular-nums;
+}
+
 .cleanup-preview li {
 	overflow: hidden;
 	text-overflow: ellipsis;

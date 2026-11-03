@@ -472,6 +472,7 @@ export const MethodParamsSchemas = {
 	 * Archive or delete (to Pier's trash) many sessions of a workspace at once (1.14). Selects
 	 * sessions last modified before `modifiedBefore` (all when omitted) in `scope` (default
 	 * `all`). Running sessions and ones waiting for an answer are skipped. `dryRun` only reports.
+	 * With `operationId` (1.52) the host reports `session.cleanupProgress` to this connection.
 	 */
 	"session.cleanup": z.object({
 		workspaceId: Id,
@@ -479,6 +480,7 @@ export const MethodParamsSchemas = {
 		modifiedBefore: z.iso.datetime({ offset: true }).optional(),
 		scope: z.enum(["all", "archived", "unarchived"]).optional(),
 		dryRun: z.boolean().optional(),
+		operationId: z.string().min(1).max(128).optional(),
 	}),
 	"session.forkPoints": z.object(SessionRef),
 	"session.fork": z.object({ ...SessionRef, entryId: Id, position: z.enum(["before", "at"]).optional() }),

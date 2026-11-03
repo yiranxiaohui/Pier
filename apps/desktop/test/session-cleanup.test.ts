@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanupRequest } from "../src/components/SessionCleanup.tsx";
+import { cleanupPercent, cleanupRequest } from "../src/components/SessionCleanup.tsx";
 
 describe("cleanupRequest", () => {
 	const now = Date.parse("2026-09-30T12:00:00.000Z");
@@ -23,5 +23,19 @@ describe("cleanupRequest", () => {
 		});
 		// Archiving ignores the archived-only option.
 		expect(cleanupRequest("archive", 0, true, now)).toEqual({ action: "archive" });
+	});
+});
+
+describe("cleanupPercent", () => {
+	it("is unknown until the host reports a total", () => {
+		expect(cleanupPercent(undefined)).toBeUndefined();
+		expect(cleanupPercent({ done: 0, total: 0 })).toBeUndefined();
+	});
+
+	it("rounds the share of sessions handled", () => {
+		expect(cleanupPercent({ done: 0, total: 48 })).toBe(0);
+		expect(cleanupPercent({ done: 12, total: 48 })).toBe(25);
+		expect(cleanupPercent({ done: 1, total: 3 })).toBe(33);
+		expect(cleanupPercent({ done: 48, total: 48 })).toBe(100);
 	});
 });

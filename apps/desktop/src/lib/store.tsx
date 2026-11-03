@@ -198,12 +198,26 @@ export function hostCanArchiveSessions(info: HostInfo | undefined): boolean {
 	return hostSpeaks(info, 14);
 }
 
+/** Whether a host reports the progress of `session.cleanup` (`session.cleanupProgress`, 1.52). */
+export function hostReportsCleanupProgress(info: HostInfo | undefined): boolean {
+	return hostSpeaks(info, 52);
+}
+
+/** How far a bulk archive or delete has got: `done` of `total` sessions handled. */
+export interface SessionCleanupProgress {
+	done: number;
+	total: number;
+}
+
 /** Parameters of `session.cleanup` the desktop chooses. */
 export interface SessionCleanupRequest {
 	action: "archive" | "delete";
 	modifiedBefore?: string;
 	scope?: "all" | "archived" | "unarchived";
 }
+
+/** How long a bulk archive or delete (`session.cleanup`) may take. */
+const CLEANUP_TIMEOUT_MS = 10 * 60_000;
 
 /** How often the status bar samples host usage while the window is visible. */
 const HOST_STATS_INTERVAL_MS = 2000;
@@ -2894,12 +2908,13 @@ export class PierStore {
 	/**
 	 * Archive or delete many sessions of a workspace (`session.cleanup`). With `dryRun` only
 	 * reports what would happen and rejects with the host's error; otherwise errors are toasted
-	 * and resolve to undefined.
+	 * and resolve to undefined. `onProgress` follows the host's progress when it reports it (1.52).
 	 */
 	async cleanupSessions(
 		workspaceId: string,
 		request: SessionCleanupRequest,
 		dryRun = false,
+		onProgress?: (progress: SessionCleanupProgress) => void,
 	): Promise<SessionCleanupResult | undefined> {
 		const client = this.clientFor(workspaceId);
 		const params = { workspaceId, ...request, ...(dryRun ? { dryRun: true } : {}) };
@@ -2908,7 +2923,26 @@ export class PierStore {
 			return client.request("session.cleanup", params);
 		}
 		const label = request.action === "archive" ? "归档会话" : "删除会话";
-		const result = await this.callWith(client, label, (c) => c.request("session.cleanup", params));
+		const reports = onProgress && hostReportsCleanupProgress(this.state.nodes[this.nodeOf(workspaceId)]?.hostInfo);
+		const operationId = reports ? crypto.randomUUID() : undefined;
+		const result = await this.callWith(client, label, async (c) => {
+			const off = operationId
+				? c.onEvent((frame) => {
+						const event = frame.event;
+						if (event.type === "session.cleanupProgress" && event.operationId === operationId) {
+							onProgress?.({ done: Number(event.done) || 0, total: Number(event.total) || 0 });
+						}
+					})
+				: undefined;
+			try {
+				// Deleting many sessions can take a while; progress shows it is still going.
+				return await c.request("session.cleanup", operationId ? { ...params, operationId } : params, {
+					timeoutMs: CLEANUP_TIMEOUT_MS,
+				});
+			} finally {
+				off?.();
+			}
+		});
 		if (!result) return undefined;
 		if (request.action === "delete") {
 			const deleted = new Set(result.sessionIds);

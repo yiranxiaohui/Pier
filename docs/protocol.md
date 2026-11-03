@@ -1,4 +1,4 @@
-# Pier 协议 v1.51
+# Pier 协议 v1.52
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -205,7 +205,7 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 | `session.close` | `{ sessionId, force? }` | `{ closed }`；运行中且未 `force` → `CONFLICT` |
 | `session.delete` | `{ workspaceId, sessionId, force? }` | `{ deleted }`；关闭会话（`session.closed { reason: "deleted" }`）并把会话文件移到 `~/.pier/trash/sessions/<时间戳>-<文件名>`（可手动移回恢复）。活跃会话属于其他工作区 → `NOT_FOUND`；工作区中没有该会话 → `{ deleted: false }`；运行中且未 `force`，或会话正被其他 Pier Host 打开 → `CONFLICT`。从未写入磁盘的新会话只会被关闭；分叉出的子会话不受影响（1.6） |
 | `session.archive` | `{ workspaceId, sessionId, archived }` | `{ session }`；归档（`archived: true`）或取消归档会话（1.14）。归档只是 Host 记录在 `~/.pier/archived-sessions.json` 中的标记，不修改会话文件，也不关闭会话，归档后的会话照常可以打开和继续对话；分叉出的新会话不继承归档状态，`session.delete` 会同时清除标记。会话既不在活跃池中也不在该工作区的会话列表中 → `NOT_FOUND`（属于其他工作区的活跃会话同样）。成功后广播 `session.listChanged` |
-| `session.cleanup` | `{ workspaceId, action: "archive"\|"delete", modifiedBefore?, scope?: "all"\|"archived"\|"unarchived", dryRun? }` | `{ sessionIds, skipped: { sessionId, reason: "running"\|"locked"\|"error", message? }[] }`；批量归档或删除工作区中的会话（1.14）。选中 `modifiedAt` 早于 `modifiedBefore`（带时区的 ISO 8601 时间，省略时不限时间）且符合 `scope`（默认 `all`）的会话；`archive` 时已归档的会话不计入。`delete` 与 `session.delete` 相同（移到 `~/.pier/trash/sessions`），但运行中或有待回答请求的会话一律跳过（`running`），被其他 Pier Host 打开的会话跳过（`locked`）；`archive` 不跳过运行中的会话。`sessionIds` 为已处理的会话，`dryRun: true` 时只返回将要处理和将被跳过的会话而不做修改（`locked` 只有实际执行时才能发现）。有会话被处理时广播 `session.listChanged` |
+| `session.cleanup` | `{ workspaceId, action: "archive"\|"delete", modifiedBefore?, scope?: "all"\|"archived"\|"unarchived", dryRun?, operationId? }` | `{ sessionIds, skipped: { sessionId, reason: "running"\|"locked"\|"error", message? }[] }`；批量归档或删除工作区中的会话（1.14）。选中 `modifiedAt` 早于 `modifiedBefore`（带时区的 ISO 8601 时间，省略时不限时间）且符合 `scope`（默认 `all`）的会话；`archive` 时已归档的会话不计入。`delete` 与 `session.delete` 相同（移到 `~/.pier/trash/sessions`），但运行中或有待回答请求的会话一律跳过（`running`），被其他 Pier Host 打开的会话跳过（`locked`）；`archive` 不跳过运行中的会话。`sessionIds` 为已处理的会话，`dryRun: true` 时只返回将要处理和将被跳过的会话而不做修改（`locked` 只有实际执行时才能发现）。有会话被处理时广播 `session.listChanged`。带 `operationId`（1.52，由客户端生成）且不是 `dryRun` 时，Host 把进度以 `session.cleanupProgress` 事件发给调用的连接：开始时 `done: 0`，之后每处理完一个会话一次；删除大量会话可能较慢，客户端请放宽超时 |
 | `session.forkPoints` | `{ sessionId }` | `{ points: { entryId, text }[] }`（可 fork 的用户消息） |
 | `session.fork` | `{ sessionId, entryId, position?: "before"\|"at" }` | `{ session, selectedText? }`；生成**新**会话，原会话不变 |
 | `session.rename` | `{ sessionId, name }` | `{ session }` |
@@ -518,6 +518,12 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 |---|---|---|
 | `terminal.output` | `terminalId, data` | 终端输出，`data` 为原始字节的 base64 |
 | `terminal.exit` | `terminalId, code, error?` | 终端结束；`error` 表示终端丢失（桌面端退出等） |
+
+会话清理进度（1.52），只发给带 `operationId` 调用 `session.cleanup` 的连接：
+
+| 事件 | 字段 | 说明 |
+|---|---|---|
+| `session.cleanupProgress` | `operationId, workspaceId, action: archive\|delete, done, total` | 已处理 `done` 个、共 `total` 个会话（含失败而跳过的）；`done === total` 时即将返回结果 |
 
 仅发给本地（桌面）连接（`LOCAL_ONLY_EVENTS`）：
 
