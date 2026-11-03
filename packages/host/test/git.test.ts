@@ -1,11 +1,18 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { PierClient } from "@pier/client";
 import { PierProtocolError, type WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GitService, parseBranches, parseLog, parsePorcelainStatus, parseWorktrees } from "../src/git.ts";
+import {
+	canonicalPath,
+	GitService,
+	parseBranches,
+	parseLog,
+	parsePorcelainStatus,
+	parseWorktrees,
+} from "../src/git.ts";
 import { startTestHost, type TestHost } from "./helpers.ts";
 
 function git(cwd: string, ...args: string[]): string {
@@ -346,7 +353,8 @@ describe("GitService", () => {
 		writeFileSync(join(repo, "a.txt"), "a\n");
 		git(repo, "add", ".");
 		git(repo, "commit", "-q", "-m", "init");
-		const base = realpathSync(root);
+		// Git prints real paths (`/private/var` on macOS, long names and `/` on Windows).
+		const base = canonicalPath(root);
 		const feature = join(base, "wt", "feature");
 		const added = await service.addWorktree(repo, feature, { branch: "feature/x", create: true });
 		expect(added).toMatchObject({ path: feature, branch: "feature/x" });
@@ -365,11 +373,12 @@ describe("GitService", () => {
 		await expectCode(service.addWorktree(repo, join(base, "wt", "bad"), { create: true }), "BAD_REQUEST");
 
 		const { worktrees: listed } = await service.worktrees(repo);
-		const worktrees = [listed[0], ...listed.slice(1).sort((x, y) => x.path.localeCompare(y.path))].filter(
-			(w) => w !== undefined,
-		);
+		const worktrees = [listed[0], ...listed.slice(1)]
+			.filter((w) => w !== undefined)
+			.map((w) => ({ ...w, path: canonicalPath(w.path) }));
+		worktrees.splice(1, worktrees.length, ...worktrees.slice(1).sort((x, y) => x.path.localeCompare(y.path)));
 		expect(worktrees.map((w) => [w.path, w.branch ?? null, !!w.main, !!w.current])).toEqual([
-			[realpathSync(repo), "main", true, true],
+			[canonicalPath(repo), "main", true, true],
 			[detached, null, false, false],
 			[feature, "feature/x", false, false],
 			[topic, "topic", false, false],
@@ -377,7 +386,7 @@ describe("GitService", () => {
 		expect(worktrees[1]?.detached).toBe(true);
 		// From inside a linked work tree, it is the current one.
 		const inside = (await service.worktrees(feature)).worktrees;
-		expect(inside.find((w) => w.current)?.path).toBe(feature);
+		expect(canonicalPath(inside.find((w) => w.current)?.path ?? "")).toBe(feature);
 
 		await expectCode(service.removeWorktree(repo, repo), "CONFLICT");
 		await expectCode(service.removeWorktree(feature, feature), "CONFLICT");
@@ -391,16 +400,21 @@ describe("GitService", () => {
 		git(repo, "worktree", "lock", detached);
 		await expectCode(service.removeWorktree(repo, detached), "CONFLICT");
 		await service.removeWorktree(repo, detached, true);
-		await service.removeWorktree(repo, feature);
+		// A path through a link names the same work tree (a junction needs no privilege on Windows).
+		const link = join(base, "link");
+		symlinkSync(join(base, "wt"), link, "junction");
+		await service.removeWorktree(repo, join(link, "feature"));
 		expect(existsSync(feature)).toBe(false);
 
 		// A work tree whose directory went away is pruned.
 		const gone = join(base, "wt", "gone");
 		await service.addWorktree(repo, gone, { branch: "gone", create: true });
 		rmSync(gone, { recursive: true, force: true });
-		expect((await service.worktrees(repo)).worktrees.find((w) => w.path === gone)?.prunable).toBe(true);
+		const before = (await service.worktrees(repo)).worktrees;
+		expect(before.find((w) => canonicalPath(w.path) === gone)?.prunable).toBe(true);
 		await service.pruneWorktrees(repo);
-		expect((await service.worktrees(repo)).worktrees.map((w) => w.path)).toEqual([realpathSync(repo)]);
+		const after = (await service.worktrees(repo)).worktrees;
+		expect(after.map((w) => canonicalPath(w.path))).toEqual([canonicalPath(repo)]);
 	});
 
 	it("checks out a remote-tracking branch in a new work tree", async () => {
@@ -411,7 +425,7 @@ describe("GitService", () => {
 		git(repo, "remote", "add", "origin", remote);
 		git(repo, "push", "-q", "origin", "main:main", "main:topic");
 		git(repo, "fetch", "-q", "origin");
-		const dir = join(realpathSync(root), "topic");
+		const dir = join(canonicalPath(root), "topic");
 		expect(await service.addWorktree(repo, dir, { branch: "origin/topic" })).toMatchObject({ branch: "topic" });
 		expect((await service.status(dir)).upstream).toBe("origin/topic");
 	});
@@ -461,7 +475,7 @@ describe("git.* methods", () => {
 	it("manages work trees and names their workspaces", async () => {
 		initRepo(t.workspaceDir);
 		git(t.workspaceDir, "commit", "-q", "--allow-empty", "-m", "init");
-		const dir = join(realpathSync(mkdtempSync(join(tmpdir(), "pier-wt-"))), "feature");
+		const dir = join(canonicalPath(mkdtempSync(join(tmpdir(), "pier-wt-"))), "feature");
 		try {
 			const added = await client.request("git.addWorktree", {
 				workspaceId: workspace.id,

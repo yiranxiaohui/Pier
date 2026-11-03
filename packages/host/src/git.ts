@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
 	type GitBranchInfo,
 	type GitCommandResult,
@@ -231,11 +231,30 @@ export function parseWorktrees(output: string): GitWorktreeInfo[] {
 	return worktrees;
 }
 
+/**
+ * The real path of `path`, with symbolic links (macOS `/tmp` → `/private/tmp`) and Windows short
+ * names (`RUNNER~1`) resolved. A path that does not exist resolves its nearest existing parent.
+ */
+export function canonicalPath(path: string): string {
+	const rest: string[] = [];
+	let dir = resolve(path);
+	for (;;) {
+		try {
+			return join(realpathSync.native(dir), ...rest);
+		} catch {
+			const parent = dirname(dir);
+			if (parent === dir) return resolve(path);
+			rest.unshift(basename(dir));
+			dir = parent;
+		}
+	}
+}
+
 /** Compare paths the way the file system of this computer does. */
 export function samePath(a: string, b: string): boolean {
 	const norm = (p: string) => {
-		const resolved = resolve(p);
-		return process.platform === "win32" || process.platform === "darwin" ? resolved.toLowerCase() : resolved;
+		const real = canonicalPath(p);
+		return process.platform === "win32" || process.platform === "darwin" ? real.toLowerCase() : real;
 	};
 	return norm(a) === norm(b);
 }
@@ -791,13 +810,11 @@ export class GitService {
 			}
 			// Checking out a large tree and its hooks can take a while.
 			const result = await this.exec(args, { cwd: root, timeoutMs: LONG_TIMEOUT_MS });
-			let real = dir;
-			try {
-				real = realpathSync(dir);
-			} catch {
-				// Git reported success; keep the requested path.
-			}
-			return { path: real, ...(checkedOut ? { branch: checkedOut } : {}), output: clip(result.stdout + result.stderr) };
+			return {
+				path: canonicalPath(dir),
+				...(checkedOut ? { branch: checkedOut } : {}),
+				output: clip(result.stdout + result.stderr),
+			};
 		});
 	}
 
