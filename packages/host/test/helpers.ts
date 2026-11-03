@@ -117,7 +117,8 @@ export async function startTestHost(
 			for (const client of clients) client.close();
 			await host.shutdown();
 			await gateway.close();
-			rmSync(root, { recursive: true, force: true });
+			// Windows may still hold a handle briefly after child processes exit.
+			rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 		},
 	};
 }

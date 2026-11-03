@@ -72,6 +72,9 @@ describe("ssh pairing helper (pier cli --ssh-pair)", () => {
 /** An SSH server whose sessions run `sh -c` in a sandbox home (`alice` / `secret`). */
 async function startSshServer(home: string) {
 	const hostKey = utils.generateKeyPairSync("ed25519");
+	// Commands still running when a test ends (e.g. after a cancel) keep `home` as their working
+	// directory, and Windows refuses to delete it until they exit, so close() waits for them.
+	const children = new Set<Promise<void>>();
 	const server = new Server({ hostKeys: [hostKey.private] }, (client: Connection) => {
 		client.on("authentication", (ctx) => {
 			if (ctx.method === "password" && ctx.username === "alice" && ctx.password === "secret") ctx.accept();
@@ -84,6 +87,12 @@ async function startSshServer(home: string) {
 					const stream = accept();
 					const { PIER_DIR: _dir, ...env } = process.env;
 					const child = spawn("sh", ["-c", info.command], { cwd: home, env: { ...env, HOME: home } });
+					const exited = new Promise<void>((done) => {
+						child.on("close", () => done());
+						child.on("error", () => done());
+					});
+					children.add(exited);
+					void exited.then(() => children.delete(exited));
 					child.stdin.on("error", () => {});
 					stream.pipe(child.stdin);
 					child.stdout.pipe(stream, { end: false });
@@ -105,7 +114,10 @@ async function startSshServer(home: string) {
 		port,
 		fingerprint: hostKeyFingerprint(blob),
 		blob,
-		close: () => new Promise<void>((done) => server.close(() => done())),
+		close: async () => {
+			await new Promise<void>((done) => server.close(() => done()));
+			await Promise.all(children);
+		},
 	};
 }
 
