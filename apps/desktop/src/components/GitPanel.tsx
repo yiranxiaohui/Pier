@@ -13,10 +13,11 @@ import {
 } from "../lib/git.ts";
 import { diffStats, parseGitDiff } from "../lib/git-diff.ts";
 import { useCanOpenTerminal } from "../lib/remote-terminals.ts";
-import { hostSupportsGit, useAppState, useStore } from "../lib/store.tsx";
+import { hostSupportsGit, hostSupportsWorktrees, useAppState, useStore } from "../lib/store.tsx";
 import { terminals } from "../lib/terminals.ts";
 import { ContextMenu, type ContextMenuItem, type ContextMenuPosition, contextMenuPosition } from "./ContextMenu.tsx";
 import { GitDiffView } from "./GitDiff.tsx";
+import { GitWorktreeDialog } from "./GitWorktreeDialog.tsx";
 import {
 	IconAlert,
 	IconArrowDown,
@@ -28,6 +29,7 @@ import {
 	IconDownload,
 	IconFile,
 	IconGitBranch,
+	IconLayers,
 	IconLoader,
 	IconMessagePlus,
 	IconMinus,
@@ -429,6 +431,9 @@ export function GitPanel({ workspace, composerKey }: { workspace: WorkspaceInfo;
 	const connection = useAppState((s) => s.connection);
 	const supported = useAppState((s) => hostSupportsGit(s.nodes[s.workspaceNodes[workspaceId] ?? s.node]?.hostInfo));
 	const online = useAppState((s) => s.nodes[s.workspaceNodes[workspaceId] ?? s.node]?.connection === "open");
+	const worktreesSupported = useAppState((s) =>
+		hostSupportsWorktrees(s.nodes[s.workspaceNodes[workspaceId] ?? s.node]?.hostInfo),
+	);
 	const version = useAppState((s) => s.filesVersion[workspaceId] ?? 0);
 	const canTerminal = useCanOpenTerminal(workspace);
 	const copy = useCopy();
@@ -446,6 +451,7 @@ export function GitPanel({ workspace, composerKey }: { workspace: WorkspaceInfo;
 	const [log, setLog] = useState<{ commits: GitCommitInfo[]; more: boolean; loading: boolean; error?: string }>();
 	const [diff, setDiff] = useState<DiffTarget>();
 	const [branchDialog, setBranchDialog] = useState(false);
+	const [worktreeDialog, setWorktreeDialog] = useState(false);
 	const [discarding, setDiscarding] = useState<GitChange[]>();
 	const [menu, setMenu] = useState<{ position: ContextMenuPosition; change?: GitChange }>();
 	const [selected, setSelected] = useState<string>();
@@ -709,6 +715,12 @@ export function GitPanel({ workspace, composerKey }: { workspace: WorkspaceInfo;
 				icon: <IconGitBranch size={14} />,
 				disabled: !!busy,
 				onSelect: () => setBranchDialog(true),
+			},
+			worktreesSupported && {
+				label: "工作树…",
+				icon: <IconLayers size={14} />,
+				disabled: !!busy,
+				onSelect: () => setWorktreeDialog(true),
 			},
 			"separator",
 			{
@@ -1216,6 +1228,17 @@ export function GitPanel({ workspace, composerKey }: { workspace: WorkspaceInfo;
 					current={status?.branch}
 					onClose={() => {
 						setBranchDialog(false);
+						void load();
+					}}
+				/>
+			) : null}
+			{worktreeDialog ? (
+				<GitWorktreeDialog
+					workspace={workspace}
+					current={status?.branch}
+					remotes={status?.remotes}
+					onClose={() => {
+						setWorktreeDialog(false);
 						void load();
 					}}
 				/>

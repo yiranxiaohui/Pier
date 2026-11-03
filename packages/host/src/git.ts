@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import {
 	type GitBranchInfo,
@@ -10,6 +10,8 @@ import {
 	type GitFileStatus,
 	type GitOperation,
 	type GitStatus,
+	type GitWorktreeAddResult,
+	type GitWorktreeInfo,
 	PierProtocolError,
 } from "@pier/protocol";
 import { findExecutable } from "./runtimes/executable.ts";
@@ -192,6 +194,50 @@ export function parseBranches(output: string): GitBranchInfo[] {
 interface Repository {
 	root: string;
 	prefix: string;
+}
+
+/** Parse `git worktree list --porcelain` output (run with `LC_ALL=C`); the main work tree is first. */
+export function parseWorktrees(output: string): GitWorktreeInfo[] {
+	const worktrees: GitWorktreeInfo[] = [];
+	let current: GitWorktreeInfo | undefined;
+	for (const line of output.replace(/\r/g, "").split("\n")) {
+		if (!line) {
+			current = undefined;
+			continue;
+		}
+		const space = line.indexOf(" ");
+		const key = space < 0 ? line : line.slice(0, space);
+		const value = space < 0 ? "" : line.slice(space + 1);
+		if (key === "worktree") {
+			current = { path: value };
+			if (!worktrees.length) current.main = true;
+			worktrees.push(current);
+			continue;
+		}
+		if (!current) continue;
+		if (key === "HEAD") {
+			if (!/^0+$/.test(value)) current.head = value;
+		} else if (key === "branch") current.branch = value.replace(/^refs\/heads\//, "");
+		else if (key === "detached") current.detached = true;
+		else if (key === "bare") current.bare = true;
+		else if (key === "locked") {
+			current.locked = true;
+			if (value) current.lockReason = value;
+		} else if (key === "prunable") {
+			current.prunable = true;
+			if (value) current.prunableReason = value;
+		}
+	}
+	return worktrees;
+}
+
+/** Compare paths the way the file system of this computer does. */
+export function samePath(a: string, b: string): boolean {
+	const norm = (p: string) => {
+		const resolved = resolve(p);
+		return process.platform === "win32" || process.platform === "darwin" ? resolved.toLowerCase() : resolved;
+	};
+	return norm(a) === norm(b);
 }
 
 /**
@@ -680,5 +726,101 @@ export class GitService {
 		}
 		const result = await this.exec(["init"], { cwd: workspaceRoot });
 		return { output: clip(result.stdout + result.stderr) };
+	}
+
+	/** The directory work trees of a repository share; changes of work trees are queued on it. */
+	private async commonDir(root: string): Promise<string> {
+		const result = await this.exec(["rev-parse", "--git-common-dir"], { cwd: root });
+		return resolve(root, result.stdout.trim());
+	}
+
+	private async changeWorktrees<T>(workspaceRoot: string, fn: (repo: Repository) => Promise<T>): Promise<T> {
+		const repo = await this.requireRepository(workspaceRoot);
+		const common = await this.commonDir(repo.root);
+		return this.exclusive(`worktrees:${common}`, () => fn(repo));
+	}
+
+	private async listWorktrees(repo: Repository): Promise<GitWorktreeInfo[]> {
+		const result = await this.exec(["worktree", "list", "--porcelain"], { cwd: repo.root, env: C_LOCALE });
+		const worktrees = parseWorktrees(result.stdout);
+		for (const worktree of worktrees) {
+			if (samePath(worktree.path, repo.root)) worktree.current = true;
+		}
+		return worktrees;
+	}
+
+	async worktrees(workspaceRoot: string): Promise<{ worktrees: GitWorktreeInfo[] }> {
+		const repo = await this.requireRepository(workspaceRoot);
+		return { worktrees: await this.listWorktrees(repo) };
+	}
+
+	async addWorktree(
+		workspaceRoot: string,
+		path: string,
+		options: { branch?: string | undefined; create?: boolean | undefined; startPoint?: string | undefined } = {},
+	): Promise<GitWorktreeAddResult> {
+		const target = path.trim();
+		if (!isAbsolute(target)) throw new PierProtocolError("BAD_REQUEST", "Work tree path must be absolute");
+		const dir = resolve(target);
+		const { branch, create = false, startPoint } = options;
+		if (create && !branch) throw new PierProtocolError("BAD_REQUEST", "A new branch needs a name");
+		if (startPoint?.startsWith("-")) throw new PierProtocolError("BAD_REQUEST", "Invalid start point");
+		return this.changeWorktrees(workspaceRoot, async ({ root }) => {
+			let args: string[];
+			let checkedOut: string | undefined;
+			if (branch) await this.checkBranchName(root, branch);
+			if (!branch) {
+				args = ["worktree", "add", "--detach", dir, ...(startPoint ? [startPoint] : [])];
+			} else if (create) {
+				args = ["worktree", "add", "-b", branch, dir, ...(startPoint ? [startPoint] : [])];
+				checkedOut = branch;
+			} else if (await this.refExists(root, `refs/heads/${branch}`)) {
+				args = ["worktree", "add", dir, branch];
+				checkedOut = branch;
+			} else if (await this.refExists(root, `refs/remotes/${branch}`)) {
+				const remotes = await this.remotes(root);
+				const remote = remotes.filter((r) => branch.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];
+				const local = remote ? branch.slice(remote.length + 1) : branch.slice(branch.indexOf("/") + 1);
+				if (!local) throw new PierProtocolError("BAD_REQUEST", `Invalid branch name: ${branch}`);
+				args = (await this.refExists(root, `refs/heads/${local}`))
+					? ["worktree", "add", dir, local]
+					: ["worktree", "add", "--track", "-b", local, dir, branch];
+				checkedOut = local;
+			} else {
+				throw new PierProtocolError("NOT_FOUND", `No such branch: ${branch}`);
+			}
+			// Checking out a large tree and its hooks can take a while.
+			const result = await this.exec(args, { cwd: root, timeoutMs: LONG_TIMEOUT_MS });
+			let real = dir;
+			try {
+				real = realpathSync(dir);
+			} catch {
+				// Git reported success; keep the requested path.
+			}
+			return { path: real, ...(checkedOut ? { branch: checkedOut } : {}), output: clip(result.stdout + result.stderr) };
+		});
+	}
+
+	async removeWorktree(workspaceRoot: string, path: string, force = false): Promise<GitCommandResult> {
+		return this.changeWorktrees(workspaceRoot, async (repo) => {
+			const worktrees = await this.listWorktrees(repo);
+			const worktree = worktrees.find((w) => samePath(w.path, path));
+			if (!worktree) throw new PierProtocolError("NOT_FOUND", `Not a work tree of this repository: ${path}`);
+			if (worktree.main) throw new PierProtocolError("CONFLICT", "The main work tree cannot be removed");
+			if (worktree.current) {
+				throw new PierProtocolError("CONFLICT", "The workspace is in this work tree; open another one to remove it");
+			}
+			// A locked work tree needs `--force` twice.
+			const forceArgs = force ? (worktree.locked ? ["--force", "--force"] : ["--force"]) : [];
+			const result = await this.exec(["worktree", "remove", ...forceArgs, worktree.path], { cwd: repo.root });
+			return { output: clip(result.stdout + result.stderr) };
+		});
+	}
+
+	async pruneWorktrees(workspaceRoot: string): Promise<GitCommandResult> {
+		return this.changeWorktrees(workspaceRoot, async ({ root }) => {
+			const result = await this.exec(["worktree", "prune", "--verbose"], { cwd: root });
+			return { output: clip(result.stdout + result.stderr) };
+		});
 	}
 }

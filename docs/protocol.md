@@ -1,4 +1,4 @@
-# Pier 协议 v1.50
+# Pier 协议 v1.51
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -146,7 +146,7 @@ sidecar 的 stdio 协议：桌面端用 `--shell-terminals` 启动 Host，声明
 
 ### Git 源代码管理（1.28）
 
-Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 `PIER_GIT` 指定的绝对路径）管理工作区所在的 Git 仓库，供桌面端右侧面板的「源代码管理」使用。仓库是工作区所在的工作树（工作区可以是仓库的子目录，此时操作整个仓库）；以下 `path` / `paths` 都是相对**仓库根目录**的路径（`/` 分隔，绝对路径或含 `..` 时 `BAD_REQUEST`），按字面匹配（`GIT_LITERAL_PATHSPECS`），不作为通配符。Git 以参数数组直接运行（不经过 shell），在仓库根目录中执行，不继承 `GIT_DIR` 等指向其他仓库的环境变量，并且没有终端：`GIT_TERMINAL_PROMPT=0`，类 Unix 系统上在新会话中运行，凭据或主机密钥需要交互输入时直接失败而不是等待（凭据助手、SSH agent 照常可用）。改变仓库的命令在同一仓库上依次执行。Git 返回非零退出码时为 `CONFLICT`，`message` 为 Git 的输出（去掉 `hint:` 行），`data.exitCode` 为退出码；运行超时（本地命令 60 秒，`commit` 与网络命令 5 分钟）时 `CONFLICT`。工作区不在仓库中时除 `git.status` / `git.init` 外返回 `NOT_FOUND`，没有安装 Git 时返回 `UNSUPPORTED`。对已配对设备开放，远程调用改变仓库的方法写入审计日志（只记录路径数量、分支名，不记录提交信息）。
+Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 `PIER_GIT` 指定的绝对路径）管理工作区所在的 Git 仓库，供桌面端右侧面板的「源代码管理」使用。仓库是工作区所在的工作树（工作区可以是仓库的子目录，此时操作整个仓库）；以下 `path` / `paths` 都是相对**仓库根目录**的路径（`/` 分隔，绝对路径或含 `..` 时 `BAD_REQUEST`），按字面匹配（`GIT_LITERAL_PATHSPECS`），不作为通配符。Git 以参数数组直接运行（不经过 shell），在仓库根目录中执行，不继承 `GIT_DIR` 等指向其他仓库的环境变量，并且没有终端：`GIT_TERMINAL_PROMPT=0`，类 Unix 系统上在新会话中运行，凭据或主机密钥需要交互输入时直接失败而不是等待（凭据助手、SSH agent 照常可用）。改变仓库的命令在同一仓库上依次执行（新建、删除、清理工作树在共享同一 Git 目录的所有工作树之间依次执行）。Git 返回非零退出码时为 `CONFLICT`，`message` 为 Git 的输出（去掉 `hint:` 行），`data.exitCode` 为退出码；运行超时（本地命令 60 秒，`commit` 与网络命令 5 分钟）时 `CONFLICT`。工作区不在仓库中时除 `git.status` / `git.init` 外返回 `NOT_FOUND`，没有安装 Git 时返回 `UNSUPPORTED`。对已配对设备开放，远程调用改变仓库的方法写入审计日志（只记录路径数量、分支名与工作树路径，不记录提交信息）。
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
@@ -166,6 +166,10 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 | `git.push` | `{ workspaceId, force? }` | `{ output }`；推送当前分支（`force` 时 `--force-with-lease`）。还没有上游时推送到 `origin`（没有时用第一个远程仓库）的同名分支并设为上游；HEAD 游离或没有远程仓库时 `CONFLICT` |
 | `git.stash` | `{ workspaceId, action: "push"\|"pop", message? }` | `{ output }`；储藏所有更改（包括未跟踪的文件），或应用并删除最近的储藏 |
 | `git.init` | `{ workspaceId }` | `{ output }`；在工作区目录中新建仓库。工作区已在仓库中时 `CONFLICT` |
+| `git.worktrees`（1.51） | `{ workspaceId }` | `{ worktrees: GitWorktreeInfo[] }`，`GitWorktreeInfo = { path, head?, branch?, detached?, bare?, main?, current?, locked?, lockReason?, prunable?, prunableReason?, workspaceId? }`；仓库的所有工作树（`git worktree list --porcelain`），主工作树在最前（`main: true`，不能删除）。`path` 为绝对路径，`branch` 为检出分支的短名称（HEAD 游离时省略并带 `detached: true`），`head` 为 HEAD 的完整哈希（还没有提交时省略），`current` 为工作区所在的工作树，`prunable` 表示目录已不存在，`workspaceId` 为这台电脑上目录正是该工作树的工作区 |
+| `git.addWorktree`（1.51） | `{ workspaceId, path, branch?, create?, startPoint? }` | `GitWorktreeAddResult = { path, branch?, output }`；在绝对路径 `path` 新建工作树（`git worktree add`，缺少的上级目录自动创建，目录须不存在或为空）。`create` 时新建分支 `branch`（从 `startPoint`，默认 HEAD）；否则 `branch` 为已有本地分支，或远程跟踪分支（如 `origin/x`，使用本地分支 `x`，没有时新建并跟踪它）；省略 `branch` 时新工作树停在 `startPoint`（默认 HEAD），HEAD 游离。`path` 不是绝对路径、`create` 而没有 `branch` 时 `BAD_REQUEST`；分支不存在时 `NOT_FOUND`；分支已在其他工作树中检出时 Git 拒绝（`CONFLICT`）。结果的 `path` 为解析符号链接后的路径，`branch` 为检出的本地分支。不会自动添加工作区，客户端可随后调用 `workspace.add`。会运行仓库的 `post-checkout` 钩子，超时为 5 分钟 |
+| `git.removeWorktree`（1.51） | `{ workspaceId, path, force? }` | `{ output }`；删除一个链接工作树及其目录（`git worktree remove`）。有未提交的更改或未跟踪的文件、或已锁定时 Git 拒绝（`CONFLICT`），`force` 时仍删除（已锁定的工作树使用两次 `--force`）。`path` 不是该仓库的工作树时 `NOT_FOUND`；主工作树或工作区所在的工作树 `CONFLICT`。目录已不存在时只删除 Git 的记录。不会移除指向该目录的工作区，客户端应随后调用 `workspace.remove` |
+| `git.pruneWorktrees`（1.51） | `{ workspaceId }` | `{ output }`；清理目录已不存在的工作树记录（`git worktree prune --verbose`） |
 
 ### Agent 运行时（1.22）
 

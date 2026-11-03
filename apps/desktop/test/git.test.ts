@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { changePaths, groupChanges, workspacePath } from "../src/lib/git.ts";
+import {
+	baseName,
+	changePaths,
+	groupChanges,
+	suggestWorktreePath,
+	workspacePath,
+	worktreeLocalBranch,
+} from "../src/lib/git.ts";
 import { diffStats, parseGitDiff } from "../src/lib/git-diff.ts";
 
 describe("groupChanges", () => {
@@ -91,5 +98,24 @@ describe("parseGitDiff", () => {
 			{ kind: "file", text: "my file.txt" },
 			{ kind: "meta", text: "new file mode 100644" },
 		]);
+	});
+});
+
+describe("work tree helpers", () => {
+	it("suggests a directory next to the main work tree", () => {
+		expect(suggestWorktreePath("/home/me/projects/app", "feature/login")).toBe(
+			"/home/me/projects/app-worktrees/feature-login",
+		);
+		expect(suggestWorktreePath("C:/src/app", "fix")).toBe("C:/src/app-worktrees/fix");
+		expect(suggestWorktreePath("C:\\src\\app", "fix")).toBe("C:\\src\\app-worktrees\\fix");
+		expect(suggestWorktreePath("/app", "")).toBe("/app-worktrees/worktree");
+	});
+
+	it("names the local branch and the last path segment", () => {
+		expect(worktreeLocalBranch("origin/feature/x", ["origin"], true)).toBe("feature/x");
+		expect(worktreeLocalBranch("up/stream/x", ["up", "up/stream"], true)).toBe("x");
+		expect(worktreeLocalBranch("feature/x", ["origin"], false)).toBe("feature/x");
+		expect(baseName("/a/b/")).toBe("b");
+		expect(baseName("C:\\a\\b")).toBe("b");
 	});
 });

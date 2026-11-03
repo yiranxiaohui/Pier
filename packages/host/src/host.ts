@@ -45,7 +45,7 @@ import {
 	type RequestHandler,
 	type Transport,
 } from "./connection.ts";
-import { GitService } from "./git.ts";
+import { GitService, samePath } from "./git.ts";
 import { listHostDirectories } from "./host-directories.ts";
 import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
@@ -250,6 +250,9 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"git.push",
 	"git.stash",
 	"git.init",
+	"git.addWorktree",
+	"git.removeWorktree",
+	"git.pruneWorktrees",
 	// Opening a shell on this computer (1.18); what is typed into it is not recorded.
 	"terminal.open",
 ]);
@@ -412,7 +415,17 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 		case "git.push":
 		case "git.stash":
 		case "git.init":
+		case "git.pruneWorktrees":
 			return { workspaceId: params.workspaceId, ...(params.action ? { action: params.action } : {}) };
+		case "git.addWorktree":
+			return {
+				workspaceId: params.workspaceId,
+				path: params.path,
+				...(params.branch ? { branch: params.branch } : {}),
+				...(params.create ? { create: true } : {}),
+			};
+		case "git.removeWorktree":
+			return { workspaceId: params.workspaceId, path: params.path, ...(params.force ? { force: true } : {}) };
 		case "terminal.open":
 			return params.cwd ? { cwd: params.cwd } : undefined;
 		case "agentConfig.update":
@@ -1258,6 +1271,24 @@ export class PierHost implements RequestHandler {
 			"git.stash": (_ctx, params) =>
 				this.git.stash(this.requireWorkspace(params.workspaceId).path, params.action, params.message),
 			"git.init": (_ctx, params) => this.git.init(this.requireWorkspace(params.workspaceId).path),
+			"git.worktrees": async (_ctx, params) => {
+				const { worktrees } = await this.git.worktrees(this.requireWorkspace(params.workspaceId).path);
+				const workspaces = this.config.listWorkspaces();
+				for (const worktree of worktrees) {
+					const workspace = workspaces.find((w) => samePath(w.path, worktree.path));
+					if (workspace) worktree.workspaceId = workspace.id;
+				}
+				return { worktrees };
+			},
+			"git.addWorktree": (_ctx, params) =>
+				this.git.addWorktree(this.requireWorkspace(params.workspaceId).path, params.path, {
+					branch: params.branch,
+					create: params.create,
+					startPoint: params.startPoint,
+				}),
+			"git.removeWorktree": (_ctx, params) =>
+				this.git.removeWorktree(this.requireWorkspace(params.workspaceId).path, params.path, params.force ?? false),
+			"git.pruneWorktrees": (_ctx, params) => this.git.pruneWorktrees(this.requireWorkspace(params.workspaceId).path),
 
 			"session.list": async (_ctx, params) => ({
 				sessions: await this.pool.list(this.requireWorkspace(params.workspaceId)),

@@ -142,6 +142,11 @@ export function hostSupportsGit(info: HostInfo | undefined): boolean {
 	return hostSpeaks(info, 28);
 }
 
+/** Whether a host manages Git work trees (`git.worktrees` / `addWorktree` / `removeWorktree`, 1.51). */
+export function hostSupportsWorktrees(info: HostInfo | undefined): boolean {
+	return hostSpeaks(info, 51);
+}
+
 /** Whether a host can download a file opened through Markdown preview (1.44). */
 export function hostSupportsPreviewDownloads(info: HostInfo | undefined, remote = false): boolean {
 	return hostSpeaks(info, 44) && hostAuthorizesFilePreviews(info, remote);
@@ -2273,10 +2278,16 @@ export class PierStore {
 		if (!hostSupportsGit(this.state.nodes[this.nodeOf(workspaceId)]?.hostInfo)) {
 			throw new Error("那台电脑的 Pier 版本过旧，不支持 Git，请先更新它");
 		}
+		if (
+			/^git\.(worktrees|addWorktree|removeWorktree|pruneWorktrees)$/.test(method) &&
+			!hostSupportsWorktrees(this.state.nodes[this.nodeOf(workspaceId)]?.hostInfo)
+		) {
+			throw new Error("那台电脑的 Pier 版本过旧，不支持工作树，请先更新它");
+		}
 		const result = await (
 			client.request as (m: M, p: MethodParams<M>, o: { timeoutMs: number }) => Promise<MethodResult<M>>
 		)(method, params, { timeoutMs });
-		const readOnly = ["git.status", "git.diff", "git.log", "git.show", "git.branches"];
+		const readOnly = ["git.status", "git.diff", "git.log", "git.show", "git.branches", "git.worktrees"];
 		if (!readOnly.includes(method)) this.bumpFiles(workspaceId);
 		return result;
 	}

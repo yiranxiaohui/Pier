@@ -44,6 +44,8 @@ import {
 	type GitCommitResult,
 	type GitDiffResult,
 	type GitStatus,
+	type GitWorktreeAddResult,
+	type GitWorktreeInfo,
 	type HostDirectoryListing,
 	type HostInfo,
 	type HostStats,
@@ -407,6 +409,35 @@ export const MethodParamsSchemas = {
 	}),
 	/** Create a repository in the workspace directory. */
 	"git.init": z.object({ workspaceId: Id }),
+	/** Work trees of the workspace's repository, the main one first (1.51). */
+	"git.worktrees": z.object({ workspaceId: Id }),
+	/**
+	 * Add a work tree at the absolute `path` (1.51). With `create`, `branch` is a new branch started
+	 * at `startPoint` (default HEAD); otherwise an existing local branch, or a remote-tracking one
+	 * (`origin/x`) whose local branch `x` is used or created to track it. Without `branch` the new
+	 * work tree has a detached HEAD at `startPoint` (default HEAD).
+	 */
+	"git.addWorktree": z
+		.object({
+			workspaceId: Id,
+			path: z.string().min(1).max(4096),
+			branch: GitBranchName.optional(),
+			create: z.boolean().optional(),
+			startPoint: GitBranchName.optional(),
+		})
+		.refine((p) => !p.create || p.branch, { message: "A new branch needs a name", path: ["branch"] }),
+	/**
+	 * Remove a linked work tree and its directory (1.51). `force` removes it even with changes or
+	 * untracked files, and when it is locked. The main work tree and the one the workspace is in
+	 * cannot be removed.
+	 */
+	"git.removeWorktree": z.object({
+		workspaceId: Id,
+		path: z.string().min(1).max(4096),
+		force: z.boolean().optional(),
+	}),
+	/** Forget work trees whose directories are gone (`git worktree prune`, 1.51). */
+	"git.pruneWorktrees": z.object({ workspaceId: Id }),
 
 	/** Agent runtimes the host knows and whether they can run sessions (1.22). */
 	"runtime.list": z.object({}).optional(),
@@ -990,6 +1021,10 @@ export interface MethodResults {
 	"git.push": GitCommandResult;
 	"git.stash": GitCommandResult;
 	"git.init": GitCommandResult;
+	"git.worktrees": { worktrees: GitWorktreeInfo[] };
+	"git.addWorktree": GitWorktreeAddResult;
+	"git.removeWorktree": GitCommandResult;
+	"git.pruneWorktrees": GitCommandResult;
 	"runtime.list": { runtimes: AgentRuntimeInfo[] };
 	"runtime.installStatus": AgentInstallationResult;
 	"runtime.install": AgentInstallationResult;

@@ -92,5 +92,50 @@ export function gitErrorText(error: unknown): string {
 	if (/Commit message is empty/.test(message)) return "请填写提交信息";
 	if (/Invalid branch name/.test(message)) return "分支名称无效";
 	if (/No such branch/.test(message)) return "分支不存在";
+	if (/Work tree path must be absolute/.test(message)) return "工作树路径必须是绝对路径";
+	if (/main work tree cannot be removed/.test(message)) return "不能删除主工作树";
+	if (/workspace is in this work tree/.test(message)) return "当前工作区就在这个工作树中，请在其他工作区中删除它";
+	if (/Not a work tree of this repository/.test(message)) return "这个目录不是该仓库的工作树";
 	return message;
+}
+
+/** The last segment of a path that may use `/` or `\\`. */
+export function baseName(path: string): string {
+	const trimmed = path.replace(/[\\/]+$/, "");
+	const i = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+	return i < 0 ? trimmed : trimmed.slice(i + 1);
+}
+
+/** The directory part of a path that may use `/` or `\\` (the path itself at the root). */
+export function dirName(path: string): string {
+	const trimmed = path.replace(/[\\/]+$/, "");
+	const i = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+	if (i < 0) return trimmed;
+	return i === 0 ? trimmed.slice(0, 1) : trimmed.slice(0, i);
+}
+
+/**
+ * The local branch a work tree for `branch` checks out: a remote-tracking branch
+ * (`origin/x`) is checked out as `x`.
+ */
+export function worktreeLocalBranch(branch: string, remotes: string[] | undefined, remote: boolean): string {
+	if (!remote) return branch;
+	const name = (remotes ?? []).filter((r) => branch.startsWith(`${r}/`)).sort((a, b) => b.length - a.length)[0];
+	return name ? branch.slice(name.length + 1) : branch.slice(branch.indexOf("/") + 1);
+}
+
+/**
+ * Where a new work tree for `branch` goes by default: `<repo>-worktrees/<branch>` next to the
+ * main work tree, with `/` in the branch name turned into `-`.
+ */
+export function suggestWorktreePath(mainPath: string, branch: string): string {
+	const sep = mainPath.includes("\\") && !mainPath.includes("/") ? "\\" : "/";
+	const slug =
+		branch
+			.trim()
+			.replace(/[\\/:*?"<>|\s]+/g, "-")
+			.replace(/^[-.]+|[-.]+$/g, "") || "worktree";
+	const parent = dirName(mainPath);
+	const join = (a: string, b: string) => (a.endsWith(sep) ? `${a}${b}` : `${a}${sep}${b}`);
+	return join(join(parent, `${baseName(mainPath)}-worktrees`), slug);
 }

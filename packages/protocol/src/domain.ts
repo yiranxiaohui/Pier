@@ -357,6 +357,38 @@ export interface GitBranchInfo {
 	date: string;
 }
 
+/** A work tree of a repository (`git.worktrees`, 1.51), as `git worktree list` reports it. */
+export interface GitWorktreeInfo {
+	/** Absolute path of the work tree. */
+	path: string;
+	/** Full hash of its HEAD; omitted before the first commit and for a bare repository. */
+	head?: string;
+	/** Short name of the checked-out branch; omitted when HEAD is detached. */
+	branch?: string;
+	detached?: true;
+	/** The repository is bare: this entry has no files. */
+	bare?: true;
+	/** The main work tree (the first one); it cannot be removed. */
+	main?: true;
+	/** The work tree the workspace is in. */
+	current?: true;
+	locked?: true;
+	lockReason?: string;
+	/** Its directory is gone; `git.pruneWorktrees` drops it. */
+	prunable?: true;
+	prunableReason?: string;
+	/** The workspace of this computer whose directory is this work tree. */
+	workspaceId?: string;
+}
+
+/** Result of `git.addWorktree` (1.51). */
+export interface GitWorktreeAddResult extends GitCommandResult {
+	/** Absolute path of the new work tree. */
+	path: string;
+	/** Branch checked out in it; omitted when HEAD is detached. */
+	branch?: string;
+}
+
 /** Result of a Git command that changes the repository (1.28). */
 export interface GitCommandResult {
 	/** What Git printed (stdout and stderr), trimmed and possibly shortened. */
