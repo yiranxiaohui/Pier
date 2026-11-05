@@ -75,7 +75,7 @@ echo 'source <(pier completion bash)' >> ~/.bashrc
 指定版本或仅安装、不启动：
 
 ```bash
-pier update --version v0.2.57
+pier update --version v0.2.58
 pier update --no-start
 ```
 

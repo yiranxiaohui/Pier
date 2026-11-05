@@ -4,6 +4,8 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## 未发布
 
+## v0.2.58 — 2026-11-05
+
 - **Linux 一键安装脚本**：执行 `curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash` 即可安装 Pier：脚本下载最新的 `pier` 单文件，按 Release 的 `SHA256SUMS.txt` 校验并核对版本后，用 `pier install` 安装为后台服务和 `pier` 命令（普通账号为用户服务，并在无需密码时开启 linger；root 为系统服务）。有图形桌面时默认只安装 `pier` 命令，避免与桌面窗口争用状态目录，`--service` 可改为安装服务；没有 systemd 时只安装、不启动。再次执行即更新，已是最新版时不再下载。下载线路默认自动选择：GitHub 直连足够快时直接使用，否则测速 GHFast / GH-Proxy / GHProxy 加速线路并从最快的开始；线路断开或连续 20 秒低于 100 KB/s 时自动换下一条，在终端中按 `s` 也可以随时切换，换线路后从已下载的位置接着下载。`--mirror github|ghfast|gh-proxy|ghproxy|<https 前缀>` 固定线路；校验和始终优先从 GitHub 获取。还支持 `--version` 指定版本、`--no-start` 与 `--force`；curl 不可用时改用 wget。检测到旧版 `install-host.sh` 的安装时，提示先执行 `pier-host uninstall`（保留数据和配对）。
 - **README 重新整理**：首页只保留特性、安装（一键脚本与各平台安装包）、快速上手和界面预览；功能细节移到使用指南 `docs/guide.md`，项目结构、本地开发、构建与发版移到开发指南 `docs/development.md`。
 - **终端中直接运行 `pier` 打开 CLI**：在终端（例如 SSH 登录服务器）中不带参数运行 `pier` 时打开 CLI，不再在前台启动服务，也无需另外输入 `pier cli`。CLI 连接同一状态目录中正在运行的 Pier（已安装的服务、桌面版或 `pier run`），不会再启动第二个服务而与它争用远程访问端口；没有运行中的服务时，在后台为这个终端启动一个，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。有图形桌面时仍打开界面；脚本、`nohup` 等不在终端中运行时仍运行服务；`pier cli` 仍只连接已运行的服务。
@@ -15,6 +17,7 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 - **`pier cli` 补全与选择模型**：`/model` 不带参数时打开模型列表，用 ↑/↓ 选择、Enter 切换、Esc 取消，直接输入文字可筛选，光标初始停在当前模型上（`✓` 标记）；`/thinking` 不带参数时同样用方向键选择思考等级。按 Tab 补全斜杠命令；`/model` 补全 `provider/id` 或模型 id，`/thinking` 补全当前模型支持的思考等级，`/ws`、`/remote`、`/pair`、`/allow` 补全子命令和选项。也可以直接写 `/model <编号>`（对应 `/models` 列表）、`/model <provider>/<id>`、模型 id 或名称，以及只在一个模型中出现的片段；有多个模型同名时提示改写为 `provider/id`。输入来自管道或未连接会话时，`/model` 改为列出带编号的模型。
 - **清理会话显示进度**：「清理会话」批量删除或归档时，在对话框中显示进度条和「已处理 / 总数」，按钮同步显示进度；处理期间选项被锁定，关闭窗口不会中断，完成后照常提示结果。删除大量会话时不再因 60 秒请求超时而误报失败。实时进度需要目标电脑的 Pier 升级到本版（协议 1.52），旧版只显示进行中的动画。
 - **精简 Linux 下载**：Release 不再附带旧名 `pier-host-*` 兼容单文件和 `.tar.gz` 压缩包，每个版本少约 585 MB；Linux 只需下载 `pier-v<版本>-linux-<架构>`。v0.2.56 及更早的单文件安装先运行一次 `pier-host update --version v0.2.57`，之后即可照常 `update`。通过脚本安装的压缩包版本最多更新到 v0.2.57，`pier-host update` 遇到新版本时会提示留在 v0.2.57，或给出改用单文件的命令（保留数据和配对）。
+- **pi 1.5.0**：Pier Host 内置的 pi SDK 从 1.3.0 升级到 1.5.0，新增 GPT-6.1 Terra（OpenAI、Azure OpenAI Responses 与 OpenAI Codex）；大型工具调用改为增量解析，流式输出更省 CPU 与内存；压缩与分支摘要不再受固定输出上限限制，长推理不再导致摘要失败；工具搜索支持中文等非 ASCII 关键词；缩放照片时优先使用更小的编码，避免请求过大而失败或超时。另有各服务商的修复（如 Zhipu / Z.ai 用量上限错误不再被反复重试、OpenCode Zen / Go 改用对应协议的端点、Gemini 工具 schema 中的 `const` 兼容）。破坏性变更：工具参数校验改用 `@earendil-works/pi-schema`，自定义扩展如果依赖 TypeBox 在 JSON Schema 之外的特性（如 `Type.Refine()`、codec），这些特性对工具参数不再生效。详见 pi 的 CHANGELOG。
 
 ## v0.2.57 — 2026-11-03
 
