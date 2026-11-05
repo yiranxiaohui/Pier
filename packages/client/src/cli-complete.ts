@@ -13,6 +13,8 @@ export interface CliModelRef {
 export interface CliCompletionSource {
 	models(): Promise<readonly CliModelRef[]>;
 	thinkingLevels(): Promise<readonly string[]>;
+	/** Ids of the agent runtimes that can create sessions (`/new -a`, `/models <agent>`). */
+	agents(): Promise<readonly string[]>;
 }
 
 /** `[candidates, the text being completed]`, as Node's readline completer expects. */
@@ -22,6 +24,7 @@ export type CliCompletion = [string[], string];
 export const CLI_COMMANDS: ReadonlyArray<{ name: string; args: boolean }> = [
 	{ name: "help", args: false },
 	{ name: "ws", args: true },
+	{ name: "agents", args: false },
 	{ name: "sessions", args: false },
 	{ name: "new", args: true },
 	{ name: "open", args: true },
@@ -32,7 +35,7 @@ export const CLI_COMMANDS: ReadonlyArray<{ name: string; args: boolean }> = [
 	{ name: "follow", args: true },
 	{ name: "abort", args: false },
 	{ name: "compact", args: true },
-	{ name: "models", args: false },
+	{ name: "models", args: true },
 	{ name: "model", args: true },
 	{ name: "thinking", args: true },
 	{ name: "allow", args: true },
@@ -88,6 +91,22 @@ export async function completeCliLine(line: string, source: CliCompletionSource)
 		case "model":
 			if (before.length) return [[], partial];
 			return complete(modelCandidates(await source.models(), partial), partial);
+		case "models":
+			if (before.length) return [[], partial];
+			return complete(await source.agents(), partial);
+		case "new": {
+			// `/new [-a|--agent <agent>|--agent=<agent>] [name]`: only the agent completes.
+			const previous = before.at(-1);
+			if (previous === "-a" || previous === "--agent") return complete(await source.agents(), partial);
+			if (partial.startsWith("--agent="))
+				return complete(
+					(await source.agents()).map((agent) => `--agent=${agent}`),
+					partial,
+				);
+			if (partial.startsWith("-") && !before.some((word) => word.startsWith("-")))
+				return complete(["-a", "--agent"], partial, new Set(["-a", "--agent"]));
+			return [[], partial];
+		}
 		case "thinking":
 			if (before.length) return [[], partial];
 			return complete(await source.thinkingLevels(), partial);

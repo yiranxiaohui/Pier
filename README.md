@@ -207,9 +207,12 @@ bun run pier-cli
 > /new
 > 列出当前目录的文件
 > /model            # 列出可用模型（带编号，* 为当前模型），再用 /model <编号|provider/id|id> 切换
+> /agents           # 列出这台电脑上的 Agent（pi、Claude Code、Codex）及版本、是否可用
+> /new -a claude    # 新建 Claude Code 会话（-a / --agent 接编号、id、名称或唯一前缀，默认 pi）
+> /models codex     # 列出某个 Agent 的模型（* 为它在当前工作区的默认模型）
 > /allow            # 响应审批请求；/deny <理由>、/allow session
 > /drop             # 模拟断线，验证重连补发
-> /help             # 按 Tab 补全命令、模型、思考等级和子命令
+> /help             # 按 Tab 补全命令、模型、思考等级、Agent 和子命令
 ```
 
 ### 桌面端

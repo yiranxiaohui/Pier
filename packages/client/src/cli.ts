@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { type CompleterResult, createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import {
+	type AgentRuntimeInfo,
 	type DeviceInfo,
 	type EventFrame,
 	type MethodResult,
@@ -25,6 +26,7 @@ import {
 	type UiResponse,
 	type WorkspaceInfo,
 } from "@pier/protocol";
+import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
 import { completeCliLine, matchModel } from "./cli-complete.ts";
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
@@ -36,8 +38,9 @@ const HELP = `Commands:
   /ws add <path> [policy]    register a workspace (policy: ask|smart|auto)
   /ws use <n|id>             select a workspace
   /ws policy <ask|smart|auto> set the current workspace's approval policy
+  /agents                    list the agents on this computer (pi, Claude Code, Codex)
   /sessions                  list sessions in the current workspace
-  /new [name]                create a session and attach to it
+  /new [-a <agent>] [name]   create a session (default agent: pi) and attach to it
   /open <n|id>               open a session from the last list and attach
   /status                    show the attached session state
   /rename <name>             rename the attached session
@@ -47,6 +50,7 @@ const HELP = `Commands:
   /abort                     abort the current run
   /compact [instructions]    compact the context
   /models, /model            list available models (numbered, * = current)
+  /models <agent>            list the models of another agent (see /agents)
   /model <n|provider/id|id>  switch model (a unique part of the id or name also works)
   /thinking [level]          show or set the thinking level
   /allow [session]           approve the oldest pending approval (once / for session)
@@ -62,7 +66,7 @@ const HELP = `Commands:
   /drop                      simulate a network drop (tests reconnect + resume)
   /quit                      exit
 Anything else is sent as a prompt (as a follow-up while the agent is running).
-Press Tab to complete commands, models, thinking levels and options.`;
+Press Tab to complete commands, models, thinking levels, agents and options.`;
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -115,6 +119,10 @@ class Cli {
 	private modelCache: { sessionId: string | undefined; at: number; result: MethodResult<"model.list"> } | undefined;
 	/** The last numbered model listing, which `/model <n>` refers to. */
 	private listedModels: ModelInfo[] = [];
+	/** Agent runtimes from the last `runtime.list`, which `/new -a <n>` and `/models <n>` refer to. */
+	private runtimes: AgentRuntimeInfo[] = [];
+	/** Display name of the attached session's agent, shown before its messages. */
+	private agent = "pi";
 
 	constructor(
 		private readonly client: PierClient,
@@ -162,6 +170,7 @@ class Cli {
 			if (state === "open") this.line(green("[reconnected; resumed from last seq]"));
 			if (state === "closed") this.line(red("[disconnected]"));
 		});
+		await this.showAgentsHint();
 	}
 
 	private requireSession(): string {
@@ -174,10 +183,38 @@ class Cli {
 		return this.workspace;
 	}
 
+	private async fetchRuntimes(): Promise<AgentRuntimeInfo[]> {
+		this.runtimes = (await this.client.request("runtime.list")).runtimes;
+		return this.runtimes;
+	}
+
+	/** One line naming the host's agents, so `/new -a` is discoverable. Skipped for pi-only hosts (before 1.22). */
+	private async showAgentsHint(): Promise<void> {
+		let runtimes: AgentRuntimeInfo[];
+		try {
+			runtimes = await this.fetchRuntimes();
+		} catch {
+			return;
+		}
+		if (runtimes.length < 2) return;
+		const names = runtimes.map((r) => (r.available ? r.name : dim(`${r.name} (unavailable)`)));
+		this.line(`Agents: ${names.join(", ")} ${dim("· /agents, /new -a <agent>")}`);
+	}
+
+	private async listAgents(): Promise<void> {
+		const runtimes = await this.fetchRuntimes();
+		for (const [i, r] of runtimes.entries()) {
+			const status = r.available ? green("available") : red(`unavailable${r.reason ? `: ${r.reason}` : ""}`);
+			this.line(`${i + 1}. ${bold(r.name)} ${dim(`${r.id}${r.version ? ` ${r.version}` : ""}`)} ${status}`);
+		}
+		this.line(dim("New session: /new -a <n|id|name> [name] (e.g. /new -a claude). Models: /models <agent>."));
+	}
+
 	private async attach(session: SessionSummary): Promise<void> {
 		await this.unsubscribe?.();
 		this.pendingUi.clear();
 		this.sessionId = session.id;
+		this.agent = runtimeName(session.runtime, this.runtimes);
 		// Each runtime has its own models; drop the listing of the previous session.
 		this.modelCache = undefined;
 		this.listedModels = [];
@@ -185,7 +222,7 @@ class Cli {
 			workspaceId: session.workspaceId,
 		});
 		this.unsubscribe = () => sub.unsubscribe();
-		this.line(`Attached to session ${bold(session.name ?? session.id)}`);
+		this.line(`Attached to session ${bold(session.name ?? session.id)} ${dim(`(${this.agent})`)}`);
 	}
 
 	private onSessionEvent(frame: EventFrame): void {
@@ -194,6 +231,7 @@ class Cli {
 		switch (event.type) {
 			case "session.snapshot": {
 				const snapshot = event.snapshot as SessionSnapshot;
+				this.agent = runtimeName(snapshot.session.runtime, this.runtimes);
 				this.pendingUi.clear();
 				for (const request of snapshot.pendingUi) this.pendingUi.set(request.id, request);
 				const visible = (snapshot.messages as Array<{ role: string; content: unknown }>).filter(
@@ -202,7 +240,7 @@ class Cli {
 				this.line(dim(`— snapshot: ${visible.length} messages, seq ${snapshot.seq}, ${snapshot.session.state} —`));
 				for (const message of visible.slice(-6)) {
 					const text = textOf(message.content).trim();
-					if (text) this.line(`${message.role === "user" ? bold("you") : bold("pi")}: ${text.slice(0, 500)}`);
+					if (text) this.line(`${message.role === "user" ? bold("you") : bold(this.agent)}: ${text.slice(0, 500)}`);
 				}
 				for (const request of snapshot.pendingUi) this.showUiRequest(request);
 				this.streaming = snapshot.session.state !== "idle";
@@ -216,7 +254,7 @@ class Cli {
 			}
 			case "message_start": {
 				const message = event.message as { role?: string } | undefined;
-				if (message?.role === "assistant") this.line(bold("pi: "));
+				if (message?.role === "assistant") this.line(bold(`${this.agent}: `));
 				break;
 			}
 			case "tool_execution_start": {
@@ -271,6 +309,7 @@ class Cli {
 			case "session.replaced": {
 				const next = event.session as SessionSummary;
 				this.sessionId = next.id;
+				this.agent = runtimeName(next.runtime, this.runtimes);
 				this.line(yellow(`[session replaced → ${next.id}]`));
 				break;
 			}
@@ -350,6 +389,28 @@ class Cli {
 		this.line(dim("Switch with /model <n>, /model <provider>/<id> or /model <id>; Tab completes."));
 	}
 
+	/**
+	 * `/models <agent>`: the models of any agent, `*` marking its default for new sessions in this
+	 * workspace. Not numbered and not remembered, since `/model <n>` switches the attached session.
+	 */
+	private async listAgentModels(ref: string): Promise<void> {
+		const runtime = requireAvailable(resolveRuntime(await this.fetchRuntimes(), ref));
+		const { models, current } = await this.client.request("model.list", {
+			runtime: runtime.id,
+			...(this.workspace ? { workspaceId: this.workspace.id } : {}),
+		});
+		if (!models.length) {
+			this.line(`${runtime.name} reports no models.`);
+			return;
+		}
+		this.line(dim(`${runtime.name} models (* = default for new sessions):`));
+		for (const m of models) {
+			const mark = current && current.provider === m.provider && current.id === m.id ? "*" : " ";
+			this.line(`${mark} ${m.provider}/${m.id} ${dim(m.name)}`);
+		}
+		this.line(dim(`Use them in a session created with /new -a ${runtime.id}, then /model.`));
+	}
+
 	/** Tab completion. Never throws: a failed lookup just offers nothing. */
 	async complete(line: string): Promise<CompleterResult> {
 		const lookup = async <T>(load: () => Promise<T>, fallback: T): Promise<T> => {
@@ -368,6 +429,13 @@ class Cli {
 					async () => (await models()).current?.thinkingLevels ?? ThinkingLevelSchema.options,
 					ThinkingLevelSchema.options,
 				),
+			agents: () =>
+				lookup(async () => {
+					// Fetched at startup and by /agents; ask again only if that failed.
+					if (!this.runtimes.length)
+						this.runtimes = (await this.client.request("runtime.list", {}, { timeoutMs: 3_000 })).runtimes;
+					return this.runtimes.filter((r) => r.available).map((r) => r.id);
+				}, []),
 		});
 	}
 
@@ -421,19 +489,27 @@ class Cli {
 				}
 				break;
 			}
+			case "agents":
+				await this.listAgents();
+				break;
 			case "sessions": {
 				const { sessions } = await this.client.request("session.list", { workspaceId: this.requireWorkspace().id });
 				this.sessions = sessions;
 				for (const [i, s] of sessions.entries()) {
 					const title = s.name ?? (s.firstMessage.slice(0, 60) || dim("(empty)"));
-					this.line(`${i + 1}. ${title} ${dim(`${s.messageCount} msgs · ${s.state} · ${s.modifiedAt}`)}`);
+					const agent = s.runtime && s.runtime !== "pi" ? ` [${runtimeName(s.runtime, this.runtimes)}]` : "";
+					this.line(`${i + 1}. ${title}${agent} ${dim(`${s.messageCount} msgs · ${s.state} · ${s.modifiedAt}`)}`);
 				}
 				break;
 			}
 			case "new": {
+				const { agent, name } = parseNewArgs(arg);
+				const workspaceId = this.requireWorkspace().id;
+				const runtime = agent ? requireAvailable(resolveRuntime(await this.fetchRuntimes(), agent)).id : undefined;
 				const { session } = await this.client.request("session.create", {
-					workspaceId: this.requireWorkspace().id,
-					...(arg ? { name: arg } : {}),
+					workspaceId,
+					...(name ? { name } : {}),
+					...(runtime ? { runtime } : {}),
 				});
 				await this.attach(session);
 				break;
@@ -450,7 +526,7 @@ class Cli {
 			case "status": {
 				const snapshot = await this.client.request("session.snapshot", { sessionId: this.requireSession() });
 				this.line(
-					`${bold(snapshot.session.name ?? snapshot.session.id)} · ${snapshot.session.state} · model ${snapshot.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "none"} · thinking ${snapshot.thinkingLevel} · seq ${snapshot.seq} · pending UI ${snapshot.pendingUi.length}`,
+					`${bold(snapshot.session.name ?? snapshot.session.id)} · ${runtimeName(snapshot.session.runtime, this.runtimes)} · ${snapshot.session.state} · model ${snapshot.model ? `${snapshot.model.provider}/${snapshot.model.id}` : "none"} · thinking ${snapshot.thinkingLevel} · seq ${snapshot.seq} · pending UI ${snapshot.pendingUi.length}`,
 				);
 				break;
 			}
@@ -493,7 +569,8 @@ class Cli {
 				break;
 			}
 			case "models":
-				await this.listModels();
+				if (arg) await this.listAgentModels(arg);
+				else await this.listModels();
 				break;
 			case "model": {
 				if (!arg) {

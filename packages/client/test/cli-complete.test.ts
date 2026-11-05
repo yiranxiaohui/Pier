@@ -11,6 +11,7 @@ const models = [
 const source: CliCompletionSource = {
 	models: async () => models,
 	thinkingLevels: async () => ["off", "low", "medium", "high"],
+	agents: async () => ["pi", "claude-code", "codex"],
 };
 
 describe("completeCliLine", () => {
@@ -72,12 +73,29 @@ describe("completeCliLine", () => {
 				return models;
 			},
 			thinkingLevels: async () => [],
+			agents: async () => [],
 		};
 		await completeCliLine("/mod", counting);
 		await completeCliLine("/ws ", counting);
+		await completeCliLine("/models ", counting);
+		await completeCliLine("/new -a ", counting);
 		expect(loads).toBe(0);
 		await completeCliLine("/model ", counting);
 		expect(loads).toBe(1);
+	});
+
+	it("completes agents for /models and /new -a, and the agent flags of /new", async () => {
+		expect(await completeCliLine("/age", source)).toEqual([["/agents"], "/age"]);
+		expect(await completeCliLine("/models ", source)).toEqual([["pi", "claude-code", "codex"], ""]);
+		expect(await completeCliLine("/models cl", source)).toEqual([["claude-code"], "cl"]);
+		expect(await completeCliLine("/models codex x", source)).toEqual([[], "x"]);
+		expect(await completeCliLine("/new -a ", source)).toEqual([["pi", "claude-code", "codex"], ""]);
+		expect(await completeCliLine("/new --agent co", source)).toEqual([["codex"], "co"]);
+		expect(await completeCliLine("/new --agent=cl", source)).toEqual([["--agent=claude-code"], "--agent=cl"]);
+		expect(await completeCliLine("/new -", source)).toEqual([["-a", "--agent"], "-"]);
+		expect(await completeCliLine("/new --", source)).toEqual([["--agent "], "--"]);
+		expect(await completeCliLine("/new -a codex fix the", source)).toEqual([[], "the"]);
+		expect(await completeCliLine("/new -a codex -", source)).toEqual([[], "-"]);
 	});
 });
 
