@@ -279,7 +279,7 @@ jobs:
         run: node packages/host/scripts/build-host-release.mjs --arch ${{ matrix.arch }} --desktop desktop/pier-${{ github.ref_name }}-linux-${{ matrix.arch }}.AppImage
       - name: Smoke test without a desktop
         run: |
-          bash -n scripts/install-host.sh scripts/host-manager.sh
+          bash -n scripts/install.sh scripts/install-host.sh scripts/host-manager.sh
           mkdir single-file
           cp dist/pier-v*-linux-${{ matrix.arch }} single-file/pier
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier "${{ needs.verify.outputs.version }}" --standalone
