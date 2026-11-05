@@ -1844,10 +1844,16 @@ async function main(): Promise<void> {
 		});
 	}
 	rl.on("close", () => {
-		closing = true;
-		cli.exit();
-		view.close();
+		const finish = () => {
+			closing = true;
+			cli.exit();
+			view.close();
+		};
+		// Ctrl+C, Ctrl+D and /quit end the CLI right away. Piped input arrives with its end before
+		// the CLI has connected, so the commands queued before the end still run first.
+		if (interactive) finish();
 		void queue.finally(() => {
+			finish();
 			client.close();
 			void exitCli(0);
 		});
