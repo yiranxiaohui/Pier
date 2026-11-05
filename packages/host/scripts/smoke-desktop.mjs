@@ -80,9 +80,15 @@ try {
 		client: { name: "smoke", version: "0" },
 	});
 	if (!hello.host.terminals) throw new Error("The GUI did not provide desktop terminal support");
-	const status = await request("update.status");
-	if (status.state !== "unsupported" || !status.error?.includes("pier update"))
-		throw new Error("Portable update guidance missing");
+	// The Host answers before the desktop shell has sent its updater status; until then it
+	// reports a bare "unsupported" without the portable guidance, so wait for the shell's.
+	const portableGuidance = (status) => status.state === "unsupported" && status.error?.includes("pier update");
+	let status = await request("update.status");
+	while (Date.now() < deadline && !portableGuidance(status)) {
+		await delay(100);
+		status = await request("update.status");
+	}
+	if (!portableGuidance(status)) throw new Error("Portable update guidance missing");
 	let windowFound = false;
 	while (Date.now() < deadline && !windowFound) {
 		windowFound = /"Pier"/.test(execFileSync("xwininfo", ["-root", "-tree"], { encoding: "utf8" }));
