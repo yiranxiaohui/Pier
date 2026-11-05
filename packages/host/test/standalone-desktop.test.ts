@@ -20,6 +20,17 @@ describe("unified Pier launch mode", () => {
 		expect(launchMode(["--autostart"], { DISPLAY: ":0" }, true)).toBe("desktop");
 		expect(launchMode([], { DISPLAY: ":0" }, false)).toBe("host");
 	});
+	it("opens the CLI for a bare pier typed in a terminal without a graphical desktop", () => {
+		expect(launchMode([], {}, true, true)).toBe("cli");
+		expect(launchMode([], { DISPLAY: " " }, true, true)).toBe("cli");
+		expect(launchMode([], { DISPLAY: ":0" }, false, true)).toBe("cli");
+		// The desktop still wins where it can open, and explicit commands keep their meaning.
+		expect(launchMode([], { DISPLAY: ":0" }, true, true)).toBe("desktop");
+		expect(launchMode(["run"], {}, true, true)).toBe("host");
+		expect(launchMode(["--no-mdns"], {}, true, true)).toBe("host");
+		expect(launchMode(["--autostart"], {}, true, true)).toBe("host");
+		expect(launchMode(["desktop"], {}, true, true)).toBe("desktop");
+	});
 	it.each([
 		"run",
 		"--headless",

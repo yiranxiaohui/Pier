@@ -4,6 +4,7 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## 未发布
 
+- **终端中直接运行 `pier` 打开 CLI**：在终端（例如 SSH 登录服务器）中不带参数运行 `pier` 时打开 CLI，不再在前台启动服务，也无需另外输入 `pier cli`。CLI 连接同一状态目录中正在运行的 Pier（已安装的服务、桌面版或 `pier run`），不会再启动第二个服务而与它争用远程访问端口；没有运行中的服务时，在后台为这个终端启动一个，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。有图形桌面时仍打开界面；脚本、`nohup` 等不在终端中运行时仍运行服务；`pier cli` 仍只连接已运行的服务。
 - **`pier cli` 补全会话、工作区和目录**：`/open`、`/ws use`、`/revoke`、`/fork`、`/answer` 按 Tab 补全会话、工作区、设备、分叉点和选项的编号，唯一匹配时直接补全，连按两次 Tab 列出编号和标题（会话附带 Agent、状态和消息数）；编号与随后执行的命令一致，`/open <编号>` 不必先执行 `/sessions`。`/ws add` 按 Tab 补全 Host 上的目录（连接其他电脑时补全那台电脑的目录），留空时补全为家目录，`.` 开头才显示隐藏目录；路径可写 `~` / `~/…`，代表 Host 的家目录。`/open`、`/ws use`、`/revoke` 不带参数时用 ↑/↓ 选择，Esc 取消；输入来自管道时改为列出编号。切换工作区后，`/open <编号>` 按新工作区的会话编号，不再沿用上一个工作区的列表。
 - **`pier` 命令的 bash 补全**：`pier completion bash` 输出补全脚本，补全子命令和它们的选项，`--pier-dir`、`--agent-dir` 后补全目录；执行 `source <(pier completion bash)`，或写入 `~/.bashrc` 后启用。
 - **`pier cli` 选择 Agent**：新增 `/agents`，列出这台电脑上的 pi、Claude Code、Codex 及其版本，不可用时说明原因；`/new -a <agent> [名称]`（或 `--agent`）新建 Claude Code / Codex 会话，可以填编号、id、名称或唯一前缀（例如 `/new -a claude`），不指定时仍为 pi。`/models <agent>` 列出该 Agent 的模型（`*` 为它在当前工作区的默认模型）。`/new -a`、`/models` 后按 Tab 补全可用的 Agent。`/sessions` 为 Claude Code / Codex 会话加上标记，`/status` 显示会话的 Agent，回复前缀改为实际的 Agent 名称；连接时提示可用的 Agent。

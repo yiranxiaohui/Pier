@@ -1,5 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { beforeCliExit, exitCli } from "../../../client/src/cli-exit.ts";
+import { hostRunning, startCliHost } from "./cli-host.ts";
 import { shellCompletion } from "./completion.ts";
 import { type DesktopImage, launchDesktop } from "./desktop.ts";
 import { launchMode } from "./mode.ts";
@@ -21,7 +23,7 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 	}
 	if (command === "--help" || command === "-h" || command === "help") {
 		console.log(
-			`pier ${version}\n\nUsage: pier                         Auto-select desktop or headless mode\n       pier desktop                 Open the graphical interface\n       pier run [host options]      Run without a graphical interface\n       pier cli [CLI options]\n       pier install [--user|--system] [--no-start]\n       pier {start|stop|restart|status|logs}\n       pier update [--version vX.Y.Z] [--no-start]\n       pier uninstall [--purge]\n       pier completion [bash]       Print shell completion: source <(pier completion bash)\n\nRun directly from this one executable. No installation or shell script is required.\ninstall adds a systemd service and pier command; uninstall keeps data by default.\nUse run --help for Host options, or cli --help for pairing commands.`,
+			`pier ${version}\n\nUsage: pier                         Open the desktop, or the CLI in a terminal\n       pier desktop                 Open the graphical interface\n       pier run [host options]      Run without a graphical interface\n       pier cli [CLI options]       Attach the CLI to a running Host\n       pier install [--user|--system] [--no-start]\n       pier {start|stop|restart|status|logs}\n       pier update [--version vX.Y.Z] [--no-start]\n       pier uninstall [--purge]\n       pier completion [bash]       Print shell completion: source <(pier completion bash)\n\nRun directly from this one executable. No installation or shell script is required.\nIn a terminal, pier opens the CLI on the running Host, or starts one until you quit.\ninstall adds a systemd service and pier command; uninstall keeps data by default.\nUse run --help for Host options, or cli --help for pairing commands.`,
 		);
 		return;
 	}
@@ -55,7 +57,12 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 	const stateArgument =
 		stateIndex >= 0 ? hostArgs[stateIndex + 1] : hostArgs.find((arg) => arg.startsWith("--pier-dir="))?.slice(11);
 	const stateDir = resolve(stateArgument ?? process.env.PIER_DIR ?? join(homedir(), ".pier"));
-	if (launchMode(args, process.env, !!desktop) === "desktop") {
+	const mode = launchMode(args, process.env, !!desktop, !!(process.stdin.isTTY && process.stdout.isTTY));
+	if (mode === "cli") {
+		await openCli(stateDir, installed !== undefined);
+		return;
+	}
+	if (mode === "desktop") {
 		if (!desktop) throw new Error("This legacy build has no desktop. Download the pier single-file release");
 		if (!process.env.DISPLAY?.trim() && !process.env.WAYLAND_DISPLAY?.trim())
 			throw new Error("No graphical display available. Use pier run on this computer");
@@ -69,4 +76,42 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 	standaloneExecutable.path = process.execPath;
 	standaloneExecutable.version = version;
 	await import("../main.ts");
+}
+
+const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
+const red = (text: string) => `\x1b[31m${text}\x1b[0m`;
+
+/**
+ * A bare `pier` in a terminal: the CLI on the Host running with this state directory, or on a
+ * Host started for this terminal that stops when the CLI exits.
+ */
+async function openCli(stateDir: string, installed: boolean): Promise<void> {
+	process.env.PIER_DIR = stateDir;
+	if (!(await hostRunning(stateDir))) {
+		// Quitting while the Host starts stops it too: exiting signals it (see startCliHost).
+		process.once("SIGINT", () => void exitCli(130));
+		process.once("SIGTERM", () => void exitCli(143));
+		// The terminal is gone: nobody waits for the Host's shutdown or reads its messages.
+		process.once("SIGHUP", () => process.exit(129));
+		console.log(dim("No Pier Host is running; starting one for this terminal…"));
+		let stopped = false;
+		const host = await startCliHost(process.execPath, stateDir, {
+			onUnexpectedExit: (code, signal, log) => {
+				stopped = true;
+				process.stdout.write(`\r\x1b[K${red(`The Pier Host stopped (${signal ?? `code ${code}`}); log: ${log}`)}\n`);
+				void exitCli(1);
+			},
+		});
+		beforeCliExit(async () => {
+			if (stopped) return;
+			process.stdout.write(`${dim("Stopping the Pier Host…")}\n`);
+			await host.stop();
+		});
+		console.log(
+			dim(
+				`It stops when you quit; log: ${host.log}. To keep Pier running in the background, use ${installed ? "pier start" : "pier install (a service) or pier run"}.`,
+			),
+		);
+	}
+	await import("../../../client/src/cli.ts");
 }

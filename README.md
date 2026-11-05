@@ -17,7 +17,7 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 
 ## 下载与启动
 
-从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的 **Pier**。Windows / macOS 使用安装包；Linux 推荐 `pier-v<版本>-linux-x64` 或 `pier-v<版本>-linux-arm64` 单文件，改名为 `pier`，执行 `chmod +x pier` 后运行 `./pier`：有图形桌面会打开界面，无图形桌面会启动服务。详细命令见下方“Linux 单文件：桌面与服务器共用”。
+从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的 **Pier**。Windows / macOS 使用安装包；Linux 推荐 `pier-v<版本>-linux-x64` 或 `pier-v<版本>-linux-arm64` 单文件，改名为 `pier`，执行 `chmod +x pier` 后运行 `./pier`：有图形桌面会打开界面，在终端（例如 SSH 登录）中打开 CLI，并在没有运行中的服务时临时启动一个。详细命令见下方“Linux 单文件：桌面与服务器共用”。
 
 ## 界面预览
 
@@ -288,18 +288,17 @@ bun run --cwd apps/mobile web                 # 在浏览器中“添加电脑 �
 
 ### Linux 单文件：桌面与服务器共用
 
-Linux x86_64 / arm64 使用同一个 `pier` 单文件，包含桌面界面、后台服务和 CLI。启动时检测 `DISPLAY` / `WAYLAND_DISPLAY`：有图形桌面就打开 Pier 界面，没有图形桌面就运行服务。从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-v<版本>-linux-x64` 或 `pier-v<版本>-linux-arm64`，改名为 `pier` 后直接运行：
+Linux x86_64 / arm64 使用同一个 `pier` 单文件，包含桌面界面、后台服务和 CLI。不带参数运行时检测 `DISPLAY` / `WAYLAND_DISPLAY`：有图形桌面就打开 Pier 界面；没有图形桌面时，在终端中打开 CLI，不在终端中（脚本、`nohup`）则运行服务。从 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 下载 `pier-v<版本>-linux-x64` 或 `pier-v<版本>-linux-arm64`，改名为 `pier` 后直接运行：
 
 ```bash
 chmod +x pier
-./pier                    # 自动选择图形界面或服务
+./pier                    # 图形桌面打开界面；终端中打开 CLI
 ./pier desktop            # 显式打开界面（也支持 --desktop）
 ./pier run                # 显式运行服务（也支持 --headless）
-# 服务运行时另开终端，使用同一个文件配对：
-./pier cli
+./pier cli                # 只连接正在运行的服务，不会启动服务
 ```
 
-在 CLI 中依次输入 `/remote on`、`/pair`；客户端粘贴链接后输入 `/pair yes`。单文件包含运行时、CLI、pi 资源、Photon WASM 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
+在终端中直接运行 `pier` 时，CLI 连接同一状态目录中正在运行的服务（`pier install` 安装的服务、桌面版或 `pier run`）；没有时在后台为这个终端启动一个服务，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。需要退出终端后继续运行时，使用 `pier install` 或 `pier run`。在 CLI 中依次输入 `/remote on`、`/pair`；客户端粘贴链接后输入 `/pair yes`。单文件包含运行时、CLI、pi 资源、Photon WASM 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
 
 需要后台服务、开机启动和命令行更新时，让二进制自己安装。`install` 安装的是无界面的服务；平时使用桌面界面无需执行：
 
@@ -314,7 +313,7 @@ chmod +x pier
 ```bash
 pier status                   # 服务状态
 pier logs                     # 实时日志
-pier cli                      # 配置工作区、远程访问和配对
+pier                          # 打开 CLI：配置工作区、远程访问和配对（同 pier cli）
 # 在 CLI 中依次输入 /remote on、/pair；客户端粘贴链接后输入 /pair yes
 pier update                   # 更新到最新正式版
 pier stop                     # 停止服务

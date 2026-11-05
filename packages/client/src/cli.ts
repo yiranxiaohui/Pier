@@ -28,6 +28,7 @@ import {
 } from "@pier/protocol";
 import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
 import { completeCliLine, matchModel, oneLine } from "./cli-complete.ts";
+import { exitCli } from "./cli-exit.ts";
 import { type PickerOptions, runTerminalPicker } from "./cli-picker.ts";
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
@@ -92,7 +93,7 @@ function discover(values: { url?: string; token?: string; "pier-dir"?: string })
 		const runtime = JSON.parse(readFileSync(file, "utf8")) as { url: string; token: string };
 		return { url: runtime.url, token: token ?? runtime.token };
 	} catch {
-		throw new Error(`No running host found (${file}). Start pier-host or pass --url/--token.`);
+		throw new Error(`No running host found (${file}). Start one with pier run, or pass --url/--token.`);
 	}
 }
 
@@ -986,7 +987,7 @@ async function main(): Promise<void> {
 		inputClosed = true;
 		void queue.finally(() => {
 			client.close();
-			process.exit(0);
+			void exitCli(0);
 		});
 	});
 }
@@ -1007,10 +1008,10 @@ async function sshPair(client: PierClient): Promise<void> {
 		controller.signal,
 	);
 	client.close();
-	process.exit(output.type === "done" ? 0 : 1);
+	await exitCli(output.type === "done" ? 0 : 1);
 }
 
 main().catch((error: unknown) => {
 	console.error(red(`pier cli: ${error instanceof Error ? error.message : String(error)}`));
-	process.exit(1);
+	void exitCli(1);
 });
