@@ -206,9 +206,10 @@ bun run pier-cli
 > /ws add /path/to/project
 > /new
 > 列出当前目录的文件
+> /model            # 列出可用模型（带编号，* 为当前模型），再用 /model <编号|provider/id|id> 切换
 > /allow            # 响应审批请求；/deny <理由>、/allow session
 > /drop             # 模拟断线，验证重连补发
-> /help
+> /help             # 按 Tab 补全命令、模型、思考等级和子命令
 ```
 
 ### 桌面端

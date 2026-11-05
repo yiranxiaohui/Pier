@@ -8,20 +8,24 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
+import { type CompleterResult, createInterface } from "node:readline";
 import { parseArgs } from "node:util";
-import type {
-	DeviceInfo,
-	EventFrame,
-	PairingRequest,
-	RemoteAccessStatus,
-	SessionSnapshot,
-	SessionSummary,
-	ThinkingLevel,
-	UiRequest,
-	UiResponse,
-	WorkspaceInfo,
+import {
+	type DeviceInfo,
+	type EventFrame,
+	type MethodResult,
+	type ModelInfo,
+	type PairingRequest,
+	type RemoteAccessStatus,
+	type SessionSnapshot,
+	type SessionSummary,
+	type ThinkingLevel,
+	ThinkingLevelSchema,
+	type UiRequest,
+	type UiResponse,
+	type WorkspaceInfo,
 } from "@pier/protocol";
+import { completeCliLine, matchModel } from "./cli-complete.ts";
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
 
@@ -42,9 +46,9 @@ const HELP = `Commands:
   /follow <text>             queue a follow-up
   /abort                     abort the current run
   /compact [instructions]    compact the context
-  /models                    list available models
-  /model <provider>/<id>     switch model
-  /thinking <level>          set thinking level
+  /models, /model            list available models (numbered, * = current)
+  /model <n|provider/id|id>  switch model (a unique part of the id or name also works)
+  /thinking [level]          show or set the thinking level
   /allow [session]           approve the oldest pending approval (once / for session)
   /deny [reason]             deny the oldest pending approval
   /yes, /no                  answer a pending confirm
@@ -57,7 +61,8 @@ const HELP = `Commands:
   /revoke <n|id>             revoke a paired device (disconnects it immediately)
   /drop                      simulate a network drop (tests reconnect + resume)
   /quit                      exit
-Anything else is sent as a prompt (as a follow-up while the agent is running).`;
+Anything else is sent as a prompt (as a follow-up while the agent is running).
+Press Tab to complete commands, models, thinking levels and options.`;
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -107,6 +112,9 @@ class Cli {
 	private midLine = false;
 	private devices: DeviceInfo[] = [];
 	private readonly pairingRequests = new Map<string, PairingRequest>();
+	private modelCache: { sessionId: string | undefined; at: number; result: MethodResult<"model.list"> } | undefined;
+	/** The last numbered model listing, which `/model <n>` refers to. */
+	private listedModels: ModelInfo[] = [];
 
 	constructor(
 		private readonly client: PierClient,
@@ -170,6 +178,9 @@ class Cli {
 		await this.unsubscribe?.();
 		this.pendingUi.clear();
 		this.sessionId = session.id;
+		// Each runtime has its own models; drop the listing of the previous session.
+		this.modelCache = undefined;
+		this.listedModels = [];
 		const sub = await this.client.subscribe(session.id, (frame) => this.onSessionEvent(frame), {
 			workspaceId: session.workspaceId,
 		});
@@ -310,6 +321,56 @@ class Cli {
 		return item;
 	}
 
+	/** `model.list` for the attached session, reused for `maxAgeMs`. */
+	private async fetchModels(maxAgeMs = 0, timeoutMs?: number): Promise<MethodResult<"model.list">> {
+		const sessionId = this.sessionId;
+		const cached = this.modelCache;
+		if (cached && cached.sessionId === sessionId && Date.now() - cached.at <= maxAgeMs) return cached.result;
+		const result = await this.client.request(
+			"model.list",
+			sessionId ? { sessionId } : {},
+			timeoutMs ? { timeoutMs } : undefined,
+		);
+		this.modelCache = { sessionId, at: Date.now(), result };
+		return result;
+	}
+
+	private async listModels(): Promise<void> {
+		const { models, current } = await this.fetchModels();
+		this.listedModels = models;
+		if (!models.length) {
+			this.line("No models available. Sign in to a provider first.");
+			return;
+		}
+		const width = String(models.length).length;
+		for (const [i, m] of models.entries()) {
+			const mark = current && current.provider === m.provider && current.id === m.id ? "*" : " ";
+			this.line(`${String(i + 1).padStart(width)}. ${mark} ${m.provider}/${m.id} ${dim(m.name)}`);
+		}
+		this.line(dim("Switch with /model <n>, /model <provider>/<id> or /model <id>; Tab completes."));
+	}
+
+	/** Tab completion. Never throws: a failed lookup just offers nothing. */
+	async complete(line: string): Promise<CompleterResult> {
+		const lookup = async <T>(load: () => Promise<T>, fallback: T): Promise<T> => {
+			try {
+				return await load();
+			} catch {
+				return fallback;
+			}
+		};
+		// readline stops reading keys until completion returns, so keep lookups short.
+		const models = () => this.fetchModels(30_000, 3_000);
+		return completeCliLine(line, {
+			models: () => lookup(async () => (await models()).models, []),
+			thinkingLevels: () =>
+				lookup(
+					async () => (await models()).current?.thinkingLevels ?? ThinkingLevelSchema.options,
+					ThinkingLevelSchema.options,
+				),
+		});
+	}
+
 	async handle(input: string): Promise<boolean> {
 		const trimmed = input.trim();
 		if (!trimmed) return true;
@@ -431,33 +492,46 @@ class Cli {
 				this.line(dim(`[compacted from ${result.tokensBefore} tokens]`));
 				break;
 			}
-			case "models": {
-				const { models, current } = await this.client.request(
-					"model.list",
-					this.sessionId ? { sessionId: this.sessionId } : {},
-				);
-				for (const m of models) {
-					const mark = current && current.provider === m.provider && current.id === m.id ? "*" : " ";
-					this.line(`${mark} ${m.provider}/${m.id} ${dim(m.name)}`);
-				}
+			case "models":
+				await this.listModels();
 				break;
-			}
 			case "model": {
-				const slash = arg.indexOf("/");
-				if (slash <= 0) throw new Error("Usage: /model <provider>/<id>");
-				const { model } = await this.client.request("model.set", {
-					sessionId: this.requireSession(),
-					provider: arg.slice(0, slash),
-					modelId: arg.slice(slash + 1),
-				});
+				if (!arg) {
+					await this.listModels();
+					break;
+				}
+				const sessionId = this.requireSession();
+				const numbered = /^\d+$/.test(arg);
+				const models = numbered && this.listedModels.length ? this.listedModels : (await this.fetchModels()).models;
+				const match = matchModel(models, arg);
+				let provider: string;
+				let modelId: string;
+				if ("model" in match) ({ provider, id: modelId } = match.model);
+				else {
+					// Not in the listing: still let the host decide on an explicit provider/id.
+					const slash = arg.indexOf("/");
+					if (!match.none || slash <= 0) throw new Error(match.error);
+					provider = arg.slice(0, slash);
+					modelId = arg.slice(slash + 1);
+				}
+				const { model } = await this.client.request("model.set", { sessionId, provider, modelId });
+				this.modelCache = undefined;
 				this.line(`Model: ${model.provider}/${model.id}`);
 				break;
 			}
 			case "thinking": {
+				if (!arg) {
+					this.requireSession();
+					const { current, thinkingLevel } = await this.fetchModels();
+					const levels = current?.thinkingLevels ?? ThinkingLevelSchema.options;
+					this.line(`Thinking: ${thinkingLevel ?? "unknown"} ${dim(`(available: ${levels.join(", ")})`)}`);
+					break;
+				}
 				const { level } = await this.client.request("thinking.set", {
 					sessionId: this.requireSession(),
 					level: arg as ThinkingLevel,
 				});
+				this.modelCache = undefined;
 				this.line(`Thinking: ${level}`);
 				break;
 			}
@@ -576,15 +650,22 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
-	let inputClosed = false;
-	const prompt = (preserveCursor = false) => {
-		if (!inputClosed) rl.prompt(preserveCursor);
-	};
 	const cli = new Cli(client, (line) => {
 		process.stdout.write(`\r\x1b[K${line}\n`);
 		prompt(true);
 	});
+	const rl = createInterface({
+		input: process.stdin,
+		output: process.stdout,
+		prompt: "> ",
+		completer: (line: string, callback: (error: Error | null, result: CompleterResult) => void) => {
+			void cli.complete(line).then((result) => callback(null, result));
+		},
+	});
+	let inputClosed = false;
+	const prompt = (preserveCursor = false) => {
+		if (!inputClosed) rl.prompt(preserveCursor);
+	};
 	// Attach the line handler before any await so early (piped) input is not lost, and
 	// handle lines strictly in order.
 	let queue: Promise<unknown> = cli.init().then(() => prompt());
