@@ -206,7 +206,7 @@ bun run pier-cli
 > /ws add /path/to/project
 > /new
 > 列出当前目录的文件
-> /model            # 列出可用模型（带编号，* 为当前模型），再用 /model <编号|provider/id|id> 切换
+> /model            # 用 ↑/↓ 选择模型、Enter 切换（可输入文字筛选，Esc 取消）；也可 /model <provider/id|id>
 > /agents           # 列出这台电脑上的 Agent（pi、Claude Code、Codex）及版本、是否可用
 > /new -a claude    # 新建 Claude Code 会话（-a / --agent 接编号、id、名称或唯一前缀，默认 pi）
 > /models codex     # 列出某个 Agent 的模型（* 为它在当前工作区的默认模型）

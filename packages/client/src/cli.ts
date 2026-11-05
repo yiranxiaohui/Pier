@@ -28,6 +28,7 @@ import {
 } from "@pier/protocol";
 import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
 import { completeCliLine, matchModel } from "./cli-complete.ts";
+import { type PickerOptions, runTerminalPicker } from "./cli-picker.ts";
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
 
@@ -49,10 +50,11 @@ const HELP = `Commands:
   /follow <text>             queue a follow-up
   /abort                     abort the current run
   /compact [instructions]    compact the context
-  /models, /model            list available models (numbered, * = current)
+  /models                    list available models (numbered, * = current)
   /models <agent>            list the models of another agent (see /agents)
-  /model <n|provider/id|id>  switch model (a unique part of the id or name also works)
-  /thinking [level]          show or set the thinking level
+  /model                     pick a model with ↑/↓ and Enter (type to filter, Esc cancels)
+  /model <n|provider/id|id>  switch model directly (a unique part of the id or name also works)
+  /thinking [level]          pick or set the thinking level
   /allow [session]           approve the oldest pending approval (once / for session)
   /deny [reason]             deny the oldest pending approval
   /yes, /no                  answer a pending confirm
@@ -124,17 +126,43 @@ class Cli {
 	/** Display name of the attached session's agent, shown before its messages. */
 	private agent = "pi";
 
+	/** Output that arrived while a picker was open, written once it closes. */
+	private held: Array<() => void> | undefined;
+
 	constructor(
 		private readonly client: PierClient,
 		private readonly print: (line: string) => void,
+		/** Arrow-key picker; absent when stdin or stdout is not a terminal. */
+		private readonly picker?: <T>(options: PickerOptions<T>) => Promise<T | undefined>,
 	) {}
 
+	/** Let the user pick with the arrow keys, keeping other output from breaking the list. */
+	private async choose<T>(options: PickerOptions<T>): Promise<T | undefined> {
+		if (!this.picker) return undefined;
+		this.held = [];
+		try {
+			return await this.picker(options);
+		} finally {
+			const held = this.held;
+			this.held = undefined;
+			for (const flush of held) flush();
+		}
+	}
+
 	private write(text: string): void {
+		if (this.held) {
+			this.held.push(() => this.write(text));
+			return;
+		}
 		process.stdout.write(text);
 		this.midLine = !text.endsWith("\n");
 	}
 
 	private line(text: string): void {
+		if (this.held) {
+			this.held.push(() => this.line(text));
+			return;
+		}
 		if (this.midLine) process.stdout.write("\n");
 		this.midLine = false;
 		this.print(text);
@@ -574,7 +602,37 @@ class Cli {
 				break;
 			case "model": {
 				if (!arg) {
-					await this.listModels();
+					// Without a session (nothing to switch) or a terminal, list them instead.
+					if (!this.picker || !this.sessionId) {
+						await this.listModels();
+						break;
+					}
+					const sessionId = this.sessionId;
+					const { models, current } = await this.fetchModels();
+					if (!models.length) {
+						this.line("No models available. Sign in to a provider first.");
+						break;
+					}
+					const picked = await this.choose({
+						title: "Select a model",
+						items: models.map((m) => ({
+							label: `${m.provider}/${m.id}`,
+							detail: m.name,
+							current: current?.provider === m.provider && current.id === m.id,
+							value: m,
+						})),
+					});
+					if (!picked) {
+						this.line(dim("Model unchanged."));
+						break;
+					}
+					const { model } = await this.client.request("model.set", {
+						sessionId,
+						provider: picked.provider,
+						modelId: picked.id,
+					});
+					this.modelCache = undefined;
+					this.line(`Model: ${model.provider}/${model.id}`);
 					break;
 				}
 				const sessionId = this.requireSession();
@@ -597,17 +655,22 @@ class Cli {
 				break;
 			}
 			case "thinking": {
+				const sessionId = this.requireSession();
+				let target = arg as ThinkingLevel;
 				if (!arg) {
-					this.requireSession();
 					const { current, thinkingLevel } = await this.fetchModels();
 					const levels = current?.thinkingLevels ?? ThinkingLevelSchema.options;
-					this.line(`Thinking: ${thinkingLevel ?? "unknown"} ${dim(`(available: ${levels.join(", ")})`)}`);
-					break;
+					const picked = await this.choose({
+						title: `Thinking level${current ? ` for ${current.provider}/${current.id}` : ""}`,
+						items: levels.map((level) => ({ label: level, current: level === thinkingLevel, value: level })),
+					});
+					if (!picked) {
+						this.line(`Thinking: ${thinkingLevel ?? "unknown"} ${dim(`(available: ${levels.join(", ")})`)}`);
+						break;
+					}
+					target = picked;
 				}
-				const { level } = await this.client.request("thinking.set", {
-					sessionId: this.requireSession(),
-					level: arg as ThinkingLevel,
-				});
+				const { level } = await this.client.request("thinking.set", { sessionId, level: target });
 				this.modelCache = undefined;
 				this.line(`Thinking: ${level}`);
 				break;
@@ -727,14 +790,21 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const cli = new Cli(client, (line) => {
-		process.stdout.write(`\r\x1b[K${line}\n`);
-		prompt(true);
-	});
+	const terminal = process.stdin.isTTY && process.stdout.isTTY;
+	const cli = new Cli(
+		client,
+		(line) => {
+			process.stdout.write(`\r\x1b[K${line}\n`);
+			prompt(true);
+		},
+		terminal ? (options) => runTerminalPicker(process.stdin, process.stdout, options) : undefined,
+	);
 	const rl = createInterface({
 		input: process.stdin,
 		output: process.stdout,
 		prompt: "> ",
+		// A lone Esc closes the picker; don't wait the default 500 ms for a longer sequence.
+		escapeCodeTimeout: 100,
 		completer: (line: string, callback: (error: Error | null, result: CompleterResult) => void) => {
 			void cli.complete(line).then((result) => callback(null, result));
 		},

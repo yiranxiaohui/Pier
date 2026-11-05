@@ -6,7 +6,7 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 - **`pier cli` 选择 Agent**：新增 `/agents`，列出这台电脑上的 pi、Claude Code、Codex 及其版本，不可用时说明原因；`/new -a <agent> [名称]`（或 `--agent`）新建 Claude Code / Codex 会话，可以填编号、id、名称或唯一前缀（例如 `/new -a claude`），不指定时仍为 pi。`/models <agent>` 列出该 Agent 的模型（`*` 为它在当前工作区的默认模型）。`/new -a`、`/models` 后按 Tab 补全可用的 Agent。`/sessions` 为 Claude Code / Codex 会话加上标记，`/status` 显示会话的 Agent，回复前缀改为实际的 Agent 名称；连接时提示可用的 Agent。
 - **Agent 安装显示下载进度**：「Agent 配置 → 安装与更新」安装或更新 Claude Code / Codex 时显示进度条、已下载 / 总大小、下载速度和预计剩余时间，按钮同步显示「正在下载 45%」；获取版本、校验和安装阶段显示进行中的动画。服务器未提供文件大小时显示已下载量和速度。无需升级目标电脑的 Pier。
-- **`pier cli` 补全与选择模型**：按 Tab 补全斜杠命令；`/model` 补全 `provider/id` 或模型 id，`/thinking` 补全当前模型支持的思考等级，`/ws`、`/remote`、`/pair`、`/allow` 补全子命令和选项。`/model` 不带参数时列出带编号的可用模型（`*` 标记当前模型），`/model <编号>`、`/model <provider>/<id>`、模型 id 或名称，以及只在一个模型中出现的片段都可以切换；有多个模型同名时提示改写为 `provider/id`。`/thinking` 不带参数时显示当前等级和可选等级。
+- **`pier cli` 补全与选择模型**：`/model` 不带参数时打开模型列表，用 ↑/↓ 选择、Enter 切换、Esc 取消，直接输入文字可筛选，光标初始停在当前模型上（`✓` 标记）；`/thinking` 不带参数时同样用方向键选择思考等级。按 Tab 补全斜杠命令；`/model` 补全 `provider/id` 或模型 id，`/thinking` 补全当前模型支持的思考等级，`/ws`、`/remote`、`/pair`、`/allow` 补全子命令和选项。也可以直接写 `/model <编号>`（对应 `/models` 列表）、`/model <provider>/<id>`、模型 id 或名称，以及只在一个模型中出现的片段；有多个模型同名时提示改写为 `provider/id`。输入来自管道或未连接会话时，`/model` 改为列出带编号的模型。
 - **清理会话显示进度**：「清理会话」批量删除或归档时，在对话框中显示进度条和「已处理 / 总数」，按钮同步显示进度；处理期间选项被锁定，关闭窗口不会中断，完成后照常提示结果。删除大量会话时不再因 60 秒请求超时而误报失败。实时进度需要目标电脑的 Pier 升级到本版（协议 1.52），旧版只显示进行中的动画。
 - **精简 Linux 下载**：Release 不再附带旧名 `pier-host-*` 兼容单文件和 `.tar.gz` 压缩包，每个版本少约 585 MB；Linux 只需下载 `pier-v<版本>-linux-<架构>`。v0.2.56 及更早的单文件安装先运行一次 `pier-host update --version v0.2.57`，之后即可照常 `update`。通过脚本安装的压缩包版本最多更新到 v0.2.57，`pier-host update` 遇到新版本时会提示留在 v0.2.57，或给出改用单文件的命令（保留数据和配对）。
 
