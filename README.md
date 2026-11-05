@@ -57,7 +57,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 
 | 参数 | 说明 |
 |---|---|
-| `--version v0.2.58` | 安装指定版本，默认为最新正式版 |
+| `--version v0.2.59` | 安装指定版本，默认为最新正式版 |
 | `--service` / `--portable` | 安装后台服务和 `pier` 命令 / 只安装 `pier` 命令 |
 | `--user` / `--system` | 服务范围，默认普通账号为用户服务、root 为系统服务 |
 | `--no-start` | 安装服务但不启动 |
@@ -79,7 +79,7 @@ pier uninstall        # 卸载服务和程序，保留 ~/.pier（--purge 一并�
 
 ### 安装包
 
-从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的文件（`<版本>` 形如 `0.2.58`，可用 Release 中的 `SHA256SUMS.txt` 核对）：
+从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的文件（`<版本>` 形如 `0.2.59`，可用 Release 中的 `SHA256SUMS.txt` 核对）：
 
 | 平台 | 文件 | 说明 |
 |---|---|---|

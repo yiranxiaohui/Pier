@@ -4,7 +4,7 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## 未发布
 
-## v0.2.58 — 2026-11-05
+## v0.2.59 — 2026-11-05
 
 - **Linux 一键安装脚本**：执行 `curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash` 即可安装 Pier：脚本下载最新的 `pier` 单文件，按 Release 的 `SHA256SUMS.txt` 校验并核对版本后，用 `pier install` 安装为后台服务和 `pier` 命令（普通账号为用户服务，并在无需密码时开启 linger；root 为系统服务）。有图形桌面时默认只安装 `pier` 命令，避免与桌面窗口争用状态目录，`--service` 可改为安装服务；没有 systemd 时只安装、不启动。再次执行即更新，已是最新版时不再下载。下载线路默认自动选择：GitHub 直连足够快时直接使用，否则测速 GHFast / GH-Proxy / GHProxy 加速线路并从最快的开始；线路断开或连续 20 秒低于 100 KB/s 时自动换下一条，在终端中按 `s` 也可以随时切换，换线路后从已下载的位置接着下载。`--mirror github|ghfast|gh-proxy|ghproxy|<https 前缀>` 固定线路；校验和始终优先从 GitHub 获取。还支持 `--version` 指定版本、`--no-start` 与 `--force`；curl 不可用时改用 wget。检测到旧版 `install-host.sh` 的安装时，提示先执行 `pier-host uninstall`（保留数据和配对）。
 - **README 重新整理**：首页只保留特性、安装（一键脚本与各平台安装包）、快速上手和界面预览；功能细节移到使用指南 `docs/guide.md`，项目结构、本地开发、构建与发版移到开发指南 `docs/development.md`。
@@ -18,6 +18,10 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 - **清理会话显示进度**：「清理会话」批量删除或归档时，在对话框中显示进度条和「已处理 / 总数」，按钮同步显示进度；处理期间选项被锁定，关闭窗口不会中断，完成后照常提示结果。删除大量会话时不再因 60 秒请求超时而误报失败。实时进度需要目标电脑的 Pier 升级到本版（协议 1.52），旧版只显示进行中的动画。
 - **精简 Linux 下载**：Release 不再附带旧名 `pier-host-*` 兼容单文件和 `.tar.gz` 压缩包，每个版本少约 585 MB；Linux 只需下载 `pier-v<版本>-linux-<架构>`。v0.2.56 及更早的单文件安装先运行一次 `pier-host update --version v0.2.57`，之后即可照常 `update`。通过脚本安装的压缩包版本最多更新到 v0.2.57，`pier-host update` 遇到新版本时会提示留在 v0.2.57，或给出改用单文件的命令（保留数据和配对）。
 - **pi 1.5.0**：Pier Host 内置的 pi SDK 从 1.3.0 升级到 1.5.0，新增 GPT-6.1 Terra（OpenAI、Azure OpenAI Responses 与 OpenAI Codex）；大型工具调用改为增量解析，流式输出更省 CPU 与内存；压缩与分支摘要不再受固定输出上限限制，长推理不再导致摘要失败；工具搜索支持中文等非 ASCII 关键词；缩放照片时优先使用更小的编码，避免请求过大而失败或超时。另有各服务商的修复（如 Zhipu / Z.ai 用量上限错误不再被反复重试、OpenCode Zen / Go 改用对应协议的端点、Gemini 工具 schema 中的 `const` 兼容）。破坏性变更：工具参数校验改用 `@earendil-works/pi-schema`，自定义扩展如果依赖 TypeBox 在 JSON Schema 之外的特性（如 `Type.Refine()`、codec），这些特性对工具参数不再生效。详见 pi 的 CHANGELOG。
+
+## v0.2.58 — 2026-11-05
+
+- 发布构建未通过（单文件 Pier 的冒烟测试中 `pier cli` 没有执行管道输入的命令），没有发布 GitHub Release 和安装包；它的全部变更随 v0.2.59 发布。
 
 ## v0.2.57 — 2026-11-03
 
