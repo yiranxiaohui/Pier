@@ -39,11 +39,21 @@ curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/inst
 - 没有 systemd 管理器（例如容器中）时只安装、不启动，之后用 `pier run` 运行。
 - 再次执行即更新到最新版，已是最新版时直接退出；安装为服务后也可以用 `pier update` 更新。Pier 状态（`~/.pier`）、配对和 Agent 数据保持不变。
 
-国内网络可以经加速线路下载脚本和安装文件（校验和仍优先从 GitHub 获取）：
+#### 下载线路
+
+安装文件约 225 MB，可以经 GitHub 直连或 GHFast（`ghfast.top`）、GH-Proxy（`gh-proxy.com`）、GHProxy（`ghproxy.net`）加速线路下载：
+
+- **自动选线（默认）**：GitHub 直连足够快（2 MB/s 以上）时直接使用；否则同时测速各条加速线路，从最快的开始下载。某条线路断开或连续 20 秒低于 100 KB/s 时，自动换到下一条线路，并且从已下载的位置接着下载。只有 wget 时不测速，依次尝试 GitHub 与各条加速线路。
+- **手动切换**：在终端中下载时按 `s`，立即换到下一条线路，同样接着已下载的部分继续。
+- **指定线路**：`--mirror ghfast`（或 `github`、`gh-proxy`、`ghproxy`、自定义的 `https://` 加速前缀）固定从这条线路下载，失败时在这条线路上重试，不会自动换线；按 `s` 仍可手动切换。
+
+无论走哪条线路，校验和都优先直接从 GitHub 获取；GitHub 无法访问时才从加速线路获取，并给出提示。国内网络连不上 `raw.githubusercontent.com` 时，也可以经加速线路获取脚本本身：
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash -s -- --mirror ghfast
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
 ```
+
+#### 参数
 
 | 参数 | 说明 |
 |---|---|
@@ -51,7 +61,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 | `--service` / `--portable` | 安装后台服务和 `pier` 命令 / 只安装 `pier` 命令 |
 | `--user` / `--system` | 服务范围，默认普通账号为用户服务、root 为系统服务 |
 | `--no-start` | 安装服务但不启动 |
-| `--mirror <线路>` | 经 `ghfast`、`gh-proxy`、`ghproxy` 或自定义的 `https://` 加速前缀下载 |
+| `--mirror <线路>` | `auto`（默认，自动选线）、`github`、`ghfast`、`gh-proxy`、`ghproxy` 或自定义的 `https://` 加速前缀 |
 | `--force` | 已是该版本时也重新安装 |
 
 参数写在 `bash -s --` 之后。也可以用环境变量 `PIER_VERSION`、`PIER_MIRROR` 代替 `--version`、`--mirror`，用 `PIER_PREFIX`、`PIER_DIR` 指定安装前缀和 Pier 状态目录。

@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	chmodSync,
@@ -18,7 +18,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const installer = fileURLToPath(new URL("../../../scripts/install.sh", import.meta.url));
 const roots: string[] = [];
+const children: ChildProcess[] = [];
 afterEach(() => {
+	// A terminal session that did not finish must not keep its hanging download running.
+	for (const child of children.splice(0)) if (child.exitCode === null) child.kill("SIGKILL");
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -62,28 +65,50 @@ function fixture() {
 	writeFileSync(join(root, "releases/latest/SHA256SUMS.txt"), readFileSync(latest.sums));
 	release(root, "v0.2.57");
 	writeFileSync(join(root, "linger"), "no\n");
-	// GitHub, optionally through a mirror that receives the full GitHub URL as its path.
+	// GitHub, or a mirror that receives the full GitHub URL as its path. Logs "<kind> <url>"
+	// (get, probe, resume). Downloads of the single file honour the per-route test switches.
 	script(
 		join(mockBin, "curl"),
-		`out=; url=
+		`out=; url=; kind=get; asset=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) out=$2; shift ;;
+    --range) kind=probe; shift ;;
+    --continue-at) asset=true; shift ;;
+    --write-out|--speed-limit|--speed-time|--connect-timeout|--max-time|--retry|--proto|--proto-redir) shift ;;
     https://*) url=$1 ;;
   esac
   shift
 done
-printf '%s\\n' "$url" >> "$PIER_TEST_ROOT/curl.log"
-path=$url
-for mirror in https://ghfast.top/ https://gh-proxy.com/ https://mirror.example/sub/; do path=\${path#"$mirror"}; done
-if [[ "$path" == "$url" && "\${PIER_TEST_GITHUB_DOWN:-0}" == 1 ]]; then echo "curl: (7) Failed to connect" >&2; exit 7; fi
+route=github; path=$url
+for pair in ghfast=https://ghfast.top/ gh-proxy=https://gh-proxy.com/ ghproxy=https://ghproxy.net/ custom=https://mirror.example/sub/; do
+  prefix=\${pair#*=}
+  if [[ "$url" == "$prefix"* ]]; then route=\${pair%%=*}; path=\${url#"$prefix"}; fi
+done
+if "$asset" && [[ -s "$out" ]]; then kind=resume; fi
+printf '%s %s\\n' "$kind" "$url" >> "$PIER_TEST_ROOT/curl.log"
 case "$path" in
   https://github.com/yiranxiaohui/Pier/releases/latest/download/*) file=$PIER_TEST_ROOT/releases/latest/\${path##*/} ;;
   https://github.com/yiranxiaohui/Pier/releases/download/*) file=$PIER_TEST_ROOT/releases/\${path#https://github.com/yiranxiaohui/Pier/releases/download/} ;;
   *) echo "Unexpected download: $url" >&2; exit 1 ;;
 esac
+down=" \${PIER_TEST_GITHUB_DOWN:+github} "
+if "$asset" || [[ "$kind" == probe ]]; then down+=" \${PIER_TEST_DOWN:-} "; fi
+if [[ "$down" == *" $route "* ]]; then echo "curl: (7) Failed to connect" >&2; exit 7; fi
 [[ -f "$file" ]] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
-cp "$file" "$out"`,
+if [[ "$kind" == probe ]]; then
+  speed=PIER_TEST_SPEED_\${route//-/_}
+  # 4 MiB, the first byte at once, then the route's speed (bytes per second).
+  awk -v s="\${!speed:-4000000}" 'BEGIN { printf "4194304 0 %.6f", 4194304 / s }'
+  exit 0
+fi
+if "$asset" && [[ " \${PIER_TEST_HANG:-} " == *" $route "* ]]; then exec sleep 30; fi
+if "$asset" && [[ " \${PIER_TEST_SLOW:-} " == *" $route "* ]]; then
+  head -c $(( $(wc -c < "$file") / 2 )) "$file" > "$out"
+  echo "curl: (28) Operation too slow" >&2
+  exit 28
+fi
+if [[ "$kind" == resume ]]; then tail -c +$(( $(wc -c < "$out") + 1 )) "$file" >> "$out"; else cp "$file" "$out"; fi`,
 	);
 	script(
 		join(mockBin, "uname"),
@@ -122,21 +147,35 @@ esac`,
 			`${JSON.stringify({ format: 1, app: "pier", scope: "user", version }, null, 2)}\n`,
 		);
 	};
-	return { root, home, prefix, run, log, install, command: join(prefix, "bin/pier") };
+	return { root, env, home, prefix, run, log, install, command: join(prefix, "bin/pier") };
 }
 
 const asset = (tag: string) => `https://github.com/yiranxiaohui/Pier/releases/download/${tag}/pier-${tag}-linux-x64`;
+const latestSums = "https://github.com/yiranxiaohui/Pier/releases/latest/download/SHA256SUMS.txt";
+/** GitHub slower than 1 MB/s, GH-Proxy fastest, then GHFast; GHProxy unreachable. */
+const slowGitHub = {
+	PIER_TEST_SPEED_github: "200000",
+	PIER_TEST_SPEED_ghfast: "900000",
+	PIER_TEST_SPEED_gh_proxy: "3000000",
+	PIER_TEST_DOWN: "ghproxy",
+};
+const util = spawnSync("script", ["--version"], { encoding: "utf8" });
+const hasScript = util.status === 0 && util.stdout.includes("util-linux");
 
 describe.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("one-line installer", () => {
 	it("installs the latest verified single file as a user service and turns on lingering", () => {
 		const f = fixture();
 		const result = f.run([], { PIER_TEST_LINGER: "allow" });
 		expect(result.status, result.stderr).toBe(0);
+		// A fast GitHub is used without contacting any mirror.
 		expect(f.log("curl.log").split("\n")).toEqual([
-			"https://github.com/yiranxiaohui/Pier/releases/latest/download/SHA256SUMS.txt",
-			asset("v0.2.58"),
+			`get ${latestSums}`,
+			`probe ${asset("v0.2.58")}`,
+			`get ${asset("v0.2.58")}`,
 			"",
 		]);
+		expect(result.stdout).toContain("Route speed: GitHub 3.8 MB/s");
+		expect(result.stdout).toContain("Downloading Pier v0.2.58 (linux-x64) from GitHub");
 		expect(f.log("pier.log")).toBe("install --user\n");
 		expect(result.stdout).toContain("Pier v0.2.58 is ready.");
 		expect(result.stdout).toContain("/remote on and /pair");
@@ -255,25 +294,110 @@ describe.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("one-l
 		expect(f.log("curl.log")).toBe("");
 	});
 
-	it("downloads through a mirror while taking checksums from GitHub when it answers", () => {
+	it("stays on a chosen route and takes the checksums from GitHub when it answers", () => {
 		const f = fixture();
 		expect(f.run(["--mirror", "ghfast"]).status).toBe(0);
 		expect(f.log("curl.log").split("\n")).toEqual([
-			"https://github.com/yiranxiaohui/Pier/releases/latest/download/SHA256SUMS.txt",
-			`https://ghfast.top/${asset("v0.2.58")}`,
+			`get ${latestSums}`,
+			`get https://ghfast.top/${asset("v0.2.58")}`,
 			"",
 		]);
 		rmSync(join(f.root, "curl.log"));
 		const down = f.run(["--force"], { PIER_MIRROR: "https://mirror.example/sub//", PIER_TEST_GITHUB_DOWN: "1" });
 		expect(down.status, down.stderr).toBe(0);
-		expect(down.stderr).toContain("checksums also came through https://mirror.example/sub/");
-		expect(f.log("curl.log")).toContain(
-			"https://mirror.example/sub/https://github.com/yiranxiaohui/Pier/releases/latest/download/SHA256SUMS.txt",
-		);
+		expect(down.stderr).toContain("GitHub did not answer, so the checksums came through https://mirror.example/sub/");
+		expect(f.log("curl.log")).toContain(`get https://mirror.example/sub/${latestSums}`);
+		expect(f.log("curl.log")).toContain(`get https://mirror.example/sub/${asset("v0.2.58")}`);
+		rmSync(join(f.root, "curl.log"));
+		// A chosen route that keeps failing is retried, never swapped for another one.
+		const failing = f.run(["--mirror", "ghfast"], { PIER_TEST_DOWN: "ghfast" });
+		expect(failing.status).not.toBe(0);
+		expect(failing.stderr).toContain("GHFast failed (exit 7); retrying");
+		expect(failing.stderr).toContain("through GHFast failed; nothing was changed");
+		expect(
+			f
+				.log("curl.log")
+				.split("\n")
+				.filter((line) => line.endsWith("-linux-x64")),
+		).toEqual(Array(3).fill(`get https://ghfast.top/${asset("v0.2.58")}`));
 		for (const mirror of ["http://mirror.example/", "https://user:secret@mirror.example/", "https://m.example/?x"])
 			expect(f.run(["--mirror", mirror]).stderr).toContain("Invalid mirror");
 		expect(f.run(["--mirror", "example"]).stderr).toContain("Unknown mirror");
 	});
+
+	it("measures the routes when GitHub is slow and downloads through the fastest", () => {
+		const f = fixture();
+		const result = f.run(["--mirror", "auto"], slowGitHub);
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stdout).toContain("Route speed: GitHub 196 KB/s, GHFast 879 KB/s, GH-Proxy 2.9 MB/s, GHProxy failed");
+		expect(result.stdout).toContain("Downloading Pier v0.2.58 (linux-x64) through GH-Proxy");
+		const downloads = f
+			.log("curl.log")
+			.split("\n")
+			.filter((line) => line.startsWith("get") || line.startsWith("resume"));
+		expect(downloads).toEqual([`get ${latestSums}`, `get https://gh-proxy.com/${asset("v0.2.58")}`]);
+		expect(f.log("pier.log")).toBe("install --user\n");
+	});
+
+	it("switches to the next fastest route when one is too slow, keeping the part downloaded", () => {
+		const f = fixture();
+		const result = f.run([], { ...slowGitHub, PIER_TEST_SLOW: "gh-proxy" });
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stderr).toContain("GH-Proxy was too slow; continuing through GHFast, keeping");
+		expect(f.log("curl.log")).toContain(`get https://gh-proxy.com/${asset("v0.2.58")}`);
+		expect(f.log("curl.log")).toContain(`resume https://ghfast.top/${asset("v0.2.58")}`);
+		expect(f.log("pier.log")).toBe("install --user\n");
+	});
+
+	it("gives up after trying every route twice, and falls back when GitHub does not answer", () => {
+		const f = fixture();
+		const result = f.run([], { PIER_TEST_DOWN: "github ghfast gh-proxy ghproxy" });
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain("failed on every route; nothing was changed");
+		expect(
+			f
+				.log("curl.log")
+				.split("\n")
+				.filter((line) => line.startsWith("get") && line.endsWith("-linux-x64")),
+		).toHaveLength(8);
+		expect(f.log("pier.log")).toBe("");
+		rmSync(join(f.root, "curl.log"));
+		// Checksums then come from the first mirror that answers, and GitHub is not measured.
+		const blocked = f.run([], { ...slowGitHub, PIER_TEST_GITHUB_DOWN: "1" });
+		expect(blocked.status, blocked.stderr).toBe(0);
+		expect(blocked.stderr).toContain("the checksums came through GHFast");
+		expect(blocked.stdout).toContain("GitHub failed, GHFast 879 KB/s, GH-Proxy 2.9 MB/s");
+		expect(f.log("curl.log")).not.toContain(`probe ${asset("v0.2.58")}`);
+	});
+
+	it.skipIf(!hasScript)(
+		"switches routes when s is pressed in the terminal",
+		async () => {
+			const f = fixture();
+			const child = spawn("script", ["-qec", `bash ${installer} --portable`, "/dev/null"], {
+				env: { ...f.env, SHELL: "/bin/bash", PIER_TEST_HANG: "github" },
+			});
+			children.push(child);
+			let output = "";
+			let presses = 0;
+			const press = setInterval(() => {
+				if (output.includes("Press s") && !output.includes("Switching to") && presses < 10) {
+					presses++;
+					child.stdin.write("s");
+				}
+			}, 300);
+			child.stdout.on("data", (data) => {
+				output += data;
+			});
+			const code = await new Promise((resolve) => child.on("close", resolve));
+			clearInterval(press);
+			expect(code, output).toBe(0);
+			expect(output).toContain("Switching to GHFast...");
+			expect(output).toContain("Installed Pier v0.2.58");
+			expect(f.log("curl.log")).toContain(`get https://ghfast.top/${asset("v0.2.58")}`);
+		},
+		20_000,
+	);
 
 	it("rejects other systems, architectures and conflicting options", () => {
 		const f = fixture();
@@ -284,7 +408,7 @@ describe.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("one-l
 		expect(f.run(["--system"]).stderr).toContain("--system requires root");
 		expect(f.run(["--version", "latest-ish"]).stderr).toContain("Invalid version");
 		expect(f.run(["--bogus"]).stderr).toContain("Unknown option: --bogus");
-		expect(f.run(["--help"]).stdout).toContain("--mirror NAME|URL");
+		expect(f.run(["--help"]).stdout).toContain("--mirror ROUTE");
 		expect(f.log("curl.log")).toBe("");
 	});
 });

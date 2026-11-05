@@ -7,10 +7,19 @@
 # SHA256SUMS.txt and its own --version, then installs it as a systemd service plus the pier
 # command (`pier install`), or with --portable as the pier command only. Rerun it to update.
 # Pier state (~/.pier), pairing, Agent data and project files are never modified or removed.
+# Downloads pick the fastest route (GitHub or a mirror) and switch routes, keeping the part
+# already downloaded, when one fails, is too slow, or s is pressed.
 # Everything runs inside main, so a partially downloaded script does nothing.
 set -euo pipefail
 
 PIER_RELEASES=https://github.com/yiranxiaohui/Pier/releases
+# Routes: GitHub itself, or a mirror that receives the full GitHub URL as its path. A custom
+# route is an https:// prefix ending in a slash.
+BUILTIN_ROUTES=(github ghfast gh-proxy ghproxy)
+stage=''
+download_pid=''
+probe_pids=()
+keys=false
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'pier-install: %s\n' "$*" >&2; }
@@ -31,38 +40,164 @@ Options:
                      (the default on a graphical desktop)
   --user | --system  Service scope (default: user for ordinary accounts, system for root)
   --no-start         Install the service without starting it
-  --mirror NAME|URL  Download through ghfast, gh-proxy, ghproxy or another https:// prefix
+  --mirror ROUTE     Download route. auto (the default) measures GitHub and the mirrors,
+                     uses the fastest and switches when one fails or is too slow; github,
+                     ghfast, gh-proxy, ghproxy or another https:// mirror prefix starts
+                     with that route and stays on it
   --force            Reinstall even when this version is already installed
   -h, --help         Show this help
 
+While downloading in a terminal, press s to switch to the next route; the part already
+downloaded is kept. Checksums always come from GitHub when it answers.
 Rerunning the installer updates Pier. An installed service also updates with: pier update
 Environment: PIER_VERSION and PIER_MIRROR preset --version and --mirror; PIER_PREFIX and
 PIER_DIR choose the installation prefix and the Pier state directory (default ~/.pier).
 HELP
 }
 
-# fetch <url> <file> [progress|quick]: quick fails fast and quietly, for an optional source.
+cleanup() {
+  local pid
+  for pid in ${download_pid:+"$download_pid"} ${probe_pids[@]+"${probe_pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
+  if [[ -n "$stage" ]]; then rm -rf -- "$stage"; fi
+}
+
+# fetch <url> <file> [quick]: a small file; quick fails fast and quietly, for an optional source.
 fetch() {
   local url=$1 file=$2 how=${3:-} args
   if [[ "$fetcher" == curl ]]; then
-    args=(--proto '=https' --proto-redir '=https' --fail --location)
-    if [[ "$how" == quick ]]; then
-      args+=(--silent --connect-timeout 10 --max-time 60)
-    else
-      args+=(--retry 3 --connect-timeout 20 --speed-limit 1024 --speed-time 60)
-      if [[ "$how" == progress && -t 2 ]]; then args+=(--progress-bar); else args+=(--silent --show-error); fi
-    fi
+    args=(--proto '=https' --proto-redir '=https' --fail --location --silent)
+    if [[ "$how" == quick ]]; then args+=(--connect-timeout 10 --max-time 60)
+    else args+=(--show-error --retry 3 --connect-timeout 20 --max-time 120); fi
     curl "${args[@]}" --output "$file" "$url"
   else
     args=(--quiet)
     if [[ "$how" == quick ]]; then args+=(--tries=1 --timeout=10); else args+=(--tries=3 --timeout=60); fi
-    if [[ "$how" == progress && -t 2 && "$(wget --help 2>&1)" == *--show-progress* ]]; then args+=(--show-progress); fi
     wget "${args[@]}" -O "$file" "$url" || { rm -f -- "$file"; return 1; }
   fi
 }
 
-# A GitHub URL routed through the chosen mirror, which receives the full URL as its path.
-route() { printf '%s%s' "$mirror" "$1"; }
+# route_url <route> <GitHub URL>
+route_url() {
+  case "$1" in
+    github) printf '%s' "$2" ;;
+    ghfast) printf 'https://ghfast.top/%s' "$2" ;;
+    gh-proxy) printf 'https://gh-proxy.com/%s' "$2" ;;
+    ghproxy) printf 'https://ghproxy.net/%s' "$2" ;;
+    *) printf '%s%s' "$1" "$2" ;;
+  esac
+}
+
+route_name() {
+  case "$1" in
+    github) printf 'GitHub' ;;
+    ghfast) printf 'GHFast' ;;
+    gh-proxy) printf 'GH-Proxy' ;;
+    ghproxy) printf 'GHProxy' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+route_where() {
+  if [[ "$1" == github ]]; then printf 'from GitHub'; else printf 'through %s' "$(route_name "$1")"; fi
+}
+
+speed_text() {
+  awk -v s="$1" 'BEGIN {
+    if (s <= 0) print "failed"; else if (s >= 1048576) printf "%.1f MB/s\n", s / 1048576; else printf "%d KB/s\n", (s + 1023) / 1024
+  }'
+}
+
+# kept_text <file>: ", keeping 12.3 MB" for the part of a download already in <file>.
+kept_text() {
+  local bytes=0
+  [[ ! -s "$1" ]] || bytes=$(wc -c <"$1")
+  awk -v b="$bytes" 'BEGIN { if (b > 0) printf ", keeping %.1f MB", b / 1048576 }'
+}
+
+# probe <url> <seconds>: bytes per second once data flows, over up to 4 MiB of the file, so
+# a slow redirect or TLS setup does not hide the bandwidth; 0 when under 256 KiB arrived.
+probe() {
+  local result
+  result=$(curl --proto '=https' --proto-redir '=https' --fail --location --silent --range 0-4194303 \
+    --connect-timeout 5 --max-time "$2" --output /dev/null \
+    --write-out '%{size_download} %{time_starttransfer} %{time_total}' "$1" 2>/dev/null) || true
+  awk -v r="$result" 'BEGIN {
+    split(r, a, " "); t = a[3] - a[2]; if (t < 0.1) t = 0.1
+    print (a[1] + 0 >= 262144 ? int(a[1] / t) : 0)
+  }'
+}
+
+# rank_routes <GitHub URL> <whether GitHub answered>: order routes by measured speed. A
+# GitHub faster than 2 MB/s is used without contacting the mirrors; unusable routes stay
+# last, in their order.
+rank_routes() {
+  local url=$1 github_ok=$2 i speed order report=()
+  local -a speeds=()
+  for i in "${!routes[@]}"; do speeds[i]=0; done
+  if "$github_ok"; then
+    speeds[0]=$(probe "$(route_url github "$url")" 5)
+    if (( speeds[0] >= 2097152 )); then
+      say "Route speed: GitHub $(speed_text "${speeds[0]}")"
+      return 0
+    fi
+  fi
+  for i in "${!routes[@]}"; do
+    [[ "${routes[i]}" != github ]] || continue
+    probe "$(route_url "${routes[i]}" "$url")" 5 >"$stage/probe.$i" &
+    probe_pids+=("$!")
+  done
+  wait ${probe_pids[@]+"${probe_pids[@]}"} || true
+  probe_pids=()
+  for i in "${!routes[@]}"; do
+    if [[ "${routes[i]}" != github ]]; then
+      speed=$(cat "$stage/probe.$i" 2>/dev/null || true)
+      [[ "$speed" =~ ^[0-9]+$ ]] || speed=0
+      speeds[i]=$speed
+    fi
+    report+=("$(route_name "${routes[i]}") $(speed_text "${speeds[i]}")")
+  done
+  printf -v speed '%s, ' "${report[@]}"
+  say "Route speed: ${speed%, }"
+  order=$(for i in "${!routes[@]}"; do printf '%s %s\n' "${speeds[i]}" "$i"; done | sort -k1,1nr -k2,2n | awk '{ print $2 }')
+  local -a ranked=()
+  for i in $order; do ranked+=("${routes[i]}"); done
+  routes=("${ranked[@]}")
+}
+
+# download <url> <file> <slow|stall>: continue the download in <file>, aborting when it is
+# slower than 100 KB/s for 20 s (slow) or stalls for a minute. Returns 0 when complete,
+# 2 when s was pressed to switch routes, 3 when the route cannot resume, else the error.
+download() {
+  local url=$1 file=$2 floor=$3 args pid key status
+  if [[ "$fetcher" == curl ]]; then
+    args=(--proto '=https' --proto-redir '=https' --fail --location --connect-timeout 20 --continue-at -)
+    if [[ "$floor" == slow ]]; then args+=(--speed-limit 102400 --speed-time 20); else args+=(--speed-limit 1024 --speed-time 60); fi
+    if [[ -t 2 ]]; then args+=(--progress-bar); else args+=(--silent --show-error); fi
+    curl "${args[@]}" --output "$file" "$url" &
+  else
+    args=(--quiet --continue --tries=1 --timeout=60)
+    if [[ -t 2 && "$(wget --help 2>&1)" == *--show-progress* ]]; then args+=(--show-progress); fi
+    wget "${args[@]}" -O "$file" "$url" &
+  fi
+  pid=$!
+  download_pid=$pid
+  while "$keys" && kill -0 "$pid" 2>/dev/null; do
+    if IFS= read -rsn1 -t 1 key <&3; then
+      [[ "$key" == [sS] ]] || continue
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      download_pid=''
+      printf '\n' >&2
+      return 2
+    elif (( $? <= 128 )); then
+      keys=false # The terminal went away; just wait.
+    fi
+  done
+  if wait "$pid"; then status=0; else status=$?; fi
+  download_pid=''
+  if [[ "$fetcher" == curl && "$status" == 33 ]]; then return 3; fi
+  return "$status"
+}
 
 sha256_of() {
   if [[ "$hasher" == sha256sum ]]; then sha256sum "$1"; else shasum -a 256 "$1"; fi | awk '{ print tolower($1) }'
@@ -123,7 +258,7 @@ main() {
     case "$1" in
       --version) [[ $# -ge 2 ]] || fail '--version requires a release, for example v0.2.57'; version=$2; shift ;;
       --version=*) version=${1#*=} ;;
-      --mirror) [[ $# -ge 2 ]] || fail '--mirror requires ghfast, gh-proxy, ghproxy or an https:// prefix'; mirror_option=$2; shift ;;
+      --mirror) [[ $# -ge 2 ]] || fail '--mirror requires auto, github, ghfast, gh-proxy, ghproxy or an https:// prefix'; mirror_option=$2; shift ;;
       --mirror=*) mirror_option=${1#*=} ;;
       --service|--portable)
         [[ -z "$mode" || "$mode" == "${1#--}" ]] || fail 'Choose either --service or --portable'
@@ -167,17 +302,22 @@ main() {
     [[ "$version" == v* ]] || version=v$version
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || fail "Invalid version: $version (expected vX.Y.Z)"
   fi
+  # auto ranks every route; a chosen route comes first and the others stay for pressing s.
+  local pinned=''
+  local -a routes=()
   case "$mirror_option" in
-    ''|github) mirror= ;;
-    ghfast) mirror=https://ghfast.top/ ;;
-    gh-proxy) mirror=https://gh-proxy.com/ ;;
-    ghproxy) mirror=https://ghproxy.net/ ;;
+    ''|auto) ;;
+    github|ghfast|gh-proxy|ghproxy) pinned=$mirror_option ;;
     *://*)
       [[ "$mirror_option" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$ ]] \
         || fail "Invalid mirror: $mirror_option (an https:// prefix without credentials, query or fragment)"
-      mirror=${mirror_option%"${mirror_option##*[!/]}"}/ ;;
-    *) fail "Unknown mirror: $mirror_option (use ghfast, gh-proxy, ghproxy or an https:// prefix)" ;;
+      pinned=${mirror_option%"${mirror_option##*[!/]}"}/ ;;
+    *) fail "Unknown mirror: $mirror_option (use auto, github, ghfast, gh-proxy, ghproxy or an https:// prefix)" ;;
   esac
+  [[ -z "$pinned" ]] || routes=("$pinned")
+  for candidate in "${BUILTIN_ROUTES[@]}"; do
+    [[ "$candidate" == "$pinned" ]] || routes+=("$candidate")
+  done
 
   # The same layout and precedence as `pier install`, to find what is already installed.
   local uid prefix=${PIER_PREFIX:-${PIER_HOST_PREFIX:-}} install_dir legacy_dir service_bin portable_bin
@@ -241,27 +381,38 @@ main() {
   fi
 
   # Stage in the user's cache rather than /tmp, which is often a small tmpfs or noexec.
-  local cache=${XDG_CACHE_HOME:-} stage
+  local cache=${XDG_CACHE_HOME:-}
   [[ "$cache" == /* ]] || cache=$HOME/.cache
   mkdir -p -- "$cache" || fail "Cannot create $cache"
   stage=$(mktemp -d "$cache/pier-install.XXXXXX") || fail "Cannot create a temporary directory in $cache"
-  # shellcheck disable=SC2064 # Expand now: $stage is local to main.
-  trap "rm -rf -- $(printf '%q' "$stage")" EXIT
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
-  local sums=$stage/SHA256SUMS.txt sums_url release
+  local sums=$stage/SHA256SUMS.txt sums_url release sums_from=''
   if [[ "$version" == latest ]]; then
     sums_url=$PIER_RELEASES/latest/download/SHA256SUMS.txt; release='the latest release'
   else
     sums_url=$PIER_RELEASES/download/$version/SHA256SUMS.txt; release=$version
   fi
   # Checksums come from GitHub itself whenever it answers, so a mirror only relays the file.
-  if [[ -z "$mirror" ]]; then
-    fetch "$sums_url" "$sums" \
-      || fail "Could not download the checksums of $release from GitHub. Check the network and the version, or retry with --mirror ghfast"
-  elif ! fetch "$sums_url" "$sums" quick; then
-    fetch "$(route "$sums_url")" "$sums" || fail "Could not download the checksums of $release through $mirror"
-    warn "GitHub did not answer, so the checksums also came through $mirror"
+  local -a sums_routes=(github)
+  if [[ -z "$pinned" ]]; then sums_routes+=(ghfast gh-proxy ghproxy)
+  elif [[ "$pinned" != github ]]; then sums_routes+=("$pinned"); fi
+  local last=$(( ${#sums_routes[@]} - 1 )) n how
+  for (( n = 0; n <= last; n++ )); do
+    how=''
+    if (( n < last )); then how=quick; fi
+    if fetch "$(route_url "${sums_routes[n]}" "$sums_url")" "$sums" "$how"; then sums_from=${sums_routes[n]}; break; fi
+  done
+  if [[ -z "$sums_from" ]]; then
+    case "$pinned" in
+      '') fail "Could not download the checksums of $release from GitHub or its mirrors. Check the network and the version" ;;
+      github) fail "Could not download the checksums of $release from GitHub. Check the network and the version, or leave out --mirror github to try the mirrors" ;;
+      *) fail "Could not download the checksums of $release from GitHub or through $(route_name "$pinned")" ;;
+    esac
   fi
+  if [[ "$sums_from" != github ]]; then warn "GitHub did not answer, so the checksums came through $(route_name "$sums_from")"; fi
 
   local asset='' tag checksum
   if [[ "$version" == latest ]]; then
@@ -293,14 +444,50 @@ main() {
     return 0
   fi
 
-  local via=
-  [[ -z "$mirror" ]] || via=" through $mirror"
-  if [[ -n "$installed_version" ]]; then say "Updating Pier $installed_version to $target (linux-$arch)$via..."
-  else say "Downloading Pier $tag (linux-$arch)$via..."; fi
-  if ! fetch "$(route "$PIER_RELEASES/download/$tag/$asset")" "$stage/pier" progress; then
-    if [[ -z "$mirror" ]]; then fail "Downloading $asset failed; nothing was changed. Retry, or use --mirror ghfast"; fi
-    fail "Downloading $asset through $mirror failed; nothing was changed. Retry, or choose another --mirror"
+  local asset_url=$PIER_RELEASES/download/$tag/$asset github_ok=false
+  [[ "$sums_from" != github ]] || github_ok=true
+  if [[ -z "$pinned" ]]; then
+    if [[ "$fetcher" == curl ]]; then rank_routes "$asset_url" "$github_ok"
+    elif ! "$github_ok"; then routes=(ghfast gh-proxy ghproxy github); fi
   fi
+  # A key press switches routes; it needs the terminal, which is not stdin under curl | bash.
+  if [[ -t 2 ]] && { exec 3</dev/tty; } 2>/dev/null; then keys=true; fi
+
+  local count=${#routes[@]} i=0 failures=0 limit=3 status reason floor current
+  # auto tries each route quickly once, then again waiting out slow ones; a chosen route retries.
+  [[ -n "$pinned" ]] || limit=$(( 2 * count ))
+  if [[ -n "$installed_version" ]]; then say "Updating Pier $installed_version to $target (linux-$arch) $(route_where "${routes[0]}")..."
+  else say "Downloading Pier $tag (linux-$arch) $(route_where "${routes[0]}")..."; fi
+  if "$keys"; then say '  Press s to switch to another route; the part already downloaded is kept.'; fi
+  while :; do
+    current=${routes[i]}
+    floor=stall
+    if [[ -z "$pinned" ]] && (( failures < count - 1 )); then floor=slow; fi
+    if download "$(route_url "$current" "$asset_url")" "$stage/pier" "$floor"; then break; else status=$?; fi
+    if (( status == 2 )); then
+      i=$(( (i + 1) % count ))
+      say "Switching to $(route_name "${routes[i]}")$(kept_text "$stage/pier")..."
+      continue
+    fi
+    if (( status == 3 )); then
+      warn "$(route_name "$current") cannot continue a partial download; starting over"
+      rm -f -- "$stage/pier"
+      continue
+    fi
+    failures=$(( failures + 1 ))
+    if (( failures >= limit )); then
+      if [[ -z "$pinned" ]]; then fail "Downloading $asset failed on every route; nothing was changed. Check the network and retry"; fi
+      fail "Downloading $asset $(route_where "$current") failed; nothing was changed. Retry, or leave out --mirror to try every route"
+    fi
+    [[ -n "$pinned" ]] || i=$(( (i + 1) % count ))
+    if (( status == 28 )); then reason='was too slow'; else reason="failed (exit $status)"; fi
+    if [[ "${routes[i]}" == "$current" ]]; then
+      warn "$(route_name "$current") $reason; retrying$(kept_text "$stage/pier")"
+    else
+      warn "$(route_name "$current") $reason; continuing through $(route_name "${routes[i]}")$(kept_text "$stage/pier")"
+    fi
+  done
+  if "$keys"; then exec 3<&-; keys=false; fi
   [[ "$(sha256_of "$stage/pier")" == "$checksum" ]] || fail "Checksum mismatch for $asset; nothing was changed"
   chmod 755 "$stage/pier"
   if ! reported=$("$stage/pier" --version </dev/null 2>"$stage/version.log"); then
