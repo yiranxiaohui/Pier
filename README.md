@@ -203,16 +203,17 @@ bun run host
 
 # 终端 2：调试客户端（自动读取 ~/.pier/run/host.json）
 bun run pier-cli
-> /ws add /path/to/project
+> /ws add ~/project  # 路径按 Tab 补全 Host 上的目录，~ 为 Host 的家目录
 > /new
 > 列出当前目录的文件
 > /model            # 用 ↑/↓ 选择模型、Enter 切换（可输入文字筛选，Esc 取消）；也可 /model <provider/id|id>
+> /open             # 用 ↑/↓ 选择并打开会话；/ws use、/revoke 不带参数时同样可选择
 > /agents           # 列出这台电脑上的 Agent（pi、Claude Code、Codex）及版本、是否可用
 > /new -a claude    # 新建 Claude Code 会话（-a / --agent 接编号、id、名称或唯一前缀，默认 pi）
 > /models codex     # 列出某个 Agent 的模型（* 为它在当前工作区的默认模型）
 > /allow            # 响应审批请求；/deny <理由>、/allow session
 > /drop             # 模拟断线，验证重连补发
-> /help             # 按 Tab 补全命令、模型、思考等级、Agent 和子命令
+> /help             # 按 Tab 补全命令、模型、思考等级、Agent、子命令和目录，以及会话、工作区、设备、分叉点、选项的编号（连按两次 Tab 列出带标题的候选）
 ```
 
 ### 桌面端
@@ -320,6 +321,12 @@ pier stop                     # 停止服务
 pier start                    # 启动服务
 pier uninstall                # 停止并移除服务、命令和程序，保留 ~/.pier
 pier uninstall --purge        # 另行删除该安装使用的 Pier 配置、配对、定时任务等状态
+```
+
+**命令补全（bash）**：`pier completion bash` 输出 bash 补全脚本，补全子命令和它们的选项（`--pier-dir`、`--agent-dir` 后补全目录）。在当前 shell 中执行 `source <(pier completion bash)` 即可使用；写入 `~/.bashrc` 后每个新 shell 都会加载，装有 bash-completion 时也可以保存为 `~/.local/share/bash-completion/completions/pier`。`pier cli` 内部的斜杠命令补全不需要这一步。
+
+```bash
+echo 'source <(pier completion bash)' >> ~/.bashrc
 ```
 
 卸载不会删除项目文件，也不会删除共享的 `~/.pi`、`~/.claude`、`~/.codex` 或公共安装的 Claude Code / Codex。重新安装会沿用保留的 Pier 状态。同一状态目录不能同时用于正在运行的桌面 Host 和独立 Host；安装、卸载会拒绝处理仍在运行的实例。

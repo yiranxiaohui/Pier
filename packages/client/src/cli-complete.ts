@@ -9,12 +9,32 @@ export interface CliModelRef {
 	name: string;
 }
 
+/** The subdirectories of one directory on the host (`host.listDirectories`). */
+export interface CliDirectoryListing {
+	home: string;
+	separator: string;
+	entries: ReadonlyArray<{ name: string }>;
+}
+
 /** Lazily loaded data that some arguments complete from. */
 export interface CliCompletionSource {
 	models(): Promise<readonly CliModelRef[]>;
 	thinkingLevels(): Promise<readonly string[]>;
 	/** Ids of the agent runtimes that can create sessions (`/new -a`, `/models <agent>`). */
 	agents(): Promise<readonly string[]>;
+	/**
+	 * Labels of the items that commands refer to by their 1-based number, in the order the
+	 * command numbers them: the workspace's sessions (`/open`), workspaces (`/ws use`), paired
+	 * devices (`/revoke`), the session's fork points (`/fork`) and the options of the pending
+	 * select request (`/answer`).
+	 */
+	sessions(): Promise<readonly string[]>;
+	workspaces(): Promise<readonly string[]>;
+	devices(): Promise<readonly string[]>;
+	forkPoints(): Promise<readonly string[]>;
+	answerOptions(): Promise<readonly string[]>;
+	/** Subdirectories of an absolute directory on the host (its home directory without one). */
+	directories(path?: string): Promise<CliDirectoryListing | undefined>;
 }
 
 /** `[candidates, the text being completed]`, as Node's readline completer expects. */
@@ -60,6 +80,63 @@ function complete(words: readonly string[], partial: string, withArgs: ReadonlyS
 	const only = hits.length === 1 ? hits[0] : undefined;
 	if (only !== undefined && withArgs.has(only)) return [[`${only} `], partial];
 	return [hits, partial];
+}
+
+/** Longest label shown for a numbered item; longer ones are cut with `…`. */
+const LABEL_WIDTH = 80;
+
+/** `text` on one line, cut to `width` characters. */
+export function oneLine(text: string, width = LABEL_WIDTH): string {
+	const line = text.replace(/\s+/g, " ").trim();
+	return line.length > width ? `${line.slice(0, width - 1)}…` : line;
+}
+
+/**
+ * Complete a 1-based item number. A single match completes to its number; several are offered
+ * as `n. label`, which readline lists on a second Tab. Every entry starts with the typed digits
+ * and the typed number's own entry continues with `.` where the others continue with a digit,
+ * so their common prefix is exactly what was typed and readline leaves the line alone.
+ */
+export function completeNumbered(labels: readonly string[], partial: string): CliCompletion {
+	if (!/^\d*$/.test(partial)) return [[], partial];
+	const hits = labels.map((label, i) => ({ ref: String(i + 1), label })).filter((hit) => hit.ref.startsWith(partial));
+	const only = hits.length === 1 ? hits[0] : undefined;
+	if (only) return [[only.ref], partial];
+	return [hits.map((hit) => `${hit.ref}. ${oneLine(hit.label)}`), partial];
+}
+
+/**
+ * Complete a directory on the host: an absolute path, or one under `~` (the host's home
+ * directory). An empty argument completes to the home directory; hidden directories are
+ * offered once the name starts with `.`.
+ */
+export async function completeDirectory(partial: string, source: CliCompletionSource): Promise<CliCompletion> {
+	const none: CliCompletion = [[], partial];
+	const tilde = partial === "~" || /^~[\\/]/.test(partial);
+	const home = !partial || tilde ? await source.directories() : undefined;
+	if (!partial) return home ? [[withSeparator(home.home, home.separator)], partial] : none;
+	if (tilde && !home) return none;
+	if (partial === "~" && home) return [[`~${home.separator}`], partial];
+	const windows = /^[A-Za-z]:[\\/]/.test(partial) || partial.startsWith("\\\\");
+	if (!tilde && !windows && !partial.startsWith("/")) return none;
+	// `/` separates on every host, `\` only on Windows: POSIX names may contain it.
+	const cut =
+		windows || home?.separator === "\\"
+			? Math.max(partial.lastIndexOf("/"), partial.lastIndexOf("\\"))
+			: partial.lastIndexOf("/");
+	const dir = partial.slice(0, cut + 1);
+	const name = partial.slice(cut + 1);
+	const listing = await source.directories(home ? home.home + dir.slice(1) : dir);
+	if (!listing) return none;
+	const separator = dir.at(-1) ?? listing.separator;
+	const hits = listing.entries
+		.filter((entry) => entry.name.startsWith(name) && (name.startsWith(".") || !entry.name.startsWith(".")))
+		.map((entry) => `${dir}${entry.name}${separator}`);
+	return complete(hits, partial);
+}
+
+function withSeparator(path: string, separator: string): string {
+	return path.endsWith(separator) ? path : `${path}${separator}`;
 }
 
 /** `provider/id` references, plus bare ids once something without a `/` is typed. */
@@ -110,8 +187,18 @@ export async function completeCliLine(line: string, source: CliCompletionSource)
 		case "thinking":
 			if (before.length) return [[], partial];
 			return complete(await source.thinkingLevels(), partial);
+		case "open":
+			return before.length ? [[], partial] : completeNumbered(await source.sessions(), partial);
+		case "revoke":
+			return before.length ? [[], partial] : completeNumbered(await source.devices(), partial);
+		case "fork":
+			return before.length ? [[], partial] : completeNumbered(await source.forkPoints(), partial);
+		case "answer":
+			return before.length ? [[], partial] : completeNumbered(await source.answerOptions(), partial);
 		case "ws":
 			if (!before.length) return complete(["add", "use", "policy"], partial, new Set(["add", "use", "policy"]));
+			if (before[0] === "add" && before.length === 1) return completeDirectory(partial, source);
+			if (before[0] === "use" && before.length === 1) return completeNumbered(await source.workspaces(), partial);
 			if ((before[0] === "policy" && before.length === 1) || (before[0] === "add" && before.length === 2))
 				return complete(POLICIES, partial);
 			return [[], partial];

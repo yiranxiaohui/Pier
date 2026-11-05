@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { shellCompletion } from "./completion.ts";
 import { type DesktopImage, launchDesktop } from "./desktop.ts";
 import { launchMode } from "./mode.ts";
 import { prepareResources } from "./resources.ts";
@@ -13,9 +14,14 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 		console.log(`pier ${version}`);
 		return;
 	}
+	if (command === "completion") {
+		if (args.length > 2) throw new Error("Usage: pier completion [bash]");
+		process.stdout.write(shellCompletion(args[1]));
+		return;
+	}
 	if (command === "--help" || command === "-h" || command === "help") {
 		console.log(
-			`pier ${version}\n\nUsage: pier                         Auto-select desktop or headless mode\n       pier desktop                 Open the graphical interface\n       pier run [host options]      Run without a graphical interface\n       pier cli [CLI options]\n       pier install [--user|--system] [--no-start]\n       pier {start|stop|restart|status|logs}\n       pier update [--version vX.Y.Z] [--no-start]\n       pier uninstall [--purge]\n\nRun directly from this one executable. No installation or shell script is required.\ninstall adds a systemd service and pier command; uninstall keeps data by default.\nUse run --help for Host options, or cli --help for pairing commands.`,
+			`pier ${version}\n\nUsage: pier                         Auto-select desktop or headless mode\n       pier desktop                 Open the graphical interface\n       pier run [host options]      Run without a graphical interface\n       pier cli [CLI options]\n       pier install [--user|--system] [--no-start]\n       pier {start|stop|restart|status|logs}\n       pier update [--version vX.Y.Z] [--no-start]\n       pier uninstall [--purge]\n       pier completion [bash]       Print shell completion: source <(pier completion bash)\n\nRun directly from this one executable. No installation or shell script is required.\ninstall adds a systemd service and pier command; uninstall keeps data by default.\nUse run --help for Host options, or cli --help for pairing commands.`,
 		);
 		return;
 	}

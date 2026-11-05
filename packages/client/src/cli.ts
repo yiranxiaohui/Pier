@@ -27,7 +27,7 @@ import {
 	type WorkspaceInfo,
 } from "@pier/protocol";
 import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
-import { completeCliLine, matchModel } from "./cli-complete.ts";
+import { completeCliLine, matchModel, oneLine } from "./cli-complete.ts";
 import { type PickerOptions, runTerminalPicker } from "./cli-picker.ts";
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
@@ -36,13 +36,13 @@ export const PIER_CLI_VERSION = "0.2.57";
 
 const HELP = `Commands:
   /ws                        list workspaces
-  /ws add <path> [policy]    register a workspace (policy: ask|smart|auto)
-  /ws use <n|id>             select a workspace
+  /ws add <path> [policy]    register a workspace (policy: ask|smart|auto; ~ is the home directory)
+  /ws use [n|id]             select a workspace (no argument: pick with ↑/↓)
   /ws policy <ask|smart|auto> set the current workspace's approval policy
   /agents                    list the agents on this computer (pi, Claude Code, Codex)
   /sessions                  list sessions in the current workspace
   /new [-a <agent>] [name]   create a session (default agent: pi) and attach to it
-  /open <n|id>               open a session from the last list and attach
+  /open [n|id]               open a session of /sessions and attach (no argument: pick with ↑/↓)
   /status                    show the attached session state
   /rename <name>             rename the attached session
   /fork [n]                  list fork points, or fork at point n
@@ -64,11 +64,12 @@ const HELP = `Commands:
   /pair                      show a pairing link for the mobile app (see /pair yes|no)
   /pair yes|no               allow or decline the device waiting for confirmation
   /devices                   list paired devices
-  /revoke <n|id>             revoke a paired device (disconnects it immediately)
+  /revoke [n|id]             revoke a paired device and disconnect it (no argument: pick with ↑/↓)
   /drop                      simulate a network drop (tests reconnect + resume)
   /quit                      exit
 Anything else is sent as a prompt (as a follow-up while the agent is running).
-Press Tab to complete commands, models, thinking levels, agents and options.`;
+Press Tab to complete commands, models, thinking levels, agents, options and directories, and the
+numbers of sessions, workspaces, devices, fork points and answers (press Tab twice to list them).`;
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -106,6 +107,24 @@ function textOf(content: unknown): string {
 		})
 		.join("");
 }
+
+/** A session's name, or the start of its first message. */
+function sessionTitle(session: SessionSummary): string {
+	return session.name ?? oneLine(session.firstMessage, 60);
+}
+
+function workspaceLabel(workspace: WorkspaceInfo): string {
+	return `${workspace.name} ${workspace.path} [${workspace.policy}]`;
+}
+
+function deviceLabel(device: DeviceInfo): string {
+	return `${device.name}${device.platform ? ` ${device.platform}` : ""}${device.connected ? " online" : ""}`;
+}
+
+const isHomePath = (path: string) => path === "~" || /^~[\\/]/.test(path);
+
+/** Completion lookups run while readline waits for the result, so they must not hang. */
+const QUICK = { timeoutMs: 3_000 };
 
 class Cli {
 	private workspaces: WorkspaceInfo[] = [];
@@ -460,11 +479,148 @@ class Cli {
 			agents: () =>
 				lookup(async () => {
 					// Fetched at startup and by /agents; ask again only if that failed.
-					if (!this.runtimes.length)
-						this.runtimes = (await this.client.request("runtime.list", {}, { timeoutMs: 3_000 })).runtimes;
+					if (!this.runtimes.length) this.runtimes = (await this.client.request("runtime.list", {}, QUICK)).runtimes;
 					return this.runtimes.filter((r) => r.available).map((r) => r.id);
 				}, []),
+			// The lists are kept so that `/open <n>` and the others count like the completion did.
+			sessions: () =>
+				lookup(async () => {
+					if (!this.workspace) return [];
+					const workspaceId = this.workspace.id;
+					this.sessions = (await this.client.request("session.list", { workspaceId }, QUICK)).sessions;
+					return this.sessions.map((s) => `${oneLine(sessionTitle(s) || "(empty)", 40)} · ${this.sessionDetail(s)}`);
+				}, []),
+			workspaces: () =>
+				lookup(async () => {
+					this.workspaces = (await this.client.request("workspace.list", {}, QUICK)).workspaces;
+					return this.workspaces.map(workspaceLabel);
+				}, []),
+			devices: () =>
+				lookup(async () => {
+					this.devices = (await this.client.request("device.list", {}, QUICK)).devices;
+					return this.devices.map(deviceLabel);
+				}, []),
+			forkPoints: () =>
+				lookup(async () => {
+					if (!this.sessionId) return [];
+					const { points } = await this.client.request("session.forkPoints", { sessionId: this.sessionId }, QUICK);
+					return points.map((p) => p.text);
+				}, []),
+			answerOptions: async () => {
+				const request = this.pendingAnswer();
+				return request?.kind === "select" ? (request.options ?? []) : [];
+			},
+			directories: (path) =>
+				lookup(() => this.client.request("host.listDirectories", path ? { path } : {}, QUICK), undefined),
 		});
+	}
+
+	/** Agent, state and size of a session, as the session lists show them. */
+	private sessionDetail(session: SessionSummary): string {
+		return `${runtimeName(session.runtime, this.runtimes)} · ${session.state} · ${session.messageCount} msgs`;
+	}
+
+	/** The pending select / input / editor request that `/answer` answers. */
+	private pendingAnswer(): UiRequest | undefined {
+		return [...this.pendingUi.values()].find((r) => r.kind !== "approval" && r.kind !== "confirm");
+	}
+
+	private listSessions(): void {
+		if (!this.sessions.length) this.line(`No sessions in this workspace yet. Create one with ${bold("/new")}.`);
+		for (const [i, s] of this.sessions.entries()) {
+			const agent = s.runtime && s.runtime !== "pi" ? ` [${runtimeName(s.runtime, this.runtimes)}]` : "";
+			this.line(
+				`${i + 1}. ${sessionTitle(s) || dim("(empty)")}${agent} ${dim(`${s.messageCount} msgs · ${s.state} · ${s.modifiedAt}`)}`,
+			);
+		}
+	}
+
+	private listWorkspaces(): void {
+		if (!this.workspaces.length) this.line(`No workspaces yet. Add one with ${bold("/ws add <path>")}.`);
+		for (const [i, w] of this.workspaces.entries()) {
+			this.line(`${i + 1}. ${w.id === this.workspace?.id ? "*" : " "} ${w.name} ${dim(w.path)} [${w.policy}]`);
+		}
+	}
+
+	private listDevices(): void {
+		if (!this.devices.length) this.line("No paired devices.");
+		for (const [i, d] of this.devices.entries()) {
+			this.line(
+				`${i + 1}. ${bold(d.name)} ${dim(`${d.platform ?? ""} ${d.fingerprint} ${d.id}`)} ${d.connected ? green("online") : dim(d.lastSeenAt ? `last seen ${d.lastSeenAt}` : "")}`,
+			);
+		}
+	}
+
+	/** `/open` without an argument: pick a session of the workspace, or list them without a terminal. */
+	private async chooseSession(): Promise<SessionSummary | undefined> {
+		this.sessions = (await this.client.request("session.list", { workspaceId: this.requireWorkspace().id })).sessions;
+		if (!this.picker || !this.sessions.length) {
+			this.listSessions();
+			if (this.sessions.length) this.line(dim("Open one with /open <n>."));
+			return undefined;
+		}
+		const picked = await this.choose({
+			title: "Open a session",
+			items: this.sessions.map((s) => ({
+				label: sessionTitle(s) || "(empty)",
+				detail: this.sessionDetail(s),
+				current: s.id === this.sessionId,
+				value: s,
+			})),
+		});
+		if (!picked) this.line(dim("No session opened."));
+		return picked;
+	}
+
+	/** `/ws use` without an argument. */
+	private async chooseWorkspace(): Promise<WorkspaceInfo | undefined> {
+		if (!this.picker || !this.workspaces.length) {
+			this.listWorkspaces();
+			if (this.workspaces.length) this.line(dim("Select one with /ws use <n>."));
+			return undefined;
+		}
+		const picked = await this.choose({
+			title: "Select a workspace",
+			items: this.workspaces.map((w) => ({
+				label: w.name,
+				detail: `${w.path} [${w.policy}]`,
+				current: w.id === this.workspace?.id,
+				value: w,
+			})),
+		});
+		if (!picked) this.line(dim("Workspace unchanged."));
+		return picked;
+	}
+
+	/** `/revoke` without an argument. */
+	private async chooseDevice(): Promise<DeviceInfo | undefined> {
+		if (!this.picker || !this.devices.length) {
+			this.listDevices();
+			if (this.devices.length) this.line(dim("Revoke one with /revoke <n>."));
+			return undefined;
+		}
+		const picked = await this.choose({
+			title: "Revoke a paired device (it is disconnected immediately)",
+			items: this.devices.map((d) => ({
+				label: d.name,
+				detail: `${d.platform ?? ""} ${d.fingerprint}${d.connected ? " · online" : ""}`.trim(),
+				value: d,
+			})),
+		});
+		if (!picked) this.line(dim("No device revoked."));
+		return picked;
+	}
+
+	private selectWorkspace(workspace: WorkspaceInfo): void {
+		if (workspace.id !== this.workspace?.id) this.sessions = []; // numbered for the previous workspace
+		this.workspace = workspace;
+	}
+
+	/** Expand `~` and `~/…`, which stand for the host's home directory. */
+	private async expandHome(path: string): Promise<string> {
+		if (!isHomePath(path)) return path;
+		const { home } = await this.client.request("host.listDirectories");
+		return home + path.slice(1);
 	}
 
 	async handle(input: string): Promise<boolean> {
@@ -493,15 +649,17 @@ class Cli {
 					const [path, policy] = wsArgs;
 					if (!path) throw new Error("Usage: /ws add <path> [policy]");
 					const { workspace } = await this.client.request("workspace.add", {
-						path,
+						path: await this.expandHome(path),
 						...(policy ? { policy: policy as WorkspaceInfo["policy"] } : {}),
 					});
-					this.workspace = workspace;
+					this.selectWorkspace(workspace);
 					this.line(`Workspace ${bold(workspace.name)} [${workspace.policy}] selected.`);
 				} else if (sub === "use") {
 					this.workspaces = (await this.client.request("workspace.list")).workspaces;
-					this.workspace = this.pick(this.workspaces, wsArgs[0] ?? "");
-					this.line(`Workspace ${bold(this.workspace.name)} selected.`);
+					const workspace = wsArgs[0] ? this.pick(this.workspaces, wsArgs[0]) : await this.chooseWorkspace();
+					if (!workspace) break;
+					this.selectWorkspace(workspace);
+					this.line(`Workspace ${bold(workspace.name)} selected.`);
 				} else if (sub === "policy") {
 					const { workspace } = await this.client.request("workspace.setPolicy", {
 						workspaceId: this.requireWorkspace().id,
@@ -511,25 +669,19 @@ class Cli {
 					this.line(`Policy set to ${workspace.policy}.`);
 				} else {
 					this.workspaces = (await this.client.request("workspace.list")).workspaces;
-					for (const [i, w] of this.workspaces.entries()) {
-						this.line(`${i + 1}. ${w.id === this.workspace?.id ? "*" : " "} ${w.name} ${dim(w.path)} [${w.policy}]`);
-					}
+					this.listWorkspaces();
 				}
 				break;
 			}
 			case "agents":
 				await this.listAgents();
 				break;
-			case "sessions": {
-				const { sessions } = await this.client.request("session.list", { workspaceId: this.requireWorkspace().id });
-				this.sessions = sessions;
-				for (const [i, s] of sessions.entries()) {
-					const title = s.name ?? (s.firstMessage.slice(0, 60) || dim("(empty)"));
-					const agent = s.runtime && s.runtime !== "pi" ? ` [${runtimeName(s.runtime, this.runtimes)}]` : "";
-					this.line(`${i + 1}. ${title}${agent} ${dim(`${s.messageCount} msgs · ${s.state} · ${s.modifiedAt}`)}`);
-				}
+			case "sessions":
+				this.sessions = (
+					await this.client.request("session.list", { workspaceId: this.requireWorkspace().id })
+				).sessions;
+				this.listSessions();
 				break;
-			}
 			case "new": {
 				const { agent, name } = parseNewArgs(arg);
 				const workspaceId = this.requireWorkspace().id;
@@ -543,11 +695,15 @@ class Cli {
 				break;
 			}
 			case "open": {
-				const target = this.pick(this.sessions, arg);
-				const { session } = await this.client.request("session.open", {
-					workspaceId: this.requireWorkspace().id,
-					sessionId: target.id,
-				});
+				const workspaceId = this.requireWorkspace().id;
+				let target: SessionSummary | undefined;
+				if (arg) {
+					if (!this.sessions.length)
+						this.sessions = (await this.client.request("session.list", { workspaceId })).sessions;
+					target = this.pick(this.sessions, arg);
+				} else target = await this.chooseSession();
+				if (!target) break;
+				const { session } = await this.client.request("session.open", { workspaceId, sessionId: target.id });
 				await this.attach(session);
 				break;
 			}
@@ -688,7 +844,7 @@ class Cli {
 				await this.respond(this.oldestPending("confirm"), { confirmed: command === "yes" });
 				break;
 			case "answer": {
-				const request = [...this.pendingUi.values()].find((r) => r.kind !== "approval" && r.kind !== "confirm");
+				const request = this.pendingAnswer();
 				if (!request) throw new Error("No pending select/input/editor request");
 				const index = Number(arg);
 				const value =
@@ -733,19 +889,14 @@ class Cli {
 				this.line(dim("Paste it into the mobile app (Add computer → paste link), then confirm here with /pair yes."));
 				break;
 			}
-			case "devices": {
+			case "devices":
 				this.devices = (await this.client.request("device.list")).devices;
-				if (!this.devices.length) this.line("No paired devices.");
-				this.devices.forEach((d, i) => {
-					this.line(
-						`${i + 1}. ${bold(d.name)} ${dim(`${d.platform ?? ""} ${d.fingerprint} ${d.id}`)} ${d.connected ? green("online") : dim(d.lastSeenAt ? `last seen ${d.lastSeenAt}` : "")}`,
-					);
-				});
+				this.listDevices();
 				break;
-			}
 			case "revoke": {
-				if (!this.devices.length) this.devices = (await this.client.request("device.list")).devices;
-				const device = this.pick(this.devices, arg);
+				if (!arg || !this.devices.length) this.devices = (await this.client.request("device.list")).devices;
+				const device = arg ? this.pick(this.devices, arg) : await this.chooseDevice();
+				if (!device) break;
 				const { revoked } = await this.client.request("device.revoke", { deviceId: device.id });
 				this.line(revoked ? `Revoked ${bold(device.name)}.` : "Device was already gone.");
 				this.devices = this.devices.filter((d) => d.id !== device.id);

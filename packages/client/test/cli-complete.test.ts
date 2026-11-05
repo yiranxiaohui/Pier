@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type CliCompletionSource, completeCliLine, matchModel, modelCandidates } from "../src/cli-complete.ts";
+import {
+	type CliCompletionSource,
+	type CliDirectoryListing,
+	completeCliLine,
+	completeNumbered,
+	matchModel,
+	modelCandidates,
+	oneLine,
+} from "../src/cli-complete.ts";
 
 const models = [
 	{ provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" },
@@ -8,11 +16,55 @@ const models = [
 	{ provider: "openrouter", id: "openai/gpt-5.5", name: "GPT-5.5" },
 ];
 
+const sessions = Array.from({ length: 12 }, (_, i) => `session ${i + 1}`);
+
+/** A host whose home directory is /home/me, recording the directories it was asked for. */
+function posixHost(listed: string[] = []): (path?: string) => Promise<CliDirectoryListing | undefined> {
+	const tree: Record<string, string[]> = {
+		"/": ["etc", "home"],
+		"/home/me": [".config", "code", "Documents", "projects"],
+		"/home/me/code": ["pi", "pier"],
+	};
+	return async (path) => {
+		listed.push(path ?? "(home)");
+		const dir = path === undefined ? "/home/me" : path.length > 1 ? path.replace(/\/$/, "") : path;
+		const names = tree[dir];
+		return names ? { home: "/home/me", separator: "/", entries: names.map((name) => ({ name })) } : undefined;
+	};
+}
+
+const empty: CliCompletionSource = {
+	models: async () => [],
+	thinkingLevels: async () => [],
+	agents: async () => [],
+	sessions: async () => [],
+	workspaces: async () => [],
+	devices: async () => [],
+	forkPoints: async () => [],
+	answerOptions: async () => [],
+	directories: async () => undefined,
+};
+
 const source: CliCompletionSource = {
 	models: async () => models,
 	thinkingLevels: async () => ["off", "low", "medium", "high"],
 	agents: async () => ["pi", "claude-code", "codex"],
+	sessions: async () => sessions,
+	workspaces: async () => ["pier /home/me/code/pier [ask]", "pi /home/me/code/pi [auto]"],
+	devices: async () => ["Pixel android online"],
+	forkPoints: async () => ["first prompt", "second prompt"],
+	answerOptions: async () => ["Yes", "No"],
+	directories: posixHost(),
 };
+
+/** readline inserts the common prefix of the candidates: it must never drop typed text. */
+function commonPrefix(words: string[]): string {
+	return words.reduce((prefix, word) => {
+		let i = 0;
+		while (i < prefix.length && prefix[i] === word[i]) i++;
+		return prefix.slice(0, i);
+	}, words[0] ?? "");
+}
 
 describe("completeCliLine", () => {
 	it("lists every command on an empty line or a bare slash", async () => {
@@ -68,17 +120,18 @@ describe("completeCliLine", () => {
 	it("only loads models when completing a model", async () => {
 		let loads = 0;
 		const counting: CliCompletionSource = {
+			...empty,
 			models: async () => {
 				loads++;
 				return models;
 			},
-			thinkingLevels: async () => [],
-			agents: async () => [],
 		};
 		await completeCliLine("/mod", counting);
 		await completeCliLine("/ws ", counting);
 		await completeCliLine("/models ", counting);
 		await completeCliLine("/new -a ", counting);
+		await completeCliLine("/open ", counting);
+		await completeCliLine("/ws add /", counting);
 		expect(loads).toBe(0);
 		await completeCliLine("/model ", counting);
 		expect(loads).toBe(1);
@@ -96,6 +149,110 @@ describe("completeCliLine", () => {
 		expect(await completeCliLine("/new --", source)).toEqual([["--agent "], "--"]);
 		expect(await completeCliLine("/new -a codex fix the", source)).toEqual([[], "the"]);
 		expect(await completeCliLine("/new -a codex -", source)).toEqual([[], "-"]);
+	});
+});
+
+describe("numbered completion", () => {
+	it("completes a unique number and lists several with their labels", async () => {
+		expect(await completeCliLine("/open 3", source)).toEqual([["3"], "3"]);
+		expect(await completeCliLine("/open 1", source)).toEqual([
+			["1. session 1", "10. session 10", "11. session 11", "12. session 12"],
+			"1",
+		]);
+		const [all] = await completeCliLine("/open ", source);
+		expect(all).toHaveLength(12);
+		expect(all[1]).toBe("2. session 2");
+		expect(await completeCliLine("/open 13", source)).toEqual([[], "13"]);
+		expect(await completeCliLine("/open fix", source)).toEqual([[], "fix"]);
+		expect(await completeCliLine("/open 1 2", source)).toEqual([[], "2"]);
+	});
+
+	it("keeps the common prefix of listed candidates equal to the typed number", () => {
+		const labels = Array.from({ length: 150 }, (_, i) => `item ${i + 1}`);
+		for (const partial of ["", "1", "2", "12", "15"]) {
+			const [hits] = completeNumbered(labels, partial);
+			expect(hits.length).toBeGreaterThan(1);
+			expect(commonPrefix(hits)).toBe(partial);
+		}
+	});
+
+	it("numbers workspaces, devices, fork points and the options of /answer", async () => {
+		expect(await completeCliLine("/ws use ", source)).toEqual([
+			["1. pier /home/me/code/pier [ask]", "2. pi /home/me/code/pi [auto]"],
+			"",
+		]);
+		expect(await completeCliLine("/ws use 2", source)).toEqual([["2"], "2"]);
+		expect(await completeCliLine("/revoke ", source)).toEqual([["1"], ""]);
+		expect(await completeCliLine("/fork ", source)).toEqual([["1. first prompt", "2. second prompt"], ""]);
+		expect(await completeCliLine("/answer 2", source)).toEqual([["2"], "2"]);
+		expect(await completeCliLine("/answer ", empty)).toEqual([[], ""]);
+	});
+
+	it("shows labels on one line and cuts long ones", () => {
+		expect(oneLine("fix\n  the   login")).toBe("fix the login");
+		const long = oneLine("x".repeat(200));
+		expect(long).toHaveLength(80);
+		expect(long.endsWith("…")).toBe(true);
+		expect(completeNumbered(["a\nb", "c"], "")[0]).toEqual(["1. a b", "2. c"]);
+	});
+});
+
+describe("directory completion", () => {
+	it("starts at the home directory and completes absolute paths", async () => {
+		expect(await completeCliLine("/ws add ", source)).toEqual([["/home/me/"], ""]);
+		expect(await completeCliLine("/ws add /", source)).toEqual([["/etc/", "/home/"], "/"]);
+		expect(await completeCliLine("/ws add /home/me/c", source)).toEqual([["/home/me/code/"], "/home/me/c"]);
+		expect(await completeCliLine("/ws add /home/me/code/p", source)).toEqual([
+			["/home/me/code/pi/", "/home/me/code/pier/"],
+			"/home/me/code/p",
+		]);
+	});
+
+	it("expands ~ to the host's home directory but keeps it in the line", async () => {
+		const listed: string[] = [];
+		const host = { ...source, directories: posixHost(listed) };
+		expect(await completeCliLine("/ws add ~", host)).toEqual([["~/"], "~"]);
+		expect(await completeCliLine("/ws add ~/co", host)).toEqual([["~/code/"], "~/co"]);
+		expect(await completeCliLine("/ws add ~/code/pie", host)).toEqual([["~/code/pier/"], "~/code/pie"]);
+		expect(listed).toEqual(["(home)", "(home)", "/home/me/", "(home)", "/home/me/code/"]);
+	});
+
+	it("hides dot directories until the name starts with a dot", async () => {
+		expect((await completeCliLine("/ws add /home/me/", source))[0]).toEqual([
+			"/home/me/code/",
+			"/home/me/Documents/",
+			"/home/me/projects/",
+		]);
+		expect(await completeCliLine("/ws add /home/me/.", source)).toEqual([["/home/me/.config/"], "/home/me/."]);
+	});
+
+	it("offers nothing for relative paths, unknown directories or a failed lookup", async () => {
+		expect(await completeCliLine("/ws add code", source)).toEqual([[], "code"]);
+		expect(await completeCliLine("/ws add /nope/x", source)).toEqual([[], "/nope/x"]);
+		expect(await completeCliLine("/ws add ~/x", empty)).toEqual([[], "~/x"]);
+		expect(await completeCliLine("/ws add ", empty)).toEqual([[], ""]);
+	});
+
+	it("splits Windows paths on either separator", async () => {
+		const listed: string[] = [];
+		const windows: CliCompletionSource = {
+			...empty,
+			directories: async (path) => {
+				listed.push(path ?? "(home)");
+				return { home: "C:\\Users\\me", separator: "\\", entries: [{ name: "code" }, { name: "Desktop" }] };
+			},
+		};
+		expect(await completeCliLine("/ws add ", windows)).toEqual([["C:\\Users\\me\\"], ""]);
+		expect(await completeCliLine("/ws add C:\\Users\\me\\co", windows)).toEqual([
+			["C:\\Users\\me\\code\\"],
+			"C:\\Users\\me\\co",
+		]);
+		expect(await completeCliLine("/ws add C:/Users/me/De", windows)).toEqual([
+			["C:/Users/me/Desktop/"],
+			"C:/Users/me/De",
+		]);
+		expect(await completeCliLine("/ws add ~\\co", windows)).toEqual([["~\\code\\"], "~\\co"]);
+		expect(listed).toEqual(["(home)", "C:\\Users\\me\\", "C:/Users/me/", "(home)", "C:\\Users\\me\\"]);
 	});
 });
 
