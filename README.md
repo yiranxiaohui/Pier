@@ -329,7 +329,7 @@ pier update --no-start
 
 内置更新命令下载对应架构的单文件，并校验 Release 的 SHA-256 和版本后替换，启动失败时恢复上一版。可用 `PIER_PREFIX` 自定义安装前缀、`PIER_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。`PIER_HOST_PREFIX` / `PIER_HOST_STATE_DIR` 继续兼容。直接运行时无需 systemd；不安装的便携副本停机后删除该文件即可。服务模式支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端需要桌面模式。单文件版在“关于与更新”提示通过 `pier update`（已安装）或下载新文件替换（便携运行）更新整个程序；独立的桌面安装包仍支持应用内更新。切换到桌面模式前先用 `pier stop` 停止同一状态目录的后台服务。
 
-新版下载统一使用 `pier-v<版本>-<平台>` 命名。为旧版自动更新保留 `pier-host-*` 兼容文件和 `.tar.gz`；新用户只需下载 `pier`。已有单文件安装升级时保留原安装目录、`pier-host.service` 和配置，运行新版 `install` 或再次 `update` 后补充 `pier` 命令。若之前通过脚本安装，先用旧 `pier-host uninstall` 卸载（默认保留数据），再执行新二进制的 `install`；也可以继续使用原来的压缩包更新方式。
+Linux 单文件统一以 `pier-v<版本>-linux-<架构>` 发布。v0.2.57 是最后一个附带旧名 `pier-host-*` 兼容单文件和 `.tar.gz` 压缩包的版本。v0.2.56 及更早的单文件安装，先运行一次 `pier-host update --version v0.2.57` 过渡，之后的 `update` 会自动下载新名称的单文件；升级时保留原安装目录、`pier-host.service` 和配置，运行新版 `install` 或再次 `update` 后补充 `pier` 命令。通过脚本安装的压缩包版本最多更新到 v0.2.57；改用单文件时，先用旧 `pier-host uninstall` 卸载（默认保留数据），再执行新单文件的 `install`，`pier-host update` 遇到新版本时会给出具体命令。
 
 ### Sidecar
 

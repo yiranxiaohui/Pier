@@ -106,7 +106,27 @@ else
   base="$repo/releases/download/$version"
   download "$base/SHA256SUMS.txt" "$task_tmp/SHA256SUMS.txt"
   checksum=$(awk -v asset="$asset" '$2 == asset || $2 == "*" asset { print $1 }' "$task_tmp/SHA256SUMS.txt")
-  [[ -n "$checksum" ]] || fail "No standalone Host archive for $version (linux-$arch). Choose v0.2.35 or later."
+  if [[ -z "$checksum" ]]; then
+    single="pier-$version-linux-$arch"
+    if awk -v asset="$single" '$2 == asset || $2 == "*" asset { found = 1 } END { exit !found }' "$task_tmp/SHA256SUMS.txt"; then
+      # v0.2.57 is the last release with Host archives; later releases ship only the single-file pier.
+      install_cmd="./pier install --$scope"
+      if [[ "$state_dir" != "$(realpath -m -- "$HOME/.pier")" ]]; then
+        install_cmd="PIER_HOST_STATE_DIR=$(printf '%q' "$state_dir") $install_cmd"
+      fi
+      cat >&2 <<EOF
+pier-host: Pier $version is released only as the single file $single; v0.2.57 is the last Host archive.
+Keep this archive installation on v0.2.57:
+  pier-host update --version v0.2.57
+Or switch to the single file (Pier data and pairing in $state_dir are kept):
+  pier-host uninstall
+  curl -fLo pier $base/$single && chmod +x pier
+  $install_cmd
+EOF
+      exit 1
+    fi
+    fail "No standalone Host archive for $version (linux-$arch). Choose v0.2.35 to v0.2.57."
+  fi
   [[ "$checksum" =~ ^[0-9a-fA-F]{64}$ ]] || fail 'Invalid release checksum.'
   echo "Downloading Pier Host $version (linux-$arch)..."
   download "$base/$asset" "$task_tmp/$asset"

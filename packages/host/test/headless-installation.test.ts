@@ -215,6 +215,23 @@ describe.skipIf(process.platform !== "linux")("headless installer and uninstall"
 		expect(readFileSync(f.service, "utf8")).toBe(before);
 	});
 
+	it("explains how to stay on v0.2.57 or switch when a release ships only the single-file pier", () => {
+		const f = fixture();
+		expect(f.run().status).toBe(0);
+		const before = readFileSync(f.service, "utf8");
+		writeFileSync(join(f.root, "release.json"), '{"tag_name": "v0.2.58"}');
+		writeFileSync(join(f.root, "SHA256SUMS.txt"), `${"f".repeat(64)}  pier-v0.2.58-linux-x64\n`);
+		const result = f.run([]);
+		expect(result.status).not.toBe(0);
+		expect(result.stderr).toContain("released only as the single file pier-v0.2.58-linux-x64");
+		expect(result.stderr).toContain("pier-host update --version v0.2.57");
+		expect(result.stderr).toContain("/releases/download/v0.2.58/pier-v0.2.58-linux-x64");
+		expect(result.stderr).toContain(`PIER_HOST_STATE_DIR=${f.state} ./pier install --user`);
+		expect(result.stderr).not.toContain("Unexpected download");
+		expect(readFileSync(f.service, "utf8")).toBe(before);
+		expect(readFileSync(join(f.root, "systemctl.log"), "utf8")).not.toContain("stop");
+	});
+
 	it("installs an already downloaded bundle without network access", () => {
 		const f = fixture();
 		script(join(f.root, "mock-bin/curl"), "echo 'Network access forbidden' >&2; exit 1");

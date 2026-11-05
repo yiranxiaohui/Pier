@@ -17,7 +17,6 @@ import { createInterface } from "node:readline";
 
 const source = resolve(process.argv[2]);
 const version = process.argv[3];
-const legacy = process.argv.includes("--legacy");
 const root = mkdtempSync(join(tmpdir(), "pier-single-smoke-"));
 let host;
 try {
@@ -44,8 +43,7 @@ try {
 		delete env[key];
 	const run = (binary, args, input) =>
 		execFileSync(binary, args, { env, input, encoding: "utf8", timeout: 60_000, stdio: ["pipe", "pipe", "pipe"] });
-	if (run(executable, ["--version"]).trim() !== `${legacy ? "pier-host" : "pier"} ${version}`)
-		throw new Error("Unexpected version");
+	if (run(executable, ["--version"]).trim() !== `pier ${version}`) throw new Error("Unexpected version");
 	try {
 		run(executable, ["desktop"]);
 		throw new Error("Desktop launch unexpectedly succeeded without a display");

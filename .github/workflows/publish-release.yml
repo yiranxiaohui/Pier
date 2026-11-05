@@ -91,7 +91,7 @@ jobs:
           expected = signed | {name + '.sig' for name in signed} | {
               f'pier-{tag}-darwin-arm64.dmg', f'pier-{tag}-darwin-x64.dmg',
               f'pier-{tag}-android.apk', 'latest.json', 'latest-android.json',
-          } | {f'pier-host-{tag}-linux-{arch}{suffix}' for arch in ['x64', 'arm64'] for suffix in ['', '.tar.gz']} | {f'pier-{tag}-linux-{arch}' for arch in ['x64', 'arm64']}
+          } | {f'pier-{tag}-linux-{arch}' for arch in ['x64', 'arm64']}
           assert {p.name for p in root.iterdir()} == expected, 'Unexpected or missing release artifacts'
           assert all(p.is_file() and not p.is_symlink() and p.stat().st_size for p in root.iterdir()), 'Invalid artifact'
           version = json.loads(Path('package.json').read_text())['version']

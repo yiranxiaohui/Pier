@@ -275,24 +275,16 @@ jobs:
         with:
           name: pier-desktop-${{ github.ref_name }}-linux-${{ matrix.arch }}
           path: desktop
-      - name: Build unified Pier and compatibility archives
+      - name: Build unified Pier
         run: node packages/host/scripts/build-host-release.mjs --arch ${{ matrix.arch }} --desktop desktop/pier-${{ github.ref_name }}-linux-${{ matrix.arch }}.AppImage
       - name: Smoke test without a desktop
         run: |
-          mkdir unpacked
-          tar -xzf dist/pier-host-*.tar.gz -C unpacked
-          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs unpacked/pier-host "${{ needs.verify.outputs.version }}"
-          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-mcp.mjs unpacked/pier-host
-          unpacked/pier-cli --help
           bash -n scripts/install-host.sh scripts/host-manager.sh
           mkdir single-file
-          cp dist/pier-host-v*-linux-${{ matrix.arch }} single-file/pier-host
-          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier-host "${{ needs.verify.outputs.version }}" --standalone
-          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-mcp.mjs single-file/pier-host
-          single-file/pier-host cli --help
-          node packages/host/scripts/smoke-standalone.mjs single-file/pier-host "${{ needs.verify.outputs.version }}" --legacy
           cp dist/pier-v*-linux-${{ matrix.arch }} single-file/pier
           env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-sidecar.mjs single-file/pier "${{ needs.verify.outputs.version }}" --standalone
+          env -u DISPLAY -u WAYLAND_DISPLAY -u PI_PACKAGE_DIR node packages/host/scripts/smoke-mcp.mjs single-file/pier
+          single-file/pier cli --help
           node packages/host/scripts/smoke-standalone.mjs single-file/pier "${{ needs.verify.outputs.version }}"
       - name: Smoke test the same file with a graphical display
         run: |
@@ -301,7 +293,7 @@ jobs:
           dbus-run-session -- xvfb-run -a node packages/host/scripts/smoke-desktop.mjs single-file/pier "${{ needs.verify.outputs.version }}"
       - uses: actions/upload-artifact@v5
         with:
-          name: pier-host-${{ github.ref_name }}-linux-${{ matrix.arch }}
+          name: pier-single-file-${{ github.ref_name }}-linux-${{ matrix.arch }}
           path: dist/pier-*
           if-no-files-found: error
 

@@ -30,26 +30,13 @@ try {
 		[join(repo, "packages/host/scripts/build-sidecar.mjs"), "--outdir", staging, "--target", target],
 		{ cwd: repo, stdio: "inherit" },
 	);
-	execFileSync(
-		"bun",
-		["build", "--compile", "--target", target, "packages/client/src/cli.ts", "--outfile", join(staging, "pier-cli")],
-		{ cwd: repo, stdio: "inherit" },
-	);
-	copyFileSync(join(repo, "scripts/host-manager.sh"), join(staging, "manage.sh"));
-	copyFileSync(join(repo, "scripts/install-host.sh"), join(staging, "install-host.sh"));
-	writeFileSync(join(staging, "VERSION"), `v${version}\n`);
-	writeFileSync(join(staging, "PLATFORM"), `linux-${values.arch}\n`);
 	const outdir = resolve(values.outdir);
 	mkdirSync(outdir, { recursive: true });
-	const archive = join(outdir, `pier-host-v${version}-linux-${values.arch}.tar.gz`);
-	execFileSync("tar", ["-czf", archive, "-C", staging, "."], { stdio: "inherit" });
-	console.log(`Built ${archive}`);
-	// Retain archives for existing installations; new users can download only this executable.
+	// Embed the pi runtime assets the sidecar build placed beside its executable.
 	const files = {};
-	const excluded = new Set(["pier-host", "pier-cli", "manage.sh", "install-host.sh", "VERSION", "PLATFORM"]);
 	function collect(directory, prefix = "") {
 		for (const item of readdirSync(directory, { withFileTypes: true })) {
-			if (!prefix && excluded.has(item.name)) continue;
+			if (!prefix && item.name === "pier-host") continue;
 			const name = prefix ? `${prefix}/${item.name}` : item.name;
 			if (item.isDirectory()) collect(join(directory, item.name), name);
 			else files[name] = readFileSync(join(directory, item.name)).toString("base64");
@@ -58,40 +45,37 @@ try {
 	collect(staging);
 	writeFileSync(join(staging, "pi-resources.json.gz"), gzipSync(JSON.stringify(files)));
 	copyFileSync(desktop, join(staging, "Pier.AppImage"));
-	// Keep pi's worker specifier identical in the archive sidecar and the embedded executable.
+	// Keep pi's worker specifier identical in the sidecar build and the embedded executable.
 	const worker = join(staging, "src/extensions/codemode/worker.ts");
 	mkdirSync(join(staging, "src/extensions/codemode"), { recursive: true });
 	writeFileSync(worker, `import ${JSON.stringify(join(repo, "packages/host/src/extensions/codemode/worker.ts"))};\n`);
-	for (const legacy of [false, true]) {
-		const name = legacy ? "pier-host" : "pier";
-		const entry = join(staging, "standalone.ts");
-		writeFileSync(
+	const entry = join(staging, "standalone.ts");
+	writeFileSync(
+		entry,
+		`import archive from "./pi-resources.json.gz" with { type: "file" };\n` +
+			`import desktop from "./Pier.AppImage" with { type: "file" };\n` +
+			`import { runStandalone } from ${JSON.stringify(join(repo, "packages/host/src/standalone/main.ts"))};\n` +
+			`runStandalone(archive, ${JSON.stringify(version)}, { path: desktop, sha256: ${JSON.stringify(desktopDigest)} }).catch(error => { console.error("pier: " + error.message); process.exit(1); });\n`,
+	);
+	const executable = join(outdir, `pier-v${version}-linux-${values.arch}`);
+	execFileSync(
+		"bun",
+		[
+			"build",
+			"--compile",
+			"--no-compile-autoload-bunfig",
+			"--root",
+			staging,
+			"--target",
+			target,
 			entry,
-			`import archive from "./pi-resources.json.gz" with { type: "file" };\n` +
-				`import desktop from "./Pier.AppImage" with { type: "file" };\n` +
-				`import { runStandalone } from ${JSON.stringify(join(repo, "packages/host/src/standalone/main.ts"))};\n` +
-				`runStandalone(archive, ${JSON.stringify(version)}, { path: desktop, sha256: ${JSON.stringify(desktopDigest)} }, ${legacy}).catch(error => { console.error("pier: " + error.message); process.exit(1); });\n`,
-		);
-		const executable = join(outdir, `${name}-v${version}-linux-${values.arch}`);
-		execFileSync(
-			"bun",
-			[
-				"build",
-				"--compile",
-				"--no-compile-autoload-bunfig",
-				"--root",
-				staging,
-				"--target",
-				target,
-				entry,
-				worker,
-				"--outfile",
-				executable,
-			],
-			{ cwd: repo, stdio: "inherit" },
-		);
-		console.log(`Built single-file ${executable}`);
-	}
+			worker,
+			"--outfile",
+			executable,
+		],
+		{ cwd: repo, stdio: "inherit" },
+	);
+	console.log(`Built single-file ${executable}`);
 } finally {
 	rmSync(staging, { recursive: true, force: true });
 }

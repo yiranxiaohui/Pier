@@ -6,16 +6,11 @@ import { prepareResources } from "./resources.ts";
 import { standaloneExecutable } from "./self.ts";
 import { findInstallation, installHost, serviceCommand, uninstallHost, updateHost } from "./service.ts";
 
-export async function runStandalone(
-	archive: string,
-	version: string,
-	desktop?: DesktopImage,
-	legacy = false,
-): Promise<void> {
+export async function runStandalone(archive: string, version: string, desktop?: DesktopImage): Promise<void> {
 	const args = process.argv.slice(2);
 	const command = args[0];
 	if (command === "--version") {
-		console.log(`${legacy ? "pier-host" : "pier"} ${version}`);
+		console.log(`pier ${version}`);
 		return;
 	}
 	if (command === "--help" || command === "-h" || command === "help") {
