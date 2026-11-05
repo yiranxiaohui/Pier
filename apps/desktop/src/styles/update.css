@@ -130,3 +130,17 @@
 	flex: 1;
 	min-width: 180px;
 }
+
+/* A running Claude Code / Codex installation in the Agent settings. */
+
+.agent-install-progress {
+	margin: 8px 0 4px;
+}
+
+.agent-install-progress .update-progress-track {
+	margin-bottom: 6px;
+}
+
+.agent-install-progress-text {
+	font-variant-numeric: tabular-nums;
+}

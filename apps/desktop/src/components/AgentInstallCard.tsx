@@ -6,6 +6,13 @@ import {
 } from "@pier/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_CONFIG_META } from "../lib/agent-config.ts";
+import {
+	addDownloadSample,
+	type DownloadSample,
+	downloadPercent,
+	downloadProgressText,
+	downloadRate,
+} from "../lib/agent-install-progress.ts";
 import { agentInstallSourceInfo, readAgentInstallSource, saveAgentInstallSource } from "../lib/agent-install-source.ts";
 import { hostSpeaksMinor } from "../lib/settings-target.ts";
 import { useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
@@ -32,6 +39,9 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 	const [loadError, setLoadError] = useState<string>();
 	const [starting, setStarting] = useState(false);
 	const [refresh, setRefresh] = useState(0);
+	// Recent byte counts of a running download, so the card can show its speed.
+	const samples = useRef<DownloadSample[]>([]);
+	const [rate, setRate] = useState<number>();
 	const supported = hostSpeaksMinor(target.hostInfo, 32);
 	// Hosts before 1.50 only download from the official route.
 	const routes = hostSpeaksMinor(target.hostInfo, 50);
@@ -57,6 +67,8 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 		setLoadError(undefined);
 		setStarting(false);
 		setSource(readAgentInstallSource(target.node, runtime));
+		samples.current = [];
+		setRate(undefined);
 	}, [identity]);
 
 	// Polling resumes a running job when a user reopens this page or reconnects to its Host.
@@ -72,10 +84,17 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 				refreshInfo = false;
 				const result = await request;
 				if (!live) return;
+				const { installation } = result;
+				samples.current =
+					installation.state === "downloading"
+						? addDownloadSample(samples.current, { at: Date.now(), bytes: installation.downloadedBytes ?? 0 })
+						: [];
+				setRate(downloadRate(samples.current));
 				setData(result);
 				setLoadError(undefined);
-				if (!["idle", "ready", "error"].includes(result.installation.state)) {
-					timer = setTimeout(() => void load(), 1500);
+				if (!["idle", "ready", "error"].includes(installation.state)) {
+					// Downloads refresh more often, so their progress moves smoothly.
+					timer = setTimeout(() => void load(), installation.state === "downloading" ? 1000 : 1500);
 				}
 			} catch (e) {
 				if (live) {
@@ -107,10 +126,12 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 		}
 	}, [store, runtime, identity, routes, source]);
 
-	const percent = status?.totalBytes
-		? Math.min(100, Math.round(((status.downloadedBytes ?? 0) / status.totalBytes) * 100))
+	const percent = downloadPercent(status);
+	const downloading = status?.state === "downloading";
+	const working = status !== undefined && !["idle", "ready", "error"].includes(status.state);
+	const versionText = status?.version
+		? `目标版本 v${status.version}${status.source && routes ? ` · 线路：${agentInstallSourceInfo(runtime, status.source).name}` : ""}`
 		: undefined;
-	const progress = status?.state === "downloading" && percent !== undefined ? ` ${percent}%` : "";
 	const executable = data?.agent.executable;
 	// Both POSIX shells and PowerShell accept single-quoted paths, with different quote escaping.
 	const windows = target.hostInfo?.platform === "win32";
@@ -140,7 +161,15 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 						onClick={() => void install()}
 					>
 						{busy && !switchable ? <IconLoader size={14} className="spin" /> : <IconDownload size={14} />}
-						{switchable ? "切换线路重新下载" : busy ? "正在安装…" : data?.agent.available ? "更新到最新版本" : "安装"}
+						{switchable
+							? "切换线路重新下载"
+							: busy
+								? downloading
+									? `正在下载${percent === undefined ? "…" : ` ${percent}%`}`
+									: "正在安装…"
+								: data?.agent.available
+									? "更新到最新版本"
+									: "安装"}
 					</button>
 					<button
 						type="button"
@@ -187,18 +216,20 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 					<SettingRow
 						title={
 							<span role="status">
-								{LABELS[status.state]}
-								{progress}
+								{downloading && percent !== undefined ? `正在下载 ${percent}%` : LABELS[status.state]}
 							</span>
 						}
 						description={
-							status.state === "error"
-								? status.error
-								: status.version
-									? `目标版本 v${status.version}${
-											status.source && routes ? ` · 线路：${agentInstallSourceInfo(runtime, status.source).name}` : ""
-										}`
-									: undefined
+							status.state === "error" ? (
+								status.error
+							) : working ? (
+								<>
+									<InstallProgress status={status} percent={percent} rate={rate} />
+									{versionText}
+								</>
+							) : (
+								versionText
+							)
 						}
 					/>
 				) : null}
@@ -226,5 +257,29 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 				{executable ? <SettingRow title="当前程序" description={<span className="mono">{executable}</span>} /> : null}
 			</SettingsCard>
 		</SettingsGroup>
+	);
+}
+
+/** A bar for the running job: how much is downloaded, or an indeterminate bar while it checks or installs. */
+function InstallProgress({
+	status,
+	percent,
+	rate,
+}: {
+	status: AgentInstallationStatus;
+	percent: number | undefined;
+	rate: number | undefined;
+}) {
+	const text = downloadProgressText(status, rate);
+	return (
+		<div className="agent-install-progress">
+			<div className="update-progress-track">
+				<div
+					className={`update-progress-bar${percent === undefined ? " indeterminate" : ""}`}
+					style={percent === undefined ? undefined : { width: `${percent}%` }}
+				/>
+			</div>
+			{text ? <div className="agent-install-progress-text">{text}</div> : null}
+		</div>
 	);
 }
