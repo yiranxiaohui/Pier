@@ -45,10 +45,10 @@ bun run pier-cli
 > /open             # 用 ↑/↓ 选择并打开会话；/ws use、/revoke 不带参数时同样可选择
 > /agents           # 列出这台电脑上的 Agent（pi、Claude Code、Codex）及版本、是否可用
 > /new -a claude    # 新建 Claude Code 会话（-a / --agent 接编号、id、名称或唯一前缀，默认 pi）
-> /models codex     # 列出某个 Agent 的模型（* 为它在当前工作区的默认模型）
+> /models codex     # 列出某个 Agent 的模型（● 为它在当前工作区的默认模型）
 > /allow            # 响应审批请求；/deny <理由>、/allow session
 > /drop             # 模拟断线，验证重连补发
-> /help             # 按 Tab 补全命令、模型、思考等级、Agent、子命令和目录，以及会话、工作区、设备、分叉点、选项的编号（连按两次 Tab 列出带标题的候选）
+> /help             # 按 Tab 补全命令、模型、思考等级、Agent、子命令和目录，以及会话、工作区、设备、分叉点、选项的编号（有多个候选时列在输入行上方）
 ```
 
 调试时 `bun run faux-host --agents` 会同时提供电脑上的 Claude Code 与 Codex（真实会话，会消耗额度）；`npx tsx packages/host/scripts/live-agent-check.ts claude-code [模型]` 用真实 CLI 走一遍创建、流式输出、审批、重命名、重新打开与分叉。

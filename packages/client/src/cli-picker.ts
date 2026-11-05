@@ -3,6 +3,7 @@
  * borrows the terminal's keypress events from readline while the list is open.
  */
 import type { EventEmitter } from "node:events";
+import { c, displayWidth, fitWidth } from "./cli-style.ts";
 
 export interface PickerItem<T> {
 	label: string;
@@ -106,49 +107,13 @@ export function stepPicker<T>(state: PickerState<T>, key: PickerKey, rows: numbe
 	return { state };
 }
 
-/** Terminal columns a code point takes: 2 for East Asian wide and emoji, else 1. */
-function charWidth(codePoint: number): number {
-	const wide =
-		(codePoint >= 0x1100 && codePoint <= 0x115f) ||
-		(codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
-		(codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
-		(codePoint >= 0xf900 && codePoint <= 0xfaff) ||
-		(codePoint >= 0xfe30 && codePoint <= 0xfe4f) ||
-		(codePoint >= 0xff00 && codePoint <= 0xff60) ||
-		(codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
-		(codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
-		(codePoint >= 0x20000 && codePoint <= 0x3fffd);
-	return wide ? 2 : 1;
-}
+export { displayWidth, fitWidth };
 
-/** Terminal columns `text` takes (no escape sequences). */
-export function displayWidth(text: string): number {
-	let width = 0;
-	for (const char of text) width += charWidth(char.codePointAt(0) ?? 0);
-	return width;
-}
-
-/** Cut `text` to at most `width` terminal columns, ending with `…` when shortened. */
-export function fitWidth(text: string, width: number): string {
-	if (displayWidth(text) <= width) return text;
-	if (width <= 0) return "";
-	let used = 0;
-	let out = "";
-	for (const char of text) {
-		const w = charWidth(char.codePointAt(0) ?? 0);
-		if (used + w > width - 1) break;
-		used += w;
-		out += char;
-	}
-	return `${out}…`;
-}
-
-const reset = "\x1b[0m";
 const style = {
-	dim: (s: string) => `\x1b[2m${s}${reset}`,
-	bold: (s: string) => `\x1b[1m${s}${reset}`,
-	cyan: (s: string) => `\x1b[36m${s}${reset}`,
-	green: (s: string) => `\x1b[32m${s}${reset}`,
+	dim: c.gray,
+	bold: c.bold,
+	cyan: c.accent,
+	green: c.green,
 };
 
 /** The picker's lines, each at most `columns - 1` wide so none of them wraps. */
@@ -156,7 +121,7 @@ export function renderPicker<T>(state: PickerState<T>, title: string, columns: n
 	const width = Math.max(10, columns - 1);
 	const visible = filterPickerItems(state.items, state.filter);
 	const lines = [
-		`${style.bold(fitWidth(title, width))}`,
+		style.bold(style.cyan(fitWidth(title, width))),
 		style.dim(fitWidth("↑/↓ move · type to filter · Enter select · Esc cancel", width)),
 		state.filter
 			? `${style.cyan("filter:")} ${fitWidth(state.filter, width - 8)}`
