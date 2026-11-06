@@ -4,6 +4,14 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## 未发布
 
+## v0.2.60 — 2026-11-06
+
+- **侧栏余额水位**：登录云链API账号后，桌面端左侧导航栏下方的空白区域化作一个水箱，从底部注入淡淡的水色，水位即账号剩余额度的占比（剩余 ÷（剩余 + 已用））。颜色按水位分四档：≥60% 绿色、≥30% 琥珀色、≥10% 橙色、再低为红色；鼠标悬停时显示具体百分比，点击打开个人中心。余额每 5 分钟刷新一次，窗口重新聚焦和离开个人中心时也会刷新；未登录时导航栏保持原样。
+- **图标式侧栏选中态**：侧栏按钮的选中态去掉不透明白底和阴影，改为加深的强调色图标，线条从 1.9 加粗到 2.4，视觉更轻。
+- **Pier 标志去掉底板**：侧栏、欢迎页、关于页的 Logo 改为无背景的内联 SVG，颜色由新增的 `--logo-*` 主题变量决定（深色主题为白色 P 加薄荷青，浅色主题为应用图标的海军蓝加强调青）。新增 `favicon.svg` 跟随浏览器的浅色/深色模式，保留 `favicon.png` 兼容不支持 SVG 图标的浏览器；系统应用图标不变。
+- **Claude Code / Codex 图标**：换成 Claude 符号（Wikimedia Commons，CC0）和 OpenAI 标志（Lobe Icons，MIT），来源记录在 `AgentIcons.LICENSE`。
+- **ChatGPT 式排版**：界面字体改为 `system-ui` 打头（与 ChatGPT 一致），中文 Windows 上中英文统一使用微软雅黑 UI；等宽文字中的中文回退到微软雅黑 UI，不再是新宋体。消息正文改为 16px / 24px，浅色主题的正文颜色改为 `#0d0d0d`。
+
 ## v0.2.59 — 2026-11-05
 
 - **Linux 一键安装脚本**：执行 `curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash` 即可安装 Pier：脚本下载最新的 `pier` 单文件，按 Release 的 `SHA256SUMS.txt` 校验并核对版本后，用 `pier install` 安装为后台服务和 `pier` 命令（普通账号为用户服务，并在无需密码时开启 linger；root 为系统服务）。有图形桌面时默认只安装 `pier` 命令，避免与桌面窗口争用状态目录，`--service` 可改为安装服务；没有 systemd 时只安装、不启动。再次执行即更新，已是最新版时不再下载。下载线路默认自动选择：GitHub 直连足够快时直接使用，否则测速 GHFast / GH-Proxy / GHProxy 加速线路并从最快的开始；线路断开或连续 20 秒低于 100 KB/s 时自动换下一条，在终端中按 `s` 也可以随时切换，换线路后从已下载的位置接着下载。`--mirror github|ghfast|gh-proxy|ghproxy|<https 前缀>` 固定线路；校验和始终优先从 GitHub 获取。还支持 `--version` 指定版本、`--no-start` 与 `--force`；curl 不可用时改用 wget。检测到旧版 `install-host.sh` 的安装时，提示先执行 `pier-host uninstall`（保留数据和配对）。
