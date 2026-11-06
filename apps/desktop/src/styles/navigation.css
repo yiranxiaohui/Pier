@@ -55,11 +55,19 @@ button.navigation-button:hover:not(:disabled) {
 	color: var(--text);
 }
 
+/*
+ * The selection only recolors the icon: no surface over the rail or the quota water. The accent is
+ * pushed toward the text color (darker in light themes, lighter in dark) so it stands out from the water.
+ */
 button.navigation-button.selected,
 button.navigation-button.selected:hover:not(:disabled) {
-	background: var(--bg);
-	color: var(--accent-text);
-	box-shadow: var(--shadow-sm);
+	background: transparent;
+	color: color-mix(in srgb, var(--accent-text) 65%, var(--text));
+}
+
+/* A heavier stroke than the icons' default 1.9 marks the selection without a background. */
+button.navigation-button.selected svg {
+	stroke-width: 2.4;
 }
 
 button.navigation-button.has-update {
