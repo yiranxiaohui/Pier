@@ -2,9 +2,8 @@ pi logo: https://pi.dev/logo-auto.svg
 https://github.com/earendil-works/pi
 Copyright (c) 2025 Mario Zechner
 
-Claude Code and Codex marks adapted from Lobe Icons:
-https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/claudecode-color.svg
-https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/codex.svg
+Codex mark (the OpenAI logo) from Lobe Icons:
+https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/openai.svg
 Copyright (c) 2023 LobeHub
 
 MIT License
@@ -26,3 +25,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Claude Code mark (the Claude symbol) from Wikimedia Commons, source anthropic.com, dedicated to the
+public domain under CC0 1.0: https://commons.wikimedia.org/wiki/File:Claude_AI_symbol.svg
+
+The Claude symbol and the OpenAI logo are trademarks of Anthropic and OpenAI.
