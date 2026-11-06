@@ -73,11 +73,18 @@
 
 	--content-width: 820px;
 
+	/*
+	 * system-ui, as ChatGPT uses it, is the platform's UI font for the user's locale: on Chinese
+	 * Windows that is Microsoft YaHei UI for Latin and Chinese alike, so both scripts share one
+	 * family instead of pairing Segoe UI with a separate Chinese font. Monospace text lists YaHei
+	 * UI so Chinese in code falls back to it rather than to NSimSun.
+	 */
 	--mono:
-		"SF Mono", Menlo, "Cascadia Code", Consolas, "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
+		"SF Mono", Menlo, "Cascadia Code", Consolas, "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono",
+		"Microsoft YaHei UI", monospace;
 	--sans:
-		-apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB",
-		"Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+		-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
+		"Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
 	font-family: var(--sans);
 	font-size: 14px;
 	line-height: 1.6;
@@ -112,7 +119,7 @@
 	--border: rgba(15, 23, 42, 0.075);
 	--border-strong: rgba(15, 23, 42, 0.13);
 	--highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-	--text: #202a35;
+	--text: #0d0d0d;
 	--text-muted: #5e6a79;
 	--text-faint: #626f80;
 	--accent: #117d70;
