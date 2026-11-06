@@ -62,7 +62,7 @@ import { c, detectColorLevel, displayWidth, fitStyled, padWidth, sanitize, setCo
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
 
-export const PIER_CLI_VERSION = "0.2.59";
+export const PIER_CLI_VERSION = "0.2.60";
 
 const HELP_SECTIONS: HelpSection[] = [
 	{
