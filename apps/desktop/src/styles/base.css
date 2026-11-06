@@ -401,7 +401,6 @@ code {
 
 .logo {
 	display: block;
-	border-radius: 7px;
 	flex: none;
 	user-select: none;
 }

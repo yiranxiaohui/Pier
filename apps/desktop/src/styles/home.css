@@ -49,8 +49,6 @@
 }
 
 .hero .logo {
-	border-radius: 14px;
-	box-shadow: var(--shadow-md);
 	margin-bottom: 24px;
 }
 
