@@ -123,3 +123,110 @@ button.navigation-button.has-update {
 .navigation-update-popover .sidebar-update {
 	margin: 0;
 }
+
+/* ---- 云链API balance as a water tank -------------------------------------------------- */
+
+/* Color bands, from full to nearly empty: --quota colors the water and the number. */
+.navigation-rail[data-quota="full"] {
+	--quota: #10b981;
+}
+
+.navigation-rail[data-quota="half"] {
+	--quota: #f59e0b;
+}
+
+.navigation-rail[data-quota="low"] {
+	--quota: #f97316;
+}
+
+.navigation-rail[data-quota="empty"] {
+	--quota: #ef4444;
+}
+
+/* The links keep their own height so the tank takes the free space between them and the utilities. */
+.navigation-rail[data-quota] .navigation-links {
+	flex: 0 1 auto;
+}
+
+/*
+ * The rail below the links — the free space and the utilities — down to its bottom edge and
+ * across its full width (out over the rail's padding).
+ */
+.quota-tank {
+	position: relative;
+	isolation: isolate;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 18px;
+	flex: 1 1 auto;
+	align-self: stretch;
+	margin: 0 -8px -10px;
+	padding: 0 8px 10px;
+}
+
+button.quota-tank-readout {
+	display: grid;
+	place-items: center;
+	flex: 1 1 0;
+	min-height: 0;
+	width: 100%;
+	padding: 0;
+	overflow: hidden;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+}
+
+button.quota-tank-readout:hover:not(:disabled) {
+	background: transparent;
+}
+
+/* Faint water behind the buttons, deeper toward the bottom and fading out at its surface. */
+.quota-tank-water {
+	position: absolute;
+	z-index: -1;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	pointer-events: none;
+	background: linear-gradient(
+		to top,
+		color-mix(in srgb, var(--quota) 24%, transparent) 0%,
+		color-mix(in srgb, var(--quota) 9%, transparent) 60%,
+		transparent 100%
+	);
+	transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.quota-tank-value {
+	position: relative;
+	display: inline-flex;
+	align-items: flex-start;
+	font-size: 18px;
+	font-weight: 800;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+	color: var(--quota);
+	/* Shown only while the pointer is over the tank (or the readout has keyboard focus). */
+	opacity: 0;
+	transition: opacity 0.2s ease;
+}
+
+.quota-tank:hover .quota-tank-value,
+button.quota-tank-readout:focus-visible .quota-tank-value {
+	opacity: 1;
+}
+
+.quota-tank-value small {
+	margin: 1px 0 0 1px;
+	font-size: 10px;
+	font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.quota-tank-water,
+	.quota-tank-value {
+		transition: none;
+	}
+}
