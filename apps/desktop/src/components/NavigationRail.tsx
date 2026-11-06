@@ -1,4 +1,5 @@
 import { type ComponentType, useEffect, useState } from "react";
+import { useAccountQuota } from "../lib/account-quota.ts";
 import { type SettingsSection, useAppState, useStore } from "../lib/store.tsx";
 import { useHostStatus } from "./HostPanels.tsx";
 import {
@@ -40,6 +41,7 @@ export function NavigationRail() {
 	const noModels = useAppState((s) => s.localProviders?.availableCount === 0);
 	const update = useAppState((s) => s.update);
 	const status = useHostStatus();
+	const quota = useAccountQuota();
 	const [updateOpen, setUpdateOpen] = useState(false);
 	const updateRef = useOutsideClick(updateOpen, () => setUpdateOpen(false));
 	const pending = updatePending(update) && !!update.version;
@@ -54,8 +56,53 @@ export function NavigationRail() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: every navigation change closes the card.
 	useEffect(() => setUpdateOpen(false), [settings, pending]);
 
+	const utilities = (
+		<div className="navigation-utilities">
+			<button
+				type="button"
+				className={`navigation-button${settings === "account" ? " selected" : ""}`}
+				aria-label="个人中心"
+				aria-current={settings === "account" ? "page" : undefined}
+				title="个人中心"
+				onClick={() => store.openSettings("account")}
+			>
+				<IconUser size={20} />
+			</button>
+			<div className="navigation-update" ref={updateRef}>
+				<button
+					type="button"
+					className={`navigation-button${settings === "about" || updateOpen ? " selected" : ""}${pending ? " has-update" : ""}`}
+					aria-label="关于与更新"
+					aria-current={settings === "about" ? "page" : undefined}
+					aria-expanded={pending ? updateOpen : undefined}
+					title={pending ? `${updating ? "正在更新" : "有可用更新"} · Pier v${update.version}` : "关于与更新"}
+					onClick={() => (pending ? setUpdateOpen(!updateOpen) : store.openSettings("about"))}
+				>
+					{updating ? <IconLoader size={20} className="spin" /> : <IconDownload size={20} />}
+					{pending ? <span className={`navigation-badge${update.state === "error" ? " warning" : ""}`} /> : null}
+				</button>
+				{updateOpen && pending ? (
+					<div className="navigation-update-popover">
+						<SidebarUpdate />
+					</div>
+				) : null}
+			</div>
+			<button
+				type="button"
+				className={`navigation-button${settingsActive ? " selected" : ""}`}
+				aria-label="设置"
+				aria-current={settingsActive ? "page" : undefined}
+				title={`设置 · ${status.text}`}
+				onClick={() => store.openSettings("general")}
+			>
+				<IconSettings size={20} />
+				<span className={`navigation-connection ${status.dot}`} />
+			</button>
+		</div>
+	);
+
 	return (
-		<nav className="navigation-rail" aria-label="主导航">
+		<nav className="navigation-rail" data-quota={quota?.level} aria-label="主导航">
 			<div className="navigation-brand" title="Pier">
 				<Logo size={28} />
 			</div>
@@ -107,48 +154,27 @@ export function NavigationRail() {
 					);
 				})}
 			</div>
-			<div className="navigation-utilities">
-				<button
-					type="button"
-					className={`navigation-button${settings === "account" ? " selected" : ""}`}
-					aria-label="个人中心"
-					aria-current={settings === "account" ? "page" : undefined}
-					title="个人中心"
-					onClick={() => store.openSettings("account")}
-				>
-					<IconUser size={20} />
-				</button>
-				<div className="navigation-update" ref={updateRef}>
+			{quota ? (
+				// The account balance fills the rail below the links like a water tank, down to its bottom edge.
+				<div className="quota-tank">
+					<span className="quota-tank-water" style={{ height: `${quota.percent}%` }} />
 					<button
 						type="button"
-						className={`navigation-button${settings === "about" || updateOpen ? " selected" : ""}${pending ? " has-update" : ""}`}
-						aria-label="关于与更新"
-						aria-current={settings === "about" ? "page" : undefined}
-						aria-expanded={pending ? updateOpen : undefined}
-						title={pending ? `${updating ? "正在更新" : "有可用更新"} · Pier v${update.version}` : "关于与更新"}
-						onClick={() => (pending ? setUpdateOpen(!updateOpen) : store.openSettings("about"))}
+						className="quota-tank-readout"
+						title={quota.title}
+						aria-label={quota.title.replace("\n", "，")}
+						onClick={() => store.openSettings("account")}
 					>
-						{updating ? <IconLoader size={20} className="spin" /> : <IconDownload size={20} />}
-						{pending ? <span className={`navigation-badge${update.state === "error" ? " warning" : ""}`} /> : null}
+						<span className="quota-tank-value">
+							{quota.percent}
+							<small>%</small>
+						</span>
 					</button>
-					{updateOpen && pending ? (
-						<div className="navigation-update-popover">
-							<SidebarUpdate />
-						</div>
-					) : null}
+					{utilities}
 				</div>
-				<button
-					type="button"
-					className={`navigation-button${settingsActive ? " selected" : ""}`}
-					aria-label="设置"
-					aria-current={settingsActive ? "page" : undefined}
-					title={`设置 · ${status.text}`}
-					onClick={() => store.openSettings("general")}
-				>
-					<IconSettings size={20} />
-					<span className={`navigation-connection ${status.dot}`} />
-				</button>
-			</div>
+			) : (
+				utilities
+			)}
 		</nav>
 	);
 }
