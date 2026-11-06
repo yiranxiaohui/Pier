@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="234 241 560 560">
+  <title>Pier</title>
+  <desc>The mark from assets/brand/pier.svg without its tile, colored for the browser's light or dark tab strip.</desc>
+  <style>
+    .ink-start { stop-color: #294775 }
+    .ink-end { stop-color: #183047 }
+    .signal-start { stop-color: #1fa392 }
+    .signal-end { stop-color: #0e7368 }
+    @media (prefers-color-scheme: dark) {
+      .ink-start { stop-color: #ffffff }
+      .ink-end { stop-color: #dcf4f7 }
+      .signal-start { stop-color: #a2f4e6 }
+      .signal-end { stop-color: #4edcc5 }
+    }
+  </style>
+  <defs>
+    <linearGradient id="ink" x1="356" y1="270" x2="670" y2="720" gradientUnits="userSpaceOnUse">
+      <stop class="ink-start"/>
+      <stop offset="1" class="ink-end"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="424" y1="390" x2="630" y2="751" gradientUnits="userSpaceOnUse">
+      <stop class="signal-start"/>
+      <stop offset="1" class="signal-end"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(512 512) skewX(-5) translate(-512 -512)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M338 713c74 47 156 51 224 18" stroke="url(#signal)" stroke-width="28"/>
+    <path d="M338 751V315q0-23 23-23h162c113 0 185 61 185 159s-66 160-175 160H338" stroke="url(#ink)" stroke-width="70"/>
+    <path d="m449 401 65 50-65 50" stroke="url(#signal)" stroke-width="34"/>
+    <circle cx="608" cy="703" r="30" fill="url(#signal)"/>
+  </g>
+</svg>

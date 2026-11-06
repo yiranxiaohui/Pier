@@ -37,6 +37,11 @@
 	--accent-soft: rgba(42, 181, 170, 0.13);
 	--accent-ring: rgba(42, 181, 170, 0.45);
 	--brand-glow: rgba(42, 181, 170, 0.16);
+	/* Brand mark without its tile: a white P and a mint prompt, as on the app icon. */
+	--logo-ink-start: #ffffff;
+	--logo-ink-end: #dcf4f7;
+	--logo-signal-start: #a2f4e6;
+	--logo-signal-end: #4edcc5;
 	--success: #3fb96f;
 	--success-soft: rgba(63, 185, 111, 0.13);
 	--danger: #f06464;
@@ -117,6 +122,11 @@
 	--accent-soft: rgba(17, 150, 140, 0.1);
 	--accent-ring: rgba(17, 150, 140, 0.4);
 	--brand-glow: rgba(17, 125, 112, 0.12);
+	/* On light surfaces the P takes the app icon's navy tile color and the prompt the accent teal. */
+	--logo-ink-start: #294775;
+	--logo-ink-end: #183047;
+	--logo-signal-start: #1fa392;
+	--logo-signal-end: #0e7368;
 	--success: #1f9d55;
 	--success-soft: rgba(31, 157, 85, 0.1);
 	--danger: #d93b3b;

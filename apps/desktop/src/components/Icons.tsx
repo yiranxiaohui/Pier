@@ -1,4 +1,4 @@
-import type { ReactNode, SVGProps } from "react";
+import { type ReactNode, type SVGProps, useId } from "react";
 
 type IconProps = Omit<SVGProps<SVGSVGElement>, "children"> & { size?: number };
 
@@ -269,9 +269,42 @@ export const IconLink = make(
 	<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
 );
 
-/** Shared vector brand mark, kept crisp at sidebar and welcome-screen sizes. */
+/**
+ * The brand mark from assets/brand/pier.svg without its tile, inline so the --logo-* theme tokens
+ * color it for light and dark surfaces. The view box is cropped to the mark.
+ */
 export function Logo({ size = 28 }: { size?: number }) {
-	return <img className="logo" src="/logo.svg" width={size} height={size} alt="" draggable={false} />;
+	// Each instance needs its own gradient ids; React's ids may hold characters url() does not accept.
+	const id = useId().replace(/[^\w-]/g, "");
+	return (
+		<svg className="logo" width={size} height={size} viewBox="234 241 560 560" aria-hidden="true">
+			<defs>
+				<linearGradient id={`${id}-ink`} x1="356" y1="270" x2="670" y2="720" gradientUnits="userSpaceOnUse">
+					<stop style={{ stopColor: "var(--logo-ink-start)" }} />
+					<stop offset="1" style={{ stopColor: "var(--logo-ink-end)" }} />
+				</linearGradient>
+				<linearGradient id={`${id}-signal`} x1="424" y1="390" x2="630" y2="751" gradientUnits="userSpaceOnUse">
+					<stop style={{ stopColor: "var(--logo-signal-start)" }} />
+					<stop offset="1" style={{ stopColor: "var(--logo-signal-end)" }} />
+				</linearGradient>
+			</defs>
+			<g
+				transform="translate(512 512) skewX(-5) translate(-512 -512)"
+				fill="none"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M338 713c74 47 156 51 224 18" stroke={`url(#${id}-signal)`} strokeWidth={28} />
+				<path
+					d="M338 751V315q0-23 23-23h162c113 0 185 61 185 159s-66 160-175 160H338"
+					stroke={`url(#${id}-ink)`}
+					strokeWidth={70}
+				/>
+				<path d="m449 401 65 50-65 50" stroke={`url(#${id}-signal)`} strokeWidth={34} />
+				<circle cx="608" cy="703" r="30" fill={`url(#${id}-signal)`} />
+			</g>
+		</svg>
+	);
 }
 export const IconUser = make(
 	<>
