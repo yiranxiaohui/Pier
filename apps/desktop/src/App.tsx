@@ -172,9 +172,9 @@ export function App() {
 			<div className="window-body">
 				<NavigationRail />
 				{scheduled ? (
-					<ScheduledTasksPage />
+					<ScheduledTasksPage footer={<StatusBar />} />
 				) : settings ? (
-					<SettingsPage section={settings} />
+					<SettingsPage section={settings} footer={<StatusBar />} />
 				) : (
 					<div
 						className={`app with-files-shell${sidebar ? "" : " no-sidebar"}`}
@@ -198,10 +198,10 @@ export function App() {
 						>
 							{showFiles || filesMounted ? <RightPanel {...screen} /> : null}
 						</div>
+						<StatusBar />
 					</div>
 				)}
 			</div>
-			<StatusBar />
 			{settings ? null : <FilePreview />}
 			<Toasts />
 			<AuthDialog />

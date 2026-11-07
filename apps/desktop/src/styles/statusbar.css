@@ -10,6 +10,7 @@
 .window-body {
 	display: grid;
 	grid-template-columns: 60px minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
@@ -22,13 +23,31 @@
 	background: none;
 }
 
+/*
+ * The status bar sits only under the content columns: the navigation rail and each screen's
+ * own sidebar run down to the window's bottom edge beside it.
+ */
+.window-body > .app,
+.window-body > .scheduled-page {
+	grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.window-body > .app > .sidebar-shell,
+.window-body > .app > .settings-nav,
+.window-body > .scheduled-page > .task-sidebar {
+	grid-row: 1 / -1;
+}
+
 /* The status bar provides the gap below the panels. */
 .window-body > .app .main,
 .window-body > .app .files-panel {
 	margin-bottom: 0;
 }
 
+/* Placed in the second row of its screen's grid, spanning every column after the sidebar. */
 .statusbar {
+	grid-row: 2;
+	grid-column: 2 / -1;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -69,9 +88,25 @@ button.statusbar-item.active {
 	color: var(--text);
 }
 
+/* Only the summary may shrink; keep the actions visible and the popover outside clipping. */
+.statusbar-right > .host-status {
+	min-width: 0;
+}
+
+.statusbar-right > button.statusbar-item {
+	flex: none;
+}
+
+.host-status > button.statusbar-item {
+	max-width: 100%;
+	justify-content: flex-start;
+	overflow: hidden;
+}
+
 .statusbar-stat,
 .statusbar-host {
 	display: inline-flex;
+	flex: none;
 	align-items: center;
 	gap: 4px;
 }

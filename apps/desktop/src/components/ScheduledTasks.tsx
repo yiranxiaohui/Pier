@@ -9,7 +9,7 @@ import {
 	type TaskSchedule,
 	type ThinkingLevel,
 } from "@pier/protocol";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { hostSupportsScheduledTasks, LOCAL_NODE, useAppState, useComputers, useStore } from "../lib/store.tsx";
 import { localTaskDate, taskDate, taskScheduleLabel, WEEKDAYS } from "../lib/task-schedule.ts";
 import { AgentIcon } from "./AgentIcons.tsx";
@@ -30,7 +30,7 @@ const RUN_STATUS = {
 };
 const modelKey = (model: { provider: string; id: string }) => JSON.stringify([model.provider, model.id]);
 
-export function ScheduledTasksPage() {
+export function ScheduledTasksPage({ footer }: { footer?: ReactNode } = {}) {
 	const store = useStore();
 	const computers = useComputers();
 	const data = useAppState((s) => s.taskData);
@@ -458,6 +458,7 @@ export function ScheduledTasksPage() {
 					</div>
 				</Modal>
 			) : null}
+			{footer}
 		</div>
 	);
 }

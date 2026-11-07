@@ -865,7 +865,7 @@ function NavBadge({ id }: { id: SettingsSection }): ReactNode {
 	return null;
 }
 
-export function SettingsPage({ section }: { section: SettingsSection }) {
+export function SettingsPage({ section, footer }: { section: SettingsSection; footer?: ReactNode }) {
 	const store = useStore();
 	const hasPeers = useHasPeers();
 	const [query, setQuery] = useState("");
@@ -1096,6 +1096,7 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
 					</div>
 				</div>
 			</main>
+			{footer}
 		</div>
 	);
 }

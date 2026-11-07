@@ -349,7 +349,7 @@ function HostStatus() {
 	);
 }
 
-/** The bar along the bottom of the window. */
+/** The bar below the current screen's content, alongside its full-height sidebar. */
 export function StatusBar() {
 	return (
 		<footer className="statusbar">
