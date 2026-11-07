@@ -106,6 +106,15 @@ export function completeNumbered(labels: readonly string[], partial: string): Cl
 }
 
 /**
+ * What a listed candidate puts in place of the text being completed: a numbered entry
+ * (`3. label`, see `completeNumbered`) stands for its number.
+ */
+export function candidateValue(candidate: string, partial: string): string {
+	const numbered = /^\d*$/.test(partial) ? /^(\d+)\. /.exec(candidate) : null;
+	return numbered ? (numbered[1] as string) : candidate;
+}
+
+/**
  * Complete a directory on the host: an absolute path, or one under `~` (the host's home
  * directory). An empty argument completes to the home directory; hidden directories are
  * offered once the name starts with `.`.

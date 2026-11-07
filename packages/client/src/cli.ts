@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type CompleterResult, createInterface } from "node:readline";
+import { type CompleterResult, createInterface, type Interface } from "node:readline";
 import { parseArgs } from "node:util";
 import {
 	type AgentRuntimeInfo,
@@ -28,7 +28,7 @@ import {
 	type WorkspaceInfo,
 } from "@pier/protocol";
 import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
-import { CLI_COMMANDS, completeCliLine, matchModel, oneLine } from "./cli-complete.ts";
+import { CLI_COMMANDS, candidateValue, completeCliLine, matchModel, oneLine } from "./cli-complete.ts";
 import { exitCli } from "./cli-exit.ts";
 import { type PickerOptions, runTerminalPicker } from "./cli-picker.ts";
 import {
@@ -52,13 +52,15 @@ import {
 	type Span,
 	span,
 	spinnerFrame,
+	suggestionChoice,
+	suggestionRows,
 	toolHeader,
 	toolResult,
 	toolResultText,
 	userMessage,
 } from "./cli-render.ts";
 import { type CliScreen, PlainScreen, TerminalScreen } from "./cli-screen.ts";
-import { c, detectColorLevel, displayWidth, fitStyled, padWidth, sanitize, setColorLevel } from "./cli-style.ts";
+import { c, detectColorLevel, sanitize, setColorLevel } from "./cli-style.ts";
 import { PierClient } from "./client.ts";
 import { parseSshPairRequest, runSshPair } from "./ssh-pair.ts";
 
@@ -138,6 +140,7 @@ const HELP_SECTIONS: HelpSection[] = [
 const HELP_NOTES = [
 	"Anything else is sent as a prompt (as a follow-up while the agent is running).",
 	"Press Tab to complete commands, models, thinking levels, agents, options and directories, and the numbers of sessions, workspaces, devices, fork points and answers (press Tab twice to list them).",
+	"While commands or completions are listed, ↑/↓ select one and Tab or Enter fills it in (Enter also runs a command that needs nothing more); Esc drops the selection.",
 	"Esc or Ctrl+C interrupts the agent; Ctrl+C also clears the typed line.",
 ];
 
@@ -323,7 +326,9 @@ class Cli {
 	private readonly sent: string[] = [];
 	private suggestions: Array<readonly [string, string]> = [];
 	/** Candidates of the last Tab that matched several, until the line changes. */
-	private completions: { line: string; items: string[] } | undefined;
+	private completions: { line: string; items: string[]; partial: string; cursor: number } | undefined;
+	/** The candidate ↑/↓ selected among the listed ones, until the line changes. */
+	private selected: { line: string; index: number } | undefined;
 	private hint: { text: string; until: number } | undefined;
 	private ticker: ReturnType<typeof setInterval> | undefined;
 	private aborting = false;
@@ -405,15 +410,10 @@ class Cli {
 		else if (this.hint && this.hint.until > now) rows.push(c.gray(this.hint.text));
 		if (this.completions) {
 			if (status) rows.push("");
-			rows.push(...completionGrid(this.completions.items, width));
+			rows.push(...completionGrid(this.completions.items, width, 8, this.selected?.index));
 		} else if (this.suggestions.length) {
 			if (status) rows.push("");
-			const shown = this.suggestions.slice(0, SUGGESTIONS);
-			const usageWidth = Math.max(...shown.map(([usage]) => displayWidth(usage)));
-			for (const [usage, description] of shown)
-				rows.push(fitStyled(`  ${c.accent(padWidth(usage, usageWidth))}  ${c.gray(description)}`, width));
-			if (this.suggestions.length > shown.length)
-				rows.push(c.gray(`  … ${this.suggestions.length - shown.length} more (Tab lists them)`));
+			rows.push(...suggestionRows(this.suggestions, width, SUGGESTIONS, this.selected?.index));
 		}
 		rows.push(this.ruleRow());
 		return rows;
@@ -485,19 +485,70 @@ class Cli {
 		const next = this.screen.interactive ? commandSuggestions(HELP_SECTIONS, line) : [];
 		const same = next.length === this.suggestions.length && next.every((s, i) => s === this.suggestions[i]);
 		const stale = this.completions !== undefined && this.completions.line !== line;
-		if (same && !stale) return;
+		const moved = this.selected !== undefined && this.selected.line !== line;
+		if (same && !stale && !moved) return;
 		this.suggestions = next;
 		if (stale) this.completions = undefined;
+		if (moved) this.selected = undefined;
 		this.emit([]);
+	}
+
+	/**
+	 * What ↑/↓ choose from: the candidates Tab listed, or the suggested commands while the command
+	 * itself is typed (not once its arguments are, where ↑/↓ keep walking the history).
+	 */
+	private choices(line: string): LineChoice[] {
+		const listed = this.completions;
+		if (listed?.line === line) {
+			const head = line.slice(0, Math.max(0, listed.cursor - listed.partial.length));
+			const tail = line.slice(listed.cursor);
+			return listed.items.map((item) => {
+				const text = head + candidateValue(item, listed.partial);
+				return { text: text + tail, cursor: text.length, submit: false };
+			});
+		}
+		if (!/^\/\S*\s?$/.test(line)) return [];
+		return this.suggestions.map(([usage]) => {
+			const choice = suggestionChoice(usage, line);
+			return { text: choice.text, cursor: choice.text.length, submit: choice.complete };
+		});
+	}
+
+	/** ↑/↓: move the selection through the listed candidates. False when none are listed. */
+	select(line: string, step: 1 | -1): boolean {
+		const count = this.choices(line).length;
+		if (!count) return false;
+		const current = this.selected?.line === line ? this.selected.index : undefined;
+		const index = current === undefined ? (step > 0 ? 0 : count - 1) : (current + step + count) % count;
+		this.selected = { line, index };
+		this.emit([]);
+		return true;
+	}
+
+	/** Tab or Enter with a candidate selected: the line to put in its place. */
+	takeSelected(line: string): LineChoice | undefined {
+		const selected = this.selected;
+		if (selected?.line !== line) return undefined;
+		this.selected = undefined;
+		return this.choices(line)[selected.index];
+	}
+
+	/** Esc: drop the selection. False when there was none. */
+	dropSelected(): boolean {
+		if (!this.selected) return false;
+		this.selected = undefined;
+		this.emit([]);
+		return true;
 	}
 
 	/**
 	 * Tab matched several candidates: list them above the prompt (rather than letting readline
 	 * print them below it). A bare command is left to the suggestions, which list it already.
 	 */
-	showCompletions(line: string, items: readonly string[]): void {
+	showCompletions(line: string, items: readonly string[], partial: string, cursor: number): void {
 		if (/^\/\S*$/.test(line.trimStart())) return;
-		this.completions = { line, items: [...items] };
+		this.completions = { line, items: [...items], partial, cursor };
+		this.selected = undefined;
 		this.emit([]);
 	}
 
@@ -505,6 +556,7 @@ class Cli {
 	lineEntered(): void {
 		this.suggestions = [];
 		this.completions = undefined;
+		this.selected = undefined;
 		this.hint = undefined;
 		this.screen.setLive(this.liveRows(), false);
 	}
@@ -1735,6 +1787,57 @@ function routeWrites(stream: NodeJS.WriteStream, take: (text: string) => boolean
 	});
 }
 
+/** A line offered for a selected candidate. */
+interface LineChoice {
+	text: string;
+	/** Where the cursor goes in `text`. */
+	cursor: number;
+	/** Enter runs the line right away instead of only filling it in. */
+	submit: boolean;
+}
+
+interface ReadlineKey {
+	name?: string;
+	ctrl?: boolean;
+	meta?: boolean;
+	shift?: boolean;
+}
+
+/**
+ * While candidates are listed, ↑/↓ select one and Tab or Enter fills it in. readline handles
+ * every key in `_ttyWrite` (Node and Bun alike), so the keys are taken there before it sees them;
+ * otherwise they keep their meaning, and ↑/↓ keep walking the history once they started to.
+ */
+function chooseWithArrows(rl: Interface, cli: Cli): void {
+	const keys = rl as unknown as { _ttyWrite(sequence: string | undefined, key: ReadlineKey | undefined): void };
+	const ttyWrite = keys._ttyWrite;
+	if (typeof ttyWrite !== "function") return;
+	let browsingHistory = false;
+	const replaceLine = (choice: LineChoice) => {
+		rl.write(null, { ctrl: true, name: "e" });
+		rl.write(null, { ctrl: true, name: "u" });
+		rl.write(choice.text);
+		for (let n = [...choice.text.slice(choice.cursor)].length; n > 0; n--) rl.write(null, { name: "left" });
+	};
+	keys._ttyWrite = (sequence, key) => {
+		const name = key?.ctrl || key?.meta || key?.shift ? undefined : key?.name;
+		if (name === "up" || name === "down") {
+			if (!browsingHistory && cli.select(rl.line, name === "up" ? -1 : 1)) return;
+			browsingHistory = true;
+		} else if (key) {
+			browsingHistory = false;
+			const enter = name === "return" || name === "enter";
+			const choice = name === "tab" || enter ? cli.takeSelected(rl.line) : undefined;
+			// Enter on what is typed already just runs it.
+			if (choice && !(enter && choice.text === rl.line)) {
+				replaceLine(choice);
+				if (!(enter && choice.submit)) return;
+			}
+		}
+		ttyWrite.call(rl, sequence, key);
+	};
+}
+
 async function main(): Promise<void> {
 	const { values } = parseArgs({
 		options: {
@@ -1785,7 +1888,7 @@ async function main(): Promise<void> {
 				// Insert what all candidates share; list them only when that adds nothing.
 				const shared = commonPrefix(hits);
 				if (shared.length > partial.length) return callback(null, [[shared], partial]);
-				cli.showCompletions(rl.line, hits);
+				cli.showCompletions(rl.line, hits, partial, rl.cursor);
 				callback(null, [[], partial]);
 			});
 		},
@@ -1818,10 +1921,11 @@ async function main(): Promise<void> {
 			.catch((error: unknown) => cli.fail(error));
 	});
 	if (interactive) {
+		chooseWithArrows(rl, cli);
 		process.stdin.on(
 			"keypress",
 			(_sequence: string | undefined, key: { name?: string; ctrl?: boolean } | undefined) => {
-				if (key?.name === "escape") cli.interrupt();
+				if (key?.name === "escape" && !cli.dropSelected()) cli.interrupt();
 				if (key?.ctrl && key.name === "l") view.cleared();
 				cli.inputChanged(rl.line);
 			},

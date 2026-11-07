@@ -18,6 +18,8 @@ import {
 	renderSpans,
 	rule,
 	span,
+	suggestionChoice,
+	suggestionRows,
 	toolHeader,
 	toolResult,
 	toolSummary,
@@ -249,5 +251,39 @@ describe("commands", () => {
 			3,
 		);
 		expect(many).toEqual(["  model-0   model-1", "  model-2   model-3", "  … 26 more; type more to narrow them down"]);
+	});
+
+	it("marks the selected candidate without moving the columns, and scrolls to it", () => {
+		expect(completionGrid(["low", "medium", "high"], 40, 8, 1)).toEqual(["  low    ❯medium  high"]);
+		const items = Array.from({ length: 30 }, (_, i) => `model-${i}`);
+		expect(completionGrid(items, 20, 3, 0)[0]).toBe(" ❯model-0   model-1");
+		expect(completionGrid(items, 20, 3, 29)).toEqual([
+			"  model-26  model-27",
+			"  model-28 ❯model-29",
+			"  … 26 more; type more to narrow them down",
+		]);
+	});
+
+	it("fills in the literal words of a suggested usage", () => {
+		expect(suggestionChoice("/status", "/st")).toEqual({ text: "/status", complete: true });
+		expect(suggestionChoice("/open [n|id]", "/")).toEqual({ text: "/open ", complete: true });
+		expect(suggestionChoice("/new [-a <agent>] [name]", "/n")).toEqual({ text: "/new ", complete: true });
+		expect(suggestionChoice("/model <n|provider/id|id>", "/mo")).toEqual({ text: "/model ", complete: false });
+		expect(suggestionChoice("/ws add <path> [policy]", "/ws ")).toEqual({ text: "/ws add ", complete: false });
+		expect(suggestionChoice("/pair yes|no", "/p")).toEqual({ text: "/pair ", complete: false });
+		expect(suggestionChoice("/yes, /no", "/n")).toEqual({ text: "/no", complete: true });
+		expect(suggestionChoice("/yes, /no", "/")).toEqual({ text: "/yes", complete: true });
+	});
+
+	it("lists suggestions with the selected one marked and in view", () => {
+		const many: Array<readonly [string, string]> = Array.from({ length: 5 }, (_, i) => [`/c${i}`, `d${i}`]);
+		expect(suggestionRows(many, 40, 3)).toEqual(["  /c0  d0", "  /c1  d1", "  /c2  d2", "  … 2 more (↑/↓ to browse)"]);
+		expect(suggestionRows(many, 40, 3, 4)).toEqual([
+			"  /c2  d2",
+			"  /c3  d3",
+			"❯ /c4  d4",
+			"  … 2 more (↑/↓ to browse)",
+		]);
+		expect(suggestionRows([], 40, 3)).toEqual([]);
 	});
 });
