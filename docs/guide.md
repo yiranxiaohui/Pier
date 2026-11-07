@@ -40,7 +40,7 @@ chmod +x pier
 ./pier cli                # 只连接正在运行的服务，不会启动服务
 ```
 
-在终端中直接运行 `pier` 时，CLI 连接同一状态目录中正在运行的服务（`pier install` 安装的服务、桌面版或 `pier run`）；没有时在后台为这个终端启动一个服务，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。需要退出终端后继续运行时，使用 `pier install` 或 `pier run`。在 CLI 中依次输入 `/remote on`、`/pair`；客户端粘贴链接后输入 `/pair yes`。单文件包含运行时、CLI、pi 资源、Photon WASM 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
+在终端中直接运行 `pier` 时，CLI 连接同一状态目录中正在运行的服务（`pier install` 安装的服务、桌面版或 `pier run`）；没有时在后台为这个终端启动一个服务，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。需要退出终端后继续运行时，使用 `pier install` 或 `pier run`。在 CLI 中依次输入 `/remote on`、`/pair`；手机 App 点「添加电脑」扫描终端中的二维码，也可粘贴配对链接，然后在 CLI 输入 `/pair yes` 确认。二维码保留完整留白边框；终端太窄时会提示所需列数，可拉宽窗口或缩小字体后重新输入 `/pair`，高度不够时可向上滚动查看。输出重定向到文件或管道时只显示链接。单文件包含运行时、CLI、pi 资源、Photon WASM 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
 
 CLI 启动时显示连接的主机、Pier 与 pi 版本、工作区和可用的 Agent；输入行上方的分隔线标出工作区、会话、Agent、模型与思考等级和上下文占用，输入 `/` 时实时列出匹配的命令及说明，按 Tab 有多个候选时也列在输入行上方；列出命令或候选时可用 ↑/↓ 选择（`❯` 标出），按 Tab 或 Enter 填入输入行，选中的命令无需其他参数时 Enter 直接执行，Esc 取消选择。回复以 `●` 开头，按终端宽度折行并渲染 Markdown（标题、粗体、行内代码、列表、引用、代码块、表格）；工具调用显示为 `● bash(ls -la)`，下方 `⎿` 预览输出的前几行，编辑文件时显示带颜色的增删行。Agent 运行时显示动画、耗时和排队数，按 Esc 或 Ctrl+C 中断；Ctrl+C 也会清空已输入的内容，在空行上连按两次退出。审批、提问与配对请求以带边框的卡片显示。颜色遵循 `NO_COLOR` / `FORCE_COLOR`；输出重定向到管道或文件时不使用颜色、动画和 Markdown 渲染，逐行输出结果。
 
@@ -58,7 +58,7 @@ CLI 启动时显示连接的主机、Pier 与 pi 版本、工作区和可用的 
 pier status                   # 服务状态
 pier logs                     # 实时日志
 pier                          # 打开 CLI：配置工作区、远程访问和配对（同 pier cli）
-# 在 CLI 中依次输入 /remote on、/pair；客户端粘贴链接后输入 /pair yes
+# 在 CLI 中依次输入 /remote on、/pair；手机扫码或客户端粘贴链接后输入 /pair yes
 pier update                   # 更新到最新正式版
 pier stop                     # 停止服务
 pier start                    # 启动服务

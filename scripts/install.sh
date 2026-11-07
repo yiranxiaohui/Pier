@@ -603,7 +603,7 @@ main() {
     fi
     if [[ "$scope" == user ]] && "$start"; then enable_linger; fi
     say "Pier $tag is ready."
-    say '  Pair a device: run pier, then /remote on and /pair; paste the link into the Pier app, then /pair yes'
+    say '  Pair a device: run pier, then /remote on and /pair; scan the QR code or paste the link in the Pier app, then /pair yes'
     say '  Manage it:     pier status | logs | update | stop | uninstall'
     if "$graphical"; then
       say '  Before opening the Pier window here (pier desktop), run pier stop: both use the same Pier state.'

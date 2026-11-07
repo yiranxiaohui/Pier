@@ -30,6 +30,7 @@ import {
 import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
 import { CLI_COMMANDS, candidateValue, completeCliLine, matchModel, oneLine } from "./cli-complete.ts";
 import { exitCli } from "./cli-exit.ts";
+import { pairingRows } from "./cli-pairing.ts";
 import { type PickerOptions, runTerminalPicker } from "./cli-picker.ts";
 import {
 	box,
@@ -121,7 +122,7 @@ const HELP_SECTIONS: HelpSection[] = [
 		title: "Remote access",
 		commands: [
 			["/remote [on|off|port <n>]", "show or change remote access (LAN) settings"],
-			["/pair", "show a pairing link for the mobile app (see /pair yes|no)"],
+			["/pair", "show a pairing QR code and link for the mobile app (see /pair yes|no)"],
 			["/pair yes|no", "allow or decline the device waiting for confirmation"],
 			["/devices", "list paired devices"],
 			["/revoke [n|id]", "revoke a paired device and disconnect it (no argument: pick with ↑/↓)"],
@@ -1712,23 +1713,8 @@ class Cli {
 					if (!accepted) this.say("The request is no longer pending.", c.yellow);
 					break;
 				}
-				const { uri, expiresAt } = await this.client.request("pairing.start");
-				const until = new Date(expiresAt).toLocaleTimeString();
-				// The link goes on a line of its own, unwrapped, so it can be copied whole.
-				this.emit([
-					...resultLine([span("Pairing link "), span(`· valid until ${until} · single use`, c.gray)], this.width),
-					"",
-					c.accent(sanitize(uri)),
-					"",
-					...resultLine(
-						[
-							span("Paste it into the mobile app (Add computer → paste link), then confirm here with ", c.gray),
-							span("/pair yes", c.accent),
-							span(".", c.gray),
-						],
-						this.width,
-					),
-				]);
+				const pairing = await this.client.request("pairing.start");
+				this.emit(pairingRows(pairing, this.width, this.screen.interactive));
 				break;
 			}
 			case "devices":

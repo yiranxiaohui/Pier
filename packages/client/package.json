@@ -11,6 +11,7 @@
 	},
 	"dependencies": {
 		"@pier/crypto": "workspace:*",
-		"@pier/protocol": "workspace:*"
+		"@pier/protocol": "workspace:*",
+		"uqr": "^0.1.3"
 	}
 }

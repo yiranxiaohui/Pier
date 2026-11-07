@@ -89,7 +89,7 @@ bun run faux-host --remote                    # 假模型 Host，并在 7433 端
 bun run --cwd apps/mobile web                 # 在浏览器中“添加电脑 → 粘贴配对链接”
 ```
 
-配对链接可以从桌面「设置 → 设备与远程 → 显示配对二维码 → 复制配对链接」获得；只运行 faux-host 时，也可以用 `bun run pier-cli --url <url> --token <token>` 输入 `/pair` 生成链接，再用 `/pair yes` 确认（`/remote`、`/devices`、`/revoke` 管理远程访问与设备）。Android 模拟器访问宿主机时，用 `bun run faux-host --remote --remote-address 10.0.2.2:7433` 让二维码里带上模拟器可达的地址。
+配对链接可以从桌面「设置 → 设备与远程 → 显示配对二维码 → 复制配对链接」获得；只运行 faux-host 时，也可以用 `bun run pier-cli --url <url> --token <token>` 输入 `/pair` 显示终端二维码及链接，手机扫码后再用 `/pair yes` 确认（`/remote`、`/devices`、`/revoke` 管理远程访问与设备）。Android 模拟器访问宿主机时，用 `bun run faux-host --remote --remote-address 10.0.2.2:7433` 让二维码里带上模拟器可达的地址。
 
 ## Sidecar
 

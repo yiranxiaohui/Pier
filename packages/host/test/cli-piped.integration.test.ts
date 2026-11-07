@@ -43,6 +43,9 @@ describe("pier cli with piped input", () => {
 		expect(result.stderr).toBe("");
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("pier://");
+		expect(result.stdout).toContain("Paste it into the mobile app");
+		expect(result.stdout).not.toMatch(/[█▀▄]/u);
+		expect(result.stdout).not.toContain("\x1b");
 		const client = await host.connect();
 		expect((await client.request("remote.status")).enabled).toBe(true);
 		client.close();
