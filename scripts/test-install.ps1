@@ -142,6 +142,9 @@ try {
         Write-Host 'Windows orchestration tests require Windows (covered by both Windows CI shells).'
     }
     Write-Host "Installer regression tests passed on PowerShell $($PSVersionTable.PSVersion)."
+} catch {
+    Write-Host $_.ScriptStackTrace
+    throw
 } finally {
     $env:PROCESSOR_ARCHITECTURE = $oldArch
     $env:PROCESSOR_ARCHITEW6432 = $oldNative
