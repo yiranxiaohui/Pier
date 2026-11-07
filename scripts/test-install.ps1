@@ -45,6 +45,7 @@ try {
     $hash = (Get-FileHash $payload -Algorithm SHA256).Hash
     $asset = 'pier-v0.2.60-windows-x64.setup.exe'
     $sums = "$hash  $asset`r`n$('a' * 64)  pier-v0.2.60-linux-x64`r`n"
+    $script:fixtureChecksums = $sums
     $release = Get-PierRelease $sums latest x64
     Assert-Equal $release.Tag 'v0.2.60'
     Assert-Equal $release.Name $asset
@@ -92,7 +93,7 @@ try {
             param([string]$Url, [string]$Destination, [switch]$Small)
             $script:requests += $Url
             if ($script:failGithub -and $Url.StartsWith('https://github.com/')) { throw 'Offline' }
-            if ($Small) { [IO.File]::WriteAllText($Destination, $sums) }
+            if ($Small) { [IO.File]::WriteAllText($Destination, $script:fixtureChecksums) }
             elseif ($script:badPayload) { [IO.File]::WriteAllText($Destination, 'tampered') }
             else { Copy-Item $payload $Destination }
             $script:stage = Split-Path $Destination
