@@ -495,11 +495,16 @@
 
 .composer-image {
 	position: relative;
+	min-width: 0;
+	max-width: min(160px, 100%);
 }
 
 .composer-image img {
 	display: block;
+	min-width: 32px;
+	max-width: 100%;
 	height: 64px;
+	object-fit: contain;
 	border-radius: 10px;
 	border: 1px solid var(--border);
 }
