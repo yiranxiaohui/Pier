@@ -32,6 +32,17 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
 ```
 
+国内网络连不上 `raw.githubusercontent.com` 时，改用镜像获取脚本（任选一条；脚本内容与上面完全相同，安装文件仍按[下载线路](#下载线路)自动选线并校验）：
+
+```bash
+# GHFast
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
+# GH-Proxy
+curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
+# GHProxy
+curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
+```
+
 脚本从 GitHub Release 下载最新的 `pier` 单文件，按 Release 的 `SHA256SUMS.txt` 校验并核对版本，再用 `pier install` 安装为后台服务和 `pier` 命令：
 
 - 普通账号安装为 systemd 用户服务（程序在 `~/.local/share/pier`，命令为 `~/.local/bin/pier`），并在无需密码时开启 linger，让服务在退出 SSH 后继续运行、开机自动启动；用 `curl … | sudo bash` 以 root 执行则安装为系统服务（`/opt/pier`、`/usr/local/bin/pier`）。
@@ -47,10 +58,10 @@ curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/inst
 - **手动切换**：在终端中下载时按 `s`，立即换到下一条线路，同样接着已下载的部分继续。
 - **指定线路**：`--mirror ghfast`（或 `github`、`gh-proxy`、`ghproxy`、自定义的 `https://` 加速前缀）固定从这条线路下载，失败时在这条线路上重试，不会自动换线；按 `s` 仍可手动切换。
 
-无论走哪条线路，校验和都优先直接从 GitHub 获取；GitHub 无法访问时才从加速线路获取，并给出提示。国内网络连不上 `raw.githubusercontent.com` 时，也可以经加速线路获取脚本本身：
+无论走哪条线路，校验和都优先直接从 GitHub 获取；GitHub 无法访问时才从加速线路获取，并给出提示。经镜像获取的脚本同样可以带参数，例如固定走 GHFast 下载：
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash -s -- --mirror ghfast
 ```
 
 #### 参数
