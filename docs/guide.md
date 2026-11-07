@@ -14,6 +14,8 @@ Pier 各项功能的详细说明。安装与快速上手见 [README](../README.m
 
 桌面安装包支持 Linux x64 / ARM64（`.deb`、`.AppImage`）、macOS Intel / Apple Silicon（`.dmg`）和 Windows x64（`.setup.exe`）。Linux ARM64 包名为 `pier-v<版本>-linux-arm64.deb` / `.AppImage`，与 x64 一样以 Ubuntu 22.04（glibc 2.35）为构建基线。安装包与签名更新包随 [GitHub Release](https://github.com/yiranxiaohui/Pier/releases/latest) 发布，ARM64 同样支持应用内自动更新。
 
+按平台的安装步骤及一键命令见 README：[Windows](../README.md#windows)、[macOS](../README.md#macos)、[Linux 桌面](../README.md#linux-桌面)、[Linux 服务器](../README.md#linux-一键安装)。Windows PowerShell 脚本调用官方 NSIS 安装器；macOS 脚本安装经过校验的 `Pier.app`，默认位于 `~/Applications`（已有 `/Applications/Pier.app` 时沿用原位置）。两者都不安装独立后台服务，打开应用后自动启动 Host，可在「设置 → 常规 → 开机自启」设置登录后启动。Linux 的 `pier install/status/update/uninstall` 服务管理命令不适用于 Windows / macOS 桌面安装。
+
 桌面端启动时会拉起内置的 Pier Host（`--watch-stdin`），关闭窗口只会隐藏到托盘，Agent 继续运行；从托盘或“设置 → 常规 → 退出 Pier”才会停止 Host。可用 `PIER_DIR` 隔离 Pier 状态目录，用 `PIER_HOST_BIN` 指定其他 Host 可执行文件。
 
 ### 自动更新
@@ -96,6 +98,8 @@ Linux 单文件统一以 `pier-v<版本>-linux-<架构>` 发布。v0.2.57 是最
 ## 手机与其他电脑
 
 ### 手机端
+
+安装入口：[Android APK](../README.md#android) · [iOS / iPadOS 自行签名构建](../README.md#ios--ipados)。Android 已有签名发行包；iOS 暂无公开 TestFlight / App Store 发行，不要下载来源不明的 IPA。手机是电脑上 Agent 的远程客户端，需要至少一台已运行 Pier 的电脑。
 
 手机端沿用桌面端的青绿色主题、卡片和会话样式。在首页右上角进入「设置 → 外观」，可以选择「跟随系统」「浅色」或「深色」，选择会保存在这台设备上；默认跟随系统。
 

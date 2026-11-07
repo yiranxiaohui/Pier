@@ -49,6 +49,20 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Unix installer syntax (including macOS system Bash)
+        if: runner.os != 'Windows'
+        run: /bin/bash -n scripts/install.sh
+
+      - name: Windows installer regression tests (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/test-install.ps1
+
+      - name: Windows installer regression tests (PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-install.ps1
+
   sidecar:
     name: sidecar build (${{ matrix.target }})
     needs: check

@@ -2,6 +2,7 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	chmodSync,
+	copyFileSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -138,7 +139,10 @@ esac`,
 		PIER_PREFIX: prefix,
 	};
 	const run = (args: string[] = [], extra: NodeJS.ProcessEnv = {}) =>
-		spawnSync("bash", [installer, ...args], { env: { ...env, ...extra }, encoding: "utf8" });
+		spawnSync(process.platform === "darwin" ? "/bin/bash" : "bash", [installer, ...args], {
+			env: { ...env, ...extra },
+			encoding: "utf8",
+		});
 	const log = (name: string) => (existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : "");
 	const install = (version: string) => {
 		mkdirSync(join(prefix, "share/pier"), { recursive: true });
@@ -147,8 +151,168 @@ esac`,
 			`${JSON.stringify({ format: 1, app: "pier", scope: "user", version }, null, 2)}\n`,
 		);
 	};
-	return { root, env, home, prefix, run, log, install, command: join(prefix, "bin/pier") };
+	return { root, env, home, prefix, mockBin, run, log, install, command: join(prefix, "bin/pier") };
 }
+
+function macFixture(arch = "arm64") {
+	const f = fixture();
+	const appDir = join(f.home, "My Applications");
+	const app = join(appDir, "Pier.app");
+	const name = `pier-v0.2.58-darwin-${arch}.dmg`;
+	const dmg = join(f.root, "releases/v0.2.58", name);
+	writeFileSync(dmg, "test DMG");
+	const sums = `${createHash("sha256").update("test DMG").digest("hex")}  ${name}\n`;
+	for (const tag of ["v0.2.58", "latest"]) writeFileSync(join(f.root, "releases", tag, "SHA256SUMS.txt"), sums);
+	script(join(f.mockBin, "sysctl"), `echo "\${PIER_TEST_TRANSLATED:-0}"`);
+	script(join(f.mockBin, "pgrep"), `[[ "\${PIER_TEST_RUNNING:-0}" == 1 ]]`);
+	script(
+		join(f.mockBin, "hdiutil"),
+		`printf '%s\\n' "$*" >> "$PIER_TEST_ROOT/mount.log"
+if [[ "$1" == attach ]]; then
+  while [[ "$1" != -mountpoint ]]; do shift; done
+  mkdir -p "$2/Pier.app/Contents"
+  printf '%s\\n' "\${PIER_TEST_BUNDLE_VERSION:-0.2.58}" > "$2/Pier.app/Contents/Info.plist"
+fi`,
+	);
+	script(
+		join(f.mockBin, "plutil"),
+		`if [[ "$2" == CFBundleIdentifier ]]; then echo "\${PIER_TEST_BUNDLE_ID:-dev.pier.desktop}"
+else cat "\${!#}"; fi`,
+	);
+	script(join(f.mockBin, "codesign"), `[[ "\${PIER_TEST_BAD_SIGNATURE:-0}" != 1 ]]`);
+	script(join(f.mockBin, "ditto"), `[[ "\${PIER_TEST_COPY_FAIL:-0}" != 1 ]] || exit 1; cp -R "$1" "$2"`);
+	script(
+		join(f.mockBin, "mv"),
+		`if [[ "\${PIER_TEST_RENAME_FAIL:-0}" == 1 && "$1" == */.pier-install.*/Pier.app ]]; then exit 1; fi
+exec /bin/mv "$@"`,
+	);
+	const run = (args: string[] = [], extra: NodeJS.ProcessEnv = {}) =>
+		f.run(args, {
+			PIER_PREFIX: "",
+			PIER_APP_DIR: appDir,
+			PIER_TEST_OS: "Darwin",
+			PIER_TEST_MACHINE: arch === "arm64" ? "arm64" : "x86_64",
+			...extra,
+		});
+	const install = (version: string) => {
+		mkdirSync(join(app, "Contents"), { recursive: true });
+		writeFileSync(join(app, "Contents/Info.plist"), version);
+	};
+	return { ...f, run, install, app, appDir, dmg, name };
+}
+
+describe.skipIf(process.platform === "win32")("macOS one-line installer", () => {
+	it.skipIf(process.platform !== "darwin")(
+		"installs a real ad-hoc signed DMG with native macOS tools",
+		() => {
+			const f = macFixture();
+			for (const tool of ["hdiutil", "plutil", "codesign", "ditto", "mv"]) rmSync(join(f.mockBin, tool));
+			const volume = join(f.root, "volume");
+			const source = join(volume, "Pier.app");
+			mkdirSync(join(source, "Contents/MacOS"), { recursive: true });
+			copyFileSync("/bin/echo", join(source, "Contents/MacOS/pier"));
+			writeFileSync(
+				join(source, "Contents/Info.plist"),
+				`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.pier.desktop</string>
+<key>CFBundleShortVersionString</key><string>0.2.58</string>
+<key>CFBundleExecutable</key><string>pier</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+</dict></plist>`,
+			);
+			for (const [command, args] of [
+				["codesign", ["--force", "--deep", "--sign", "-", source]],
+				["hdiutil", ["create", "-srcfolder", volume, "-format", "UDZO", "-ov", f.dmg]],
+			] as const) {
+				const result = spawnSync(command, args, { encoding: "utf8" });
+				expect(result.status, result.stderr).toBe(0);
+			}
+			const digest = createHash("sha256").update(readFileSync(f.dmg)).digest("hex");
+			writeFileSync(join(f.root, "releases/latest/SHA256SUMS.txt"), `${digest}  ${f.name}\n`);
+			const result = f.run();
+			expect(result.status, result.stderr).toBe(0);
+			expect(existsSync(join(f.app, "Contents/MacOS/pier"))).toBe(true);
+			expect(spawnSync("codesign", ["--verify", "--deep", "--strict", f.app]).status).toBe(0);
+			expect(readdirSync(f.appDir)).toEqual(["Pier.app"]);
+		},
+		60_000,
+	);
+
+	it.each(["x64", "arm64"])("installs the verified %s DMG without a service and cleans the mount", (arch) => {
+		const f = macFixture(arch);
+		const result = f.run();
+		expect(result.status, result.stderr).toBe(0);
+		expect(readFileSync(join(f.app, "Contents/Info.plist"), "utf8").trim()).toBe("0.2.58");
+		expect(result.stdout).toContain(`open "${f.app}"`);
+		expect(result.stdout).toContain("Open Anyway");
+		expect(f.log("curl.log")).toContain(f.name);
+		expect(f.log("pier.log")).toBe("");
+		expect(f.log("systemctl.log")).toBe("");
+		expect(f.log("mount.log")).toContain("detach");
+		expect(readdirSync(f.appDir)).toEqual(["Pier.app"]);
+		expect(readdirSync(join(f.home, "Library/Caches"))).toEqual([]);
+	});
+
+	it("selects native ARM64 under Rosetta and supports explicit versions and mirrors", () => {
+		const f = macFixture();
+		const result = f.run(["--version", "0.2.58", "--mirror", "ghfast"], {
+			PIER_TEST_MACHINE: "x86_64",
+			PIER_TEST_TRANSLATED: "1",
+		});
+		expect(result.status, result.stderr).toBe(0);
+		expect(f.log("curl.log")).toContain(
+			`https://ghfast.top/https://github.com/yiranxiaohui/Pier/releases/download/v0.2.58/${f.name}`,
+		);
+	});
+
+	it("skips an installed version, supports force and preserves user state", () => {
+		const f = macFixture();
+		f.install("0.2.58");
+		mkdirSync(join(f.home, ".pier"));
+		writeFileSync(join(f.home, ".pier/keep"), "state");
+		expect(f.run().stdout).toContain("is already installed");
+		expect(f.log("mount.log")).toBe("");
+		expect(f.run(["--force"]).status).toBe(0);
+		expect(f.log("mount.log")).toContain("attach");
+		expect(readFileSync(join(f.home, ".pier/keep"), "utf8")).toBe("state");
+	});
+
+	it.each([
+		{ PIER_TEST_BAD_SIGNATURE: "1" },
+		{ PIER_TEST_COPY_FAIL: "1" },
+		{ PIER_TEST_RENAME_FAIL: "1" },
+		{ PIER_TEST_BUNDLE_VERSION: "0.2.57" },
+	])("keeps the previous app on verification or replacement failure (%j)", (extra) => {
+		const f = macFixture();
+		f.install("0.2.57");
+		const result = f.run([], extra);
+		expect(result.status).not.toBe(0);
+		expect(readFileSync(join(f.app, "Contents/Info.plist"), "utf8")).toBe("0.2.57");
+		expect(readdirSync(f.appDir)).toEqual(["Pier.app"]);
+		expect(f.log("mount.log")).toContain("detach");
+	});
+
+	it("does not mount a tampered download", () => {
+		const f = macFixture();
+		writeFileSync(f.dmg, "tampered");
+		expect(f.run().stderr).toContain("Checksum mismatch");
+		expect(f.log("mount.log")).toBe("");
+		expect(existsSync(f.app)).toBe(false);
+	});
+
+	it("rejects running apps, unrelated bundles, Linux flags and relative destinations before downloading", () => {
+		const f = macFixture();
+		expect(f.run([], { PIER_TEST_RUNNING: "1" }).stderr).toContain("Quit Pier");
+		f.install("0.2.57");
+		expect(f.run([], { PIER_TEST_BUNDLE_ID: "another.app" }).stderr).toContain("unrelated Pier.app");
+		for (const option of ["--service", "--portable", "--user", "--system", "--no-start"])
+			expect(f.run([option]).stderr).toContain("not supported");
+		expect(f.run(["--app-dir", "relative"]).stderr).toContain("absolute directory");
+		expect(f.log("curl.log")).toBe("");
+	});
+});
 
 const asset = (tag: string) => `https://github.com/yiranxiaohui/Pier/releases/download/${tag}/pier-${tag}-linux-x64`;
 const latestSums = "https://github.com/yiranxiaohui/Pier/releases/latest/download/SHA256SUMS.txt";
@@ -162,7 +326,7 @@ const slowGitHub = {
 const util = spawnSync("script", ["--version"], { encoding: "utf8" });
 const hasScript = util.status === 0 && util.stdout.includes("util-linux");
 
-describe.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("one-line installer", () => {
+describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("one-line installer", () => {
 	it("installs the latest verified single file as a user service and turns on lingering", () => {
 		const f = fixture();
 		const result = f.run([], { PIER_TEST_LINGER: "allow" });
@@ -401,7 +565,7 @@ describe.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("one-l
 
 	it("rejects other systems, architectures and conflicting options", () => {
 		const f = fixture();
-		expect(f.run([], { PIER_TEST_OS: "Darwin" }).stderr).toContain("On macOS, install the .dmg");
+		expect(f.run([], { PIER_TEST_OS: "FreeBSD" }).stderr).toContain("download Pier");
 		expect(f.run([], { PIER_TEST_MACHINE: "riscv64" }).stderr).toContain("Unsupported architecture: riscv64");
 		expect(f.run(["--portable", "--no-start"]).stderr).toContain("cannot be combined");
 		expect(f.run(["--service", "--portable"]).stderr).toContain("Choose either --service or --portable");
