@@ -3,6 +3,10 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
 #
+# Where raw.githubusercontent.com is unreachable, fetch this script through a mirror instead:
+#
+#   curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
+#
 # Downloads the single-file pier of a GitHub release, verifies it against the release's
 # SHA256SUMS.txt and its own --version, then installs it as a systemd service plus the pier
 # command (`pier install`), or with --portable as the pier command only. Rerun it to update.
@@ -31,6 +35,12 @@ Install or update Pier on Linux (x86_64 / arm64) from GitHub Releases.
 
   curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
   curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash -s -- [options]
+
+Where raw.githubusercontent.com is unreachable, fetch the script through a mirror, e.g.
+
+  curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
+
+(gh-proxy.com and ghproxy.net work the same way.)
 
 Options:
   --version vX.Y.Z   Install this release instead of the latest one
