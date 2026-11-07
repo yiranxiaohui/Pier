@@ -4,6 +4,7 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## 未发布
 
+- **CLI 方向键选择候选**：`pier` CLI 列出命令建议或 Tab 补全候选时，可用 ↑/↓ 在其中切换（以 `❯` 标出并自动滚动到可见处），按 Tab 或 Enter 把选中项填入输入行；选中的命令不再需要参数（如 `/status`、`/sessions`）时 Enter 直接执行，编号项（会话、工作区等）填入编号，Esc 取消选择。输入框为空或正在翻阅历史时，↑/↓ 仍用于浏览输入历史。
 - **镜像获取安装脚本**：README 的 Linux 一键安装下直接列出经 GHFast、GH-Proxy、GHProxy 镜像获取 `install.sh` 的命令，国内网络连不上 `raw.githubusercontent.com` 时也能一条命令安装；`install.sh --help` 同样给出镜像命令。
 
 ## v0.2.60 — 2026-11-06

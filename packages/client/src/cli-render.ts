@@ -739,6 +739,56 @@ export function commandSuggestions(sections: readonly HelpSection[], line: strin
 	);
 }
 
+/** What choosing a suggested usage puts on the input line. */
+export interface SuggestionChoice {
+	/** The command and the literal words after it (`/ws add `), with a space when arguments follow. */
+	text: string;
+	/** Nothing else is required (whatever follows is optional), so Enter can run it right away. */
+	complete: boolean;
+}
+
+/** The line a suggested usage fills in; `typed` picks among alternatives such as `/yes, /no`. */
+export function suggestionChoice(usage: string, typed: string): SuggestionChoice {
+	const names = usage.split(/[\s,]+/).filter((word) => word.startsWith("/"));
+	if (names.length > 1) {
+		const word = typed.trim().split(/\s+/)[0] ?? "";
+		return { text: names.find((name) => name.startsWith(word)) ?? (names[0] as string), complete: true };
+	}
+	const words = usage.trim().split(/\s+/);
+	let literal = 1;
+	while (literal < words.length && /^[\w-]+$/.test(words[literal] as string)) literal++;
+	const rest = words.slice(literal).join(" ");
+	return {
+		text: words.slice(0, literal).join(" ") + (rest ? " " : ""),
+		complete: !rest.replace(/\[[^\]]*\]/g, "").trim(),
+	};
+}
+
+/**
+ * Suggested usages with their descriptions, at most `max` of them. The `selected` one is marked
+ * with `❯` and scrolled into view.
+ */
+export function suggestionRows(
+	suggestions: ReadonlyArray<readonly [string, string]>,
+	width: number,
+	max: number,
+	selected?: number,
+): string[] {
+	if (!suggestions.length) return [];
+	const start = selected !== undefined && selected >= max ? selected - max + 1 : 0;
+	const shown = suggestions.slice(start, start + max);
+	const usageWidth = Math.max(...suggestions.map(([usage]) => displayWidth(usage)));
+	const rows = shown.map(([usage, description], i) => {
+		const chosen = start + i === selected;
+		const name = padWidth(usage, usageWidth);
+		const lead = chosen ? `${c.accent("❯")} ` : "  ";
+		return fitStyled(`${lead}${chosen ? c.bold(c.accent(name)) : c.accent(name)}  ${c.gray(description)}`, width);
+	});
+	const hidden = suggestions.length - shown.length;
+	if (hidden) rows.push(c.gray(`  … ${hidden} more (↑/↓ to browse)`));
+	return rows;
+}
+
 /** The longest start all of `items` share. */
 export function commonPrefix(items: readonly string[]): string {
 	if (!items.length) return "";
@@ -747,18 +797,30 @@ export function commonPrefix(items: readonly string[]): string {
 	return prefix;
 }
 
-/** Completion candidates in as many aligned columns as fit, at most `maxRows` rows. */
-export function completionGrid(items: readonly string[], width: number, maxRows = 8): string[] {
+/**
+ * Completion candidates in as many aligned columns as fit, at most `maxRows` rows. The
+ * `selected` one is marked with `❯` and scrolled into view.
+ */
+export function completionGrid(items: readonly string[], width: number, maxRows = 8, selected?: number): string[] {
 	const cells = items.map((item) => sanitize(item));
 	const room = Math.max(4, width - 2);
 	const cellWidth = Math.min(room, Math.max(...cells.map((cell) => displayWidth(cell))) + 2);
 	const perRow = Math.max(1, Math.floor((room + 2) / cellWidth));
 	const rows: string[] = [];
 	for (let i = 0; i < cells.length; i += perRow) {
-		const row = cells.slice(i, i + perRow).map((cell) => padWidth(fitWidth(cell, cellWidth - 2), cellWidth));
-		rows.push(`  ${row.join("").trimEnd()}`);
+		const row = cells.slice(i, i + perRow).map((cell, j) => {
+			const text = fitWidth(cell, cellWidth - 2);
+			const pad = " ".repeat(cellWidth - 2 - displayWidth(text));
+			// The mark takes the last column of the gap before the cell, so the columns stay put.
+			return i + j === selected ? ` ${c.accent("❯")}${c.bold(c.accent(text))}${pad}` : `  ${text}${pad}`;
+		});
+		rows.push(row.join("").trimEnd());
 	}
 	if (rows.length <= maxRows) return rows;
-	const hidden = cells.length - (maxRows - 1) * perRow;
-	return [...rows.slice(0, maxRows - 1), c.gray(`  … ${hidden} more; type more to narrow them down`)];
+	const visible = maxRows - 1;
+	const selectedRow = selected === undefined ? 0 : Math.floor(selected / perRow);
+	const start = selectedRow >= visible ? selectedRow - visible + 1 : 0;
+	const shownCells = Math.min(cells.length, (start + visible) * perRow) - start * perRow;
+	const hidden = cells.length - shownCells;
+	return [...rows.slice(start, start + visible), c.gray(`  … ${hidden} more; type more to narrow them down`)];
 }

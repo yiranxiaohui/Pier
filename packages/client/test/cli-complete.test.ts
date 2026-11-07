@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type CliCompletionSource,
 	type CliDirectoryListing,
+	candidateValue,
 	completeCliLine,
 	completeNumbered,
 	matchModel,
@@ -294,5 +295,14 @@ describe("matchModel", () => {
 	it("flags unknown models so an explicit provider/id can still go to the host", () => {
 		expect(matchModel(models, "custom/my-model")).toMatchObject({ none: true });
 		expect(matchModel(models, "claude")).not.toHaveProperty("none");
+	});
+});
+
+describe("candidateValue", () => {
+	it("takes the number of a numbered entry and the others as they are", () => {
+		expect(candidateValue("3. fix the tests · 2h ago", "")).toBe("3");
+		expect(candidateValue("12. x", "1")).toBe("12");
+		expect(candidateValue("faux/faux-1", "faux")).toBe("faux/faux-1");
+		expect(candidateValue("/home/dev/", "/home/d")).toBe("/home/dev/");
 	});
 });
