@@ -1748,6 +1748,15 @@ export class PierStore {
 		}
 	}
 
+	/** Remove a personal-center provider, rejecting so its group row can remain on failure. */
+	async removeAccountGroupProvider(provider: ProviderInfo): Promise<void> {
+		const node = this.state.settingsNode;
+		const client = this.openClient(node);
+		if (!client) throw new Error(this.settingsOffline().message);
+		await client.request("provider.removeCustom", { providerId: provider.id });
+		await this.loadProviders(node);
+	}
+
 	/** Models offered by an endpoint. Throws with the host's message. */
 	async probeModels(params: {
 		api: CustomProviderApi;

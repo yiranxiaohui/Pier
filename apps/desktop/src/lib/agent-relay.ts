@@ -170,6 +170,29 @@ export function claudeRelayState(settings: SettingsObject | undefined, group: Re
 	};
 }
 
+/** Remove the Claude Code settings written for this group, preserving unrelated model choices. */
+export function claudeRelayRemovalChanges(group: RelayGroup, settings: SettingsObject | undefined): AgentConfigEdit[] {
+	const state = claudeRelayState(settings, group);
+	if (!state.group) return [];
+	const env = isObject(settings?.env) ? settings.env : {};
+	const models = new Set(claudeModels(group));
+	const configuredModels = [state.model, ...CLAUDE_FAMILIES.map((family) => text(env[familyEnv(family)]))].filter(
+		(id): id is string => id !== undefined && !isClaudeAlias(id),
+	);
+	// A site URL alone is shared by all groups; without a model id we cannot safely identify one.
+	if (!configuredModels.length || !configuredModels.every((id) => models.has(id))) return [];
+	const changes: AgentConfigEdit[] = [
+		{ path: ["env", "ANTHROPIC_BASE_URL"] },
+		{ path: ["env", "ANTHROPIC_AUTH_TOKEN"] },
+	];
+	for (const family of CLAUDE_FAMILIES) {
+		const key = familyEnv(family);
+		if (models.has(String(env[key] ?? ""))) changes.push({ path: ["env", key] });
+	}
+	if (state.model && models.has(state.model)) changes.push({ path: ["model"] });
+	return changes;
+}
+
 // ---- Codex -------------------------------------------------------------------------------
 
 const RANK: Partial<Record<CustomProviderApi, number>> = { "openai-responses": 0, "openai-completions": 1 };
@@ -221,4 +244,14 @@ export function codexRelayState(settings: SettingsObject | undefined, group: Rel
 		defined: isObject(providers[group.id]),
 		...(model ? { model } : {}),
 	};
+}
+
+/** Remove this group's Codex provider and, when current, its active model selection. */
+export function codexRelayRemovalChanges(group: RelayGroup, settings: SettingsObject | undefined): AgentConfigEdit[] {
+	const state = codexRelayState(settings, group);
+	if (!state.defined) return [];
+	return [
+		{ path: ["model_providers", group.id] },
+		...(state.current ? [{ path: ["model_provider"] }, { path: ["model"] }] : []),
+	];
 }

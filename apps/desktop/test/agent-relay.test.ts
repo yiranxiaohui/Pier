@@ -3,9 +3,11 @@ import {
 	claudeFamilyModel,
 	claudeModels,
 	claudeRelayChanges,
+	claudeRelayRemovalChanges,
 	claudeRelayState,
 	codexModels,
 	codexRelayChanges,
+	codexRelayRemovalChanges,
 	codexRelayState,
 	type RelayGroup,
 	relayModels,
@@ -87,6 +89,40 @@ describe("pointing Claude Code at a group", () => {
 		const yunlian = { ...group, siteUrl: "https://api.syixn.com" };
 		expect(claudeRelayState({ env: { ANTHROPIC_BASE_URL: "https://api.yunnet.top/" } }, yunlian).site).toBe(true);
 	});
+
+	it("removes only settings that identify this group", () => {
+		expect(
+			claudeRelayRemovalChanges(group, {
+				model: "claude-sonnet-4-20250514",
+				env: {
+					ANTHROPIC_BASE_URL: "https://api.example.com",
+					ANTHROPIC_AUTH_TOKEN: "secret",
+					ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-4-1-20250805",
+				},
+			}),
+		).toEqual([
+			{ path: ["env", "ANTHROPIC_BASE_URL"] },
+			{ path: ["env", "ANTHROPIC_AUTH_TOKEN"] },
+			{ path: ["env", "ANTHROPIC_DEFAULT_OPUS_MODEL"] },
+			{ path: ["model"] },
+		]);
+		expect(claudeRelayRemovalChanges(group, { env: { ANTHROPIC_BASE_URL: "https://api.example.com" } })).toEqual([]);
+		expect(
+			claudeRelayRemovalChanges(group, {
+				model: "custom-model",
+				env: { ANTHROPIC_BASE_URL: "https://api.example.com" },
+			}),
+		).toEqual([]);
+		expect(
+			claudeRelayRemovalChanges(group, {
+				model: "claude-sonnet-4-20250514",
+				env: {
+					ANTHROPIC_BASE_URL: "https://api.example.com",
+					ANTHROPIC_DEFAULT_OPUS_MODEL: "custom-opus",
+				},
+			}),
+		).toEqual([]);
+	});
 });
 
 describe("pointing Codex at a group", () => {
@@ -115,6 +151,22 @@ describe("pointing Codex at a group", () => {
 		const settings = { model_provider: group.id, model: "gpt-5", model_providers: { [group.id]: { name: "x" } } };
 		expect(codexRelayState(settings, group)).toEqual({ current: true, defined: true, model: "gpt-5" });
 		expect(codexRelayState({ model_provider: "openai" }, group)).toEqual({ current: false, defined: false });
+	});
+
+	it("removes only this group's provider and resets Codex when it was current", () => {
+		expect(
+			codexRelayRemovalChanges(group, {
+				model_provider: group.id,
+				model: "gpt-5",
+				model_providers: { [group.id]: { name: group.name }, other: { name: "other" } },
+			}),
+		).toEqual([{ path: ["model_providers", group.id] }, { path: ["model_provider"] }, { path: ["model"] }]);
+		expect(
+			codexRelayRemovalChanges(group, {
+				model_provider: "other",
+				model_providers: { [group.id]: { name: group.name } },
+			}),
+		).toEqual([{ path: ["model_providers", group.id] }]);
 	});
 });
 
