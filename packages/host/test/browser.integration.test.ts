@@ -2,13 +2,22 @@ import { readFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { type AddressInfo, connect, type Server, type Socket, createServer as tcpServer } from "node:net";
 import { join } from "node:path";
+import { getCurrentTools } from "@earendil-works/pi-ai";
 import type { PierClient } from "@pier/client";
 import type { BrowserCommand, PairingRequest, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import type { BrowserProcess } from "../src/browser/browsers.ts";
 import { remoteProxy } from "../src/browser/network.ts";
-import { fauxAssistantMessage, fauxToolCall, Recorder, startTestHost, type TestHost } from "./helpers.ts";
+import { PiManagedSession } from "../src/pi/pi-session.ts";
+import {
+	fauxAssistantMessage,
+	fauxToolCall,
+	lastToolResultText,
+	Recorder,
+	startTestHost,
+	type TestHost,
+} from "./helpers.ts";
 
 const REMOTE = { enabled: true, port: 0, bindHost: "127.0.0.1", mdns: false } as const;
 async function listen(server: Server): Promise<number> {
@@ -278,36 +287,70 @@ describe("local rendering over paired host network", () => {
 		await detached;
 	});
 
-	it("runs the built in pi browser tool with workspace approvals before interacting with a page", async () => {
-		await local.request("browser.open", {
-			peerId,
-			workspaceId: workspace.id,
-			url: "https://example.com",
-			mode: "network",
-			controlled: true,
-		});
+	it.each([false, true])("does not expose the removed pi browser tool (controlled browser: %s)", async (controlled) => {
+		if (controlled) {
+			await local.request("browser.open", {
+				peerId,
+				workspaceId: workspace.id,
+				url: "https://example.com",
+				mode: "network",
+				controlled: true,
+			});
+		}
 		await remoteDesktop.request("workspace.setPolicy", { workspaceId: workspace.id, policy: "ask" });
 		const { session } = await remoteDesktop.request("session.create", { workspaceId: workspace.id });
+		const assertTools = (sessionId: string) => {
+			const managed = b.host.pool.get(sessionId);
+			expect(managed).toBeInstanceOf(PiManagedSession);
+			if (!(managed instanceof PiManagedSession)) throw new Error("Expected a pi session");
+			expect(managed.session.getAllTools().map((tool) => tool.name)).not.toContain("pier_browser");
+			expect(managed.session.getActiveToolNames()).toEqual(expect.arrayContaining(["read", "bash", "edit", "write"]));
+		};
+		assertTools(session.id);
 		const events = new Recorder();
 		await remoteDesktop.subscribe(session.id, events.handler, { workspaceId: workspace.id });
+		let offeredTools: string[] = [];
+		let toolResult = "";
 		b.faux.setResponses([
-			fauxAssistantMessage(fauxToolCall("pier_browser", { action: "click", selector: "#submit" }), {
-				stopReason: "toolUse",
-			}),
-			fauxAssistantMessage("done"),
+			(context) => {
+				offeredTools = getCurrentTools(context.messages).map((tool) => tool.name);
+				// Even a stale tool call must not reach the browser or ask for approval.
+				return fauxAssistantMessage(fauxToolCall("pier_browser", { action: "click", selector: "#submit" }), {
+					stopReason: "toolUse",
+				});
+			},
+			(context) => {
+				toolResult = lastToolResultText(context);
+				return fauxAssistantMessage("done");
+			},
 		]);
 		await remoteDesktop.request("session.prompt", { sessionId: session.id, text: "click button" });
-		const frame = await events.waitForType("ui.request");
-		expect(actions).toEqual([]);
-		const ui = frame.event.request as { id: string; approval: { toolName: string } };
-		expect(ui.approval.toolName).toBe("pier_browser");
-		await remoteDesktop.request("ui.respond", {
-			sessionId: session.id,
-			requestId: ui.id,
-			response: { decision: "allow_once" },
-		});
 		await events.waitForType("agent_settled");
-		expect(actions).toEqual([{ action: "click", selector: "#submit" }]);
+		expect(offeredTools).toContain("read");
+		expect(offeredTools).not.toContain("pier_browser");
+		expect(toolResult).toMatch(/not found/i);
+		expect(events.types()).not.toContain("ui.request");
+		expect(actions).toEqual([]);
+
+		await remoteDesktop.request("session.reload", { sessionId: session.id });
+		assertTools(session.id);
+		const { points } = await remoteDesktop.request("session.forkPoints", { sessionId: session.id });
+		const forked = await remoteDesktop.request("session.fork", {
+			sessionId: session.id,
+			entryId: points[0]?.entryId ?? "",
+		});
+		assertTools(forked.session.id);
+		await remoteDesktop.request("session.close", { sessionId: session.id });
+		const reopened = await remoteDesktop.request("session.open", { workspaceId: workspace.id, sessionId: session.id });
+		assertTools(reopened.session.id);
+
+		if (controlled) {
+			// Removing the agent tool must not remove the explicit external integration API.
+			expect(
+				await remoteDesktop.request("browser.action", { workspaceId: workspace.id, command: { action: "snapshot" } }),
+			).toEqual({ text: "browser:snapshot" });
+			expect(actions).toEqual([{ action: "snapshot" }]);
+		}
 	});
 
 	it("handles service failures, unsafe URL schemes, missing browsers and connection-owned browser lifetimes", async () => {
