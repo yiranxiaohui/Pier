@@ -9,15 +9,8 @@ import {
 	type ProviderInfo,
 } from "@pier/protocol";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import {
-	type AuthFlowState,
-	LOCAL_NODE,
-	useAppState,
-	useSettingsTarget,
-	useStore,
-	type YunlianLoginState,
-} from "../lib/store.tsx";
-import { isYunlianProvider, YUNLIAN_NAME, yunlianGroupOf } from "../lib/yunlian.ts";
+import { type AuthFlowState, LOCAL_NODE, useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
+import { isYunlianProvider, YUNLIAN_NAME } from "../lib/yunlian.ts";
 import {
 	IconAlert,
 	IconCheck,
@@ -199,7 +192,6 @@ function DefaultModelField() {
 
 function ConfiguredRow({ provider, onEdit }: { provider: ProviderInfo; onEdit: (p: ProviderInfo) => void }) {
 	const store = useStore();
-	const remote = !useSettingsTarget().local;
 	const [confirm, setConfirm] = useState(false);
 	const custom = provider.custom;
 	const removable = provider.stored || MODELS_JSON_SOURCES.has(provider.status.source ?? "");
@@ -222,38 +214,16 @@ function ConfiguredRow({ provider, onEdit }: { provider: ProviderInfo; onEdit: (
 				</div>
 			</div>
 			<div className="row-actions">
-				{yunlianGroupOf(provider) !== undefined ? (
+				{isYunlianProvider(provider) ? (
 					<button
 						type="button"
 						className="ghost"
-						title="在个人中心更新这个分组的令牌和模型"
+						title="在个人中心登录并按分组管理令牌和模型"
 						onClick={() => store.openSettings("account")}
 					>
 						<IconUser size={13} />
 						个人中心
 					</button>
-				) : isYunlianProvider(provider) ? (
-					remote ? (
-						<button
-							type="button"
-							className="ghost"
-							title="浏览器登录只能用于本机；在个人中心登录后按分组更新这台电脑的令牌和模型"
-							onClick={() => store.openSettings("account")}
-						>
-							<IconUser size={13} />
-							个人中心
-						</button>
-					) : (
-						<button
-							type="button"
-							className="ghost"
-							title="在浏览器中重新授权，更新令牌和模型列表"
-							onClick={() => void store.loginYunlian()}
-						>
-							<IconExternal size={13} />
-							重新登录
-						</button>
-					)
 				) : null}
 				{custom ? (
 					<button type="button" className="ghost" onClick={() => onEdit(provider)}>
@@ -411,15 +381,21 @@ function ProviderList({ onCustom }: { onCustom: (provider?: ProviderInfo) => voi
 			<SettingsGroup
 				title="添加服务商"
 				actions={
-					<button type="button" className="primary" onClick={() => onCustom()}>
-						<IconPlus size={14} />
-						自定义接口
-					</button>
+					<div className="row-actions">
+						<button type="button" onClick={() => store.openSettings("account")}>
+							<IconUser size={14} />
+							个人中心
+						</button>
+						<button type="button" className="primary" onClick={() => onCustom()}>
+							<IconPlus size={14} />
+							自定义接口
+						</button>
+					</div>
 				}
 			>
 				<p className="muted small settings-note">
-					使用其他中转站、公司网关或本地模型（Ollama、LM Studio、vLLM 等）时，选择「自定义接口」填写 Base URL 和 API
-					Key。
+					使用{YUNLIAN_NAME}时，在「个人中心」登录并按分组配置模型。使用其他中转站、公司网关或本地模型（Ollama、LM
+					Studio、vLLM 等）时，选择「自定义接口」填写 Base URL 和 API Key。
 				</p>
 				<AddProviderList providers={others} />
 			</SettingsGroup>
@@ -932,70 +908,6 @@ export function AuthDialog() {
 	);
 }
 
-function YunlianView({ login }: { login: YunlianLoginState }) {
-	const store = useStore();
-	const { authorizeUrl, saving, error } = login;
-	return (
-		<div className="login-view">
-			{error ? null : authorizeUrl ? (
-				<div className="auth-notice">
-					<div>
-						已在浏览器中打开{YUNLIAN_NAME}的授权页面。请在浏览器中登录（账号密码、GitHub、LinuxDO、Passkey
-						等方式都可以）并点击「授权」，完成后会自动回到这里。
-					</div>
-					<div className="row-actions">
-						<button type="button" onClick={() => store.openExternal(authorizeUrl)}>
-							<IconExternal size={13} />
-							重新打开浏览器
-						</button>
-						<CopyButton text={authorizeUrl} label="复制登录链接" />
-					</div>
-				</div>
-			) : null}
-			{error ? null : (
-				<div className="auth-waiting muted">
-					<IconLoader size={15} className="spin" />
-					{saving ? "已授权，正在添加模型…" : authorizeUrl ? "等待浏览器中完成授权…" : "正在打开浏览器…"}
-				</div>
-			)}
-			{error ? (
-				<div className="banner error inline">
-					<IconAlert size={15} />
-					<span>{error}</span>
-				</div>
-			) : null}
-			<p className="muted small">令牌密钥由 Pier Host 直接保存在本机的 pi 配置目录，不会显示在界面上。</p>
-			<div className="modal-actions">
-				<button type="button" onClick={() => store.cancelYunlian()} disabled={saving}>
-					{error ? "关闭" : "取消"}
-				</button>
-				{error ? (
-					<button type="button" className="primary" onClick={() => void store.loginYunlian()}>
-						重试
-					</button>
-				) : null}
-			</div>
-		</div>
-	);
-}
-
-/** 云链API browser sign-in dialog, shown over whatever is on screen. */
-export function YunlianDialog() {
-	const store = useStore();
-	const login = useAppState((s) => s.yunlian);
-	if (!login) return null;
-	return (
-		<Modal
-			title={`浏览器登录 · ${YUNLIAN_NAME}`}
-			onClose={() => {
-				if (!login.saving) store.cancelYunlian();
-			}}
-		>
-			<YunlianView login={login} />
-		</Modal>
-	);
-}
-
 /** Shown on the home screens while no model can be used. */
 export function NoModelsBanner() {
 	const store = useStore();
@@ -1011,12 +923,12 @@ export function NoModelsBanner() {
 			<div className="no-models-text">
 				<div className="no-models-title">还没有可用的模型</div>
 				<div className="muted small">
-					登录{YUNLIAN_NAME}、Anthropic、OpenAI 等服务商，或添加中转站 / 本地模型的自定义接口。
+					在个人中心登录{YUNLIAN_NAME}并按分组配置模型，或在「配置模型」中添加其他服务商。
 				</div>
 			</div>
-			<button type="button" onClick={() => void store.loginYunlian()}>
-				<IconExternal size={13} />
-				登录{YUNLIAN_NAME}
+			<button type="button" onClick={() => store.openSettings("account", LOCAL_NODE)}>
+				<IconUser size={13} />
+				个人中心
 			</button>
 			<button type="button" className="primary" onClick={() => store.openModels(LOCAL_NODE)}>
 				配置模型

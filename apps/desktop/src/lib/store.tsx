@@ -70,7 +70,7 @@ import { workspaceNameError } from "./file-names.ts";
 import { newSessionDefaultsFromSettings } from "./new-session-defaults.ts";
 import { remotePageBlocker } from "./settings-target.ts";
 import { beginWorkspacePaste, finishWorkspacePaste, renameWorkspaceClipboardPath } from "./workspace-clipboard.ts";
-import { isYunlianProvider, movedToLine, YUNLIAN_SITE, yunlianGroupOf, yunlianProvider } from "./yunlian.ts";
+import { movedToLine } from "./yunlian.ts";
 
 export const APP_VERSION = "0.2.62";
 
@@ -267,16 +267,6 @@ export interface AuthFlowState {
 	error?: string;
 }
 
-/** The 云链API browser sign-in shown in its dialog. */
-export interface YunlianLoginState {
-	/** The authorization page opened in the browser (undefined while starting). */
-	authorizeUrl?: string;
-	/** Approved in the browser; saving the provider. */
-	saving?: boolean;
-	/** Set when the sign-in failed. */
-	error?: string;
-}
-
 /** Pages of the settings screen. */
 export type SettingsSection =
 	| "account"
@@ -380,7 +370,6 @@ export interface AppState {
 	/** This computer's model providers (the "no models" hints of the main window). */
 	localProviders?: ProviderListResult | undefined;
 	auth?: AuthFlowState;
-	yunlian?: YunlianLoginState;
 	update: UpdateStatus;
 	/** The settings screen is open on this page (undefined while closed). */
 	settings?: SettingsSection;
@@ -562,9 +551,6 @@ export class PierStore {
 	private authSeq = 0;
 	/** The computer whose host runs the sign-in in `state.auth`. */
 	private authNode = LOCAL_NODE;
-	private yunlianSeq = 0;
-	/** The pending 云链API authorization on the host, if any. */
-	private yunlianFlow: string | undefined;
 	/** The update version already announced with a toast. */
 	private announcedUpdate: string | undefined;
 	private updateRequest = 0;
@@ -867,11 +853,8 @@ export class PierStore {
 			pairingRequests: [],
 			pairing: undefined,
 			auth: undefined,
-			yunlian: undefined,
 			settingsSyncing: false,
 		});
-		this.yunlianSeq++;
-		this.yunlianFlow = undefined;
 	}
 
 	/** Dispose the live chats running on a computer. */
@@ -1770,57 +1753,7 @@ export class PierStore {
 		return (await client.request("provider.probeModels", params, { timeoutMs: 30_000 })).models;
 	}
 
-	// ---- 云链API sign-in (NewAPI app authorization in the browser) ------------------------
-
-	/**
-	 * Sign in to 云链API: open its authorization page in the browser and, once the user approves,
-	 * save (or refresh) the provider with the new token and every model it can use. Always on
-	 * this computer: the browser returns to a loopback address on the host's own computer.
-	 */
-	async loginYunlian(): Promise<void> {
-		const client = this.localClient;
-		if (!client) {
-			this.toast("error", "尚未连接到本机的 Pier Host");
-			return;
-		}
-		this.cancelYunlian();
-		const seq = ++this.yunlianSeq;
-		const current = () => seq === this.yunlianSeq;
-		this.set({ yunlian: {} });
-		try {
-			// The line this computer's personal center uses (protocol 1.29), else the default one.
-			const account = await client.request("account.status", {}).catch(() => undefined);
-			const siteUrl = account?.lines?.find((line) => line.id === account.line)?.url ?? YUNLIAN_SITE;
-			const started = await client.request("newapi.authorizeStart", { baseUrl: siteUrl }, { timeoutMs: 45_000 });
-			if (!current()) {
-				// Closed while starting: stop the orphaned authorization.
-				void client.request("newapi.authorizeCancel", { flowId: started.flowId }).catch(() => undefined);
-				return;
-			}
-			this.yunlianFlow = started.flowId;
-			this.set({ yunlian: { authorizeUrl: started.authorizeUrl } });
-			this.openExternal(started.authorizeUrl);
-			const result = await client.request(
-				"newapi.authorizeWait",
-				{ flowId: started.flowId },
-				{ timeoutMs: 11 * 60_000 },
-			);
-			if (!current()) return;
-			this.yunlianFlow = undefined;
-			this.set({ yunlian: { authorizeUrl: started.authorizeUrl, saving: true } });
-			const existing = this.state.localProviders?.providers.find(
-				(p) => p.custom && isYunlianProvider(p) && yunlianGroupOf(p) === undefined,
-			)?.custom;
-			const provider = yunlianProvider(result.models, existing, result.modelsError, siteUrl);
-			await this.saveCustomProvider(provider, { apiKeyRef: result.keyRef }, !existing, LOCAL_NODE);
-			if (current()) this.set({ yunlian: undefined });
-		} catch (error) {
-			if (current()) {
-				this.yunlianFlow = undefined;
-				this.set({ yunlian: { error: errorText(error) } });
-			}
-		}
-	}
+	// ---- personal center ---------------------------------------------------------------
 
 	/**
 	 * Call a loopback relay method (`loopback.*`, 1.28) on this computer's host, which catches a
@@ -1872,15 +1805,6 @@ export class PierStore {
 		for (const provider of moved) await client.request("provider.saveCustom", { provider, create: false });
 		if (moved.length) await this.loadProviders(node);
 		return moved.length;
-	}
-
-	/** Close the 云链API sign-in, abandoning a pending authorization. */
-	cancelYunlian(): void {
-		this.yunlianSeq++;
-		const flowId = this.yunlianFlow;
-		this.yunlianFlow = undefined;
-		if (flowId) void this.localClient?.request("newapi.authorizeCancel", { flowId }).catch(() => undefined);
-		if (this.state.yunlian) this.set({ yunlian: undefined });
 	}
 
 	async refreshSessions(workspaceId: string): Promise<void> {

@@ -7,7 +7,7 @@ import { GitPanel } from "./components/GitPanel.tsx";
 import { Welcome, WorkspaceHome } from "./components/Home.tsx";
 import { HostBanner } from "./components/HostPanels.tsx";
 import { IconAlert, IconInfo, IconMessage, IconX } from "./components/Icons.tsx";
-import { AuthDialog, YunlianDialog } from "./components/ModelsPanel.tsx";
+import { AuthDialog } from "./components/ModelsPanel.tsx";
 import { NavigationRail } from "./components/NavigationRail.tsx";
 import { NewChatView } from "./components/NewChat.tsx";
 import { AddPeerDialog, PairingRequestDialog } from "./components/RemotePanel.tsx";
@@ -205,7 +205,6 @@ export function App() {
 			{settings ? null : <FilePreview />}
 			<Toasts />
 			<AuthDialog />
-			<YunlianDialog />
 			<PairingRequestDialog />
 			<AddPeerDialog />
 			<DirectoryPicker />
