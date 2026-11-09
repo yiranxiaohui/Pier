@@ -75,6 +75,7 @@ async function startSshServer(home: string) {
 	// Commands still running when a test ends (e.g. after a cancel) keep `home` as their working
 	// directory, and Windows refuses to delete it until they exit, so close() waits for them.
 	const children = new Set<Promise<void>>();
+	let onHeldCommand: (() => void) | undefined;
 	const server = new Server({ hostKeys: [hostKey.private] }, (client: Connection) => {
 		client.on("authentication", (ctx) => {
 			if (ctx.method === "password" && ctx.username === "alice" && ctx.password === "secret") ctx.accept();
@@ -85,6 +86,13 @@ async function startSshServer(home: string) {
 				const session = acceptSession();
 				session.on("exec", (accept, _reject, info) => {
 					const stream = accept();
+					if (onHeldCommand) {
+						const held = onHeldCommand;
+						onHeldCommand = undefined;
+						stream.resume();
+						held();
+						return;
+					}
 					const { PIER_DIR: _dir, ...env } = process.env;
 					const child = spawn("sh", ["-c", info.command], { cwd: home, env: { ...env, HOME: home } });
 					const exited = new Promise<void>((done) => {
@@ -114,6 +122,11 @@ async function startSshServer(home: string) {
 		port,
 		fingerprint: hostKeyFingerprint(blob),
 		blob,
+		// Keep one command pending without running platform-specific shell commands.
+		holdNextCommand: () =>
+			new Promise<void>((resolve) => {
+				onHeldCommand = resolve;
+			}),
 		close: async () => {
 			await new Promise<void>((done) => server.close(() => done()));
 			await Promise.all(children);
@@ -232,12 +245,16 @@ describe("peer.sshAdd", () => {
 	});
 
 	it("can be cancelled", async () => {
-		const pending = aDesktop.request("peer.sshAdd", params({ hostKeyFingerprint: ssh.fingerprint }), {
-			timeoutMs: 60_000,
-		});
-		await new Promise((done) => setTimeout(done, 50));
+		const commandStarted = ssh.holdNextCommand();
+		const pending = aDesktop
+			.request("peer.sshAdd", params({ hostKeyFingerprint: ssh.fingerprint }), { timeoutMs: 60_000 })
+			.then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+		await commandStarted;
 		expect(await aDesktop.request("peer.sshCancel", { operationId: "op-1" })).toEqual({ cancelled: true });
-		await expectFailure(pending, "CANCELLED");
+		expect(await pending).toMatchObject({ data: { reason: "CANCELLED" } });
 		expect(await aDesktop.request("peer.sshCancel", { operationId: "op-1" })).toEqual({ cancelled: false });
 	});
 });
