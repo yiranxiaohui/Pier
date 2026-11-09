@@ -22,9 +22,11 @@ import {
 	claudeFamilyModel,
 	claudeModels,
 	claudeRelayChanges,
+	claudeRelayRemovalChanges,
 	claudeRelayState,
 	codexModels,
 	codexRelayChanges,
+	codexRelayRemovalChanges,
 	codexRelayState,
 	type RelayGroup,
 	relayModels,
@@ -44,7 +46,7 @@ import {
 	IconPlus,
 	IconPower,
 	IconRefresh,
-	IconX,
+	IconTrash,
 } from "./Icons.tsx";
 import { Select } from "./Select.tsx";
 import { SettingRow, SettingsCard, SettingsGroup } from "./SettingsUi.tsx";
@@ -989,6 +991,7 @@ function GroupRow({
 	fresh,
 	onTokens,
 	onRemove,
+	removeDisabled,
 }: {
 	entry: GroupEntry;
 	selectionKey: string;
@@ -1000,13 +1003,16 @@ function GroupRow({
 	/** Just added: open the choice of where to configure it. */
 	fresh?: boolean;
 	onTokens: (tokens: NewApiToken[]) => void;
-	/** Drop a group that is not configured anywhere. */
-	onRemove?: (() => void) | undefined;
+	/** Remove the group and the agent configurations connected to it. */
+	onRemove?: ((group: RelayGroup) => Promise<void>) | undefined;
+	removeDisabled?: boolean;
 }) {
 	const store = useStore();
 	const usable = entry.tokens.filter((t) => t.status === 1);
 	const [choice, setChoice] = useState(() => readAccountTokenChoice(selectionKey));
 	const [open, setOpen] = useState(fresh === true);
+	const [confirmRemove, setConfirmRemove] = useState(false);
+	const removal = useAction();
 	// Models read from a token, for Claude Code and Codex while the group is not added to pi.
 	const [fetched, setFetched] = useState<RelayGroup["models"] | undefined>();
 	const [fetchError, setFetchError] = useState<string | undefined>();
@@ -1104,13 +1110,49 @@ function GroupRow({
 						{agents ? "配置到 pi / Claude Code / Codex" : "配置到 pi"}
 						<IconChevronDown size={12} className="account-agents-chevron" />
 					</button>
-					{!configured && onRemove ? (
-						<button type="button" className="ghost icon" title="不添加这个分组" onClick={onRemove}>
-							<IconX size={13} />
+					{onRemove ? (
+						<button
+							type="button"
+							className={[confirmRemove ? "danger" : "ghost", "icon"].join(" ")}
+							disabled={removal.busy || removeDisabled}
+							aria-label={confirmRemove ? "确认移除分组" : "移除分组"}
+							title={
+								removeDisabled
+									? "正在读取配置…"
+									: confirmRemove
+										? "再次点击确认移除"
+										: configured
+											? "移除此分组，并清除它在 pi、Claude Code 和 Codex 中的接入配置"
+											: "从列表移除此分组"
+							}
+							onBlur={() => setConfirmRemove(false)}
+							onClick={() => {
+								if (!confirmRemove) {
+									setConfirmRemove(true);
+									return;
+								}
+								void removal.run(async () => {
+									await onRemove(targets.relay);
+									setConfirmRemove(false);
+								});
+							}}
+						>
+							{removal.busy ? (
+								<IconLoader size={13} className="spin" />
+							) : confirmRemove ? (
+								<IconCheck size={13} />
+							) : (
+								<IconTrash size={13} />
+							)}
 						</button>
 					) : null}
 				</div>
 			</div>
+			{removal.error ? (
+				<div className="account-group-error">
+					<ErrorBanner error={removal.error} />
+				</div>
+			) : null}
 			{open ? (
 				<div className="account-agents">
 					<PiRelayRow entry={entry} overview={overview} provider={provider} takeToken={takeToken} />
@@ -1205,7 +1247,8 @@ function Dashboard({
 	const providers = useAppState((s) => s.providers);
 	const target = useSettingsTarget();
 	const [confirm, setConfirm] = useState(false);
-	const agents = useAgentConfigs(!target.hostInfo || hostSpeaksMinor(target.hostInfo, AGENT_RELAY_MINOR));
+	const agentsSupported = !target.hostInfo || hostSpeaksMinor(target.hostInfo, AGENT_RELAY_MINOR);
+	const agents = useAgentConfigs(agentsSupported);
 	const { site, user } = overview;
 	const entries = useMemo(() => groupEntries(overview), [overview]);
 	const byId = new Map(providers?.providers.map((p) => [p.id, p]));
@@ -1370,7 +1413,29 @@ function Dashboard({
 								agents={agents}
 								fresh={fresh.includes(entry.name)}
 								onTokens={onTokens}
-								onRemove={() => setPicked((list) => list.filter((name) => name !== entry.name))}
+								removeDisabled={providers === undefined || (agentsSupported && agents === undefined)}
+								onRemove={async (configuredRelay) => {
+									let relay = configuredRelay;
+									const claudeSettings = agents?.claude ? userSettings(agents.claude) : undefined;
+									const claudeSite = agents?.claude ? claudeRelayState(claudeSettings, relay).site : false;
+									if (!relay.models.length && claudeSite) {
+										const token = entry.tokens.find((item) => item.status === 1);
+										if (token) {
+											const used = await store.account("account.useToken", { tokenId: token.id });
+											relay = { ...relay, models: tokenRelayModels(used.models) };
+										}
+									}
+									const claudeChanges = agents?.claude ? claudeRelayRemovalChanges(relay, claudeSettings) : [];
+									if (claudeSite && claudeRelayState(claudeSettings, relay).group && !claudeChanges.length) {
+										throw new Error("无法确认 Claude Code 配置属于这个分组，请先在 Agent 配置中检查模型列表");
+									}
+									const codexChanges = agents?.codex ? codexRelayRemovalChanges(relay, userSettings(agents.codex)) : [];
+									if (claudeChanges.length) await store.updateAgentUserConfig("claude-code", claudeChanges);
+									if (codexChanges.length) await store.updateAgentUserConfig("codex", codexChanges);
+									const provider = providerOf(entry);
+									if (provider?.custom) await store.removeAccountGroupProvider(provider);
+									setPicked((list) => list.filter((name) => name !== entry.name));
+								}}
 							/>
 						);
 					})}
