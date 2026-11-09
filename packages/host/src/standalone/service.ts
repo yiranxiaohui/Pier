@@ -18,7 +18,20 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import { downloadStandaloneRelease, latestStandaloneRelease } from "./update-release.ts";
+import { fileSha256, parseChecksums, RELEASE_REPOSITORY, singleFileNames } from "../peers/ssh/release.ts";
+import {
+	BUILTIN_ROUTES,
+	chooseRoute,
+	downloadWithRoutes,
+	fetchChecksums,
+	type Output,
+	parseMirror,
+	type Route,
+	rankRoutes,
+	routeOrder,
+	routeWhere,
+	terminalKeys,
+} from "./update-download.ts";
 
 export interface Installation {
 	format: 1;
@@ -355,22 +368,146 @@ export function serviceCommand(config: Installation, command: string): void {
 	}
 }
 
+const RELEASES = `https://github.com/${RELEASE_REPOSITORY}/releases`;
+
+function terminalOutput(): Output {
+	const tty = process.stderr.isTTY;
+	let shown = false;
+	const clear = () => {
+		if (shown) process.stderr.write("\r\x1b[K");
+		shown = false;
+	};
+	return {
+		say(text) {
+			clear();
+			process.stderr.write(`${text}\n`);
+		},
+		warn(text) {
+			clear();
+			process.stderr.write(`${tty ? "\x1b[33mwarning:\x1b[0m" : "warning:"} ${text}\n`);
+		},
+		...(tty
+			? {
+					progress(text: string) {
+						process.stderr.write(`\r\x1b[K${text}`);
+						shown = true;
+					},
+				}
+			: {}),
+	};
+}
+
+/** A same-user cache directory rather than /tmp, which is often a small tmpfs or noexec. */
+function stagingDirectory(): string {
+	const configured = process.env.XDG_CACHE_HOME;
+	const cache = configured && isAbsolute(configured) ? configured : join(homedir(), ".cache");
+	try {
+		mkdirSync(cache, { recursive: true, mode: 0o700 });
+		return mkdtempSync(join(cache, "pier-update-"));
+	} catch {
+		return mkdtempSync(join(tmpdir(), "pier-update-"));
+	}
+}
+
 export async function updateHost(config: Installation, args: string[]): Promise<void> {
 	requirePrivilege(config);
-	const { values } = parseArgs({ args, options: { version: { type: "string" }, "no-start": { type: "boolean" } } });
-	const tag = values.version ?? (await latestStandaloneRelease()).tag;
-	const directory = mkdtempSync(join(tmpdir(), "pier-host-update-"));
+	const { values } = parseArgs({
+		args,
+		options: {
+			version: { type: "string" },
+			mirror: { type: "string" },
+			force: { type: "boolean" },
+			"no-start": { type: "boolean" },
+		},
+	});
+	const mirror = values.mirror ?? process.env.PIER_MIRROR ?? "";
+	// Without --mirror, a terminal asks for the route; `auto` and no terminal measure them.
+	let pinned = parseMirror(mirror);
+	const askRoute = mirror.trim() === "";
+	let version = values.version ?? process.env.PIER_VERSION ?? "latest";
+	if (version !== "latest" && !version.startsWith("v")) version = `v${version}`;
+	if (version !== "latest" && !/^v\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version))
+		throw new Error(`Invalid version: ${version} (expected vX.Y.Z)`);
+	const output = terminalOutput();
+	const release = version === "latest" ? "the latest release" : version;
+	output.say(`Checking ${release} of Pier${pinned ? ` (route: ${pinned.name})` : ""}…`);
+	const sumsUrl =
+		version === "latest"
+			? `${RELEASES}/latest/download/SHA256SUMS.txt`
+			: `${RELEASES}/download/${version}/SHA256SUMS.txt`;
+	const sums = await fetchChecksums(sumsUrl, pinned, output, release);
+	const checksums = parseChecksums(sums.text);
+	let tag = version;
+	if (version === "latest") {
+		const suffix = `-linux-${process.arch}`;
+		const tags = [...checksums.keys()]
+			.filter((file) => file.endsWith(suffix))
+			.map((file) => /^pier(?:-host)?-(v\d+\.\d+\.\d+(?:-[\w.-]+)?)$/.exec(file.slice(0, -suffix.length))?.[1])
+			.filter((found): found is string => !!found);
+		if (tags.length === 0 || new Set(tags).size !== 1)
+			throw new Error(`The latest release has no single-file Pier for linux-${process.arch}`);
+		tag = tags[0] as string;
+	}
+	const name = singleFileNames(tag, process.arch).find((candidate) => checksums.has(candidate));
+	const checksum = name ? checksums.get(name) : undefined;
+	if (!name || !checksum)
+		throw new Error(`Pier ${tag} has no single file for linux-${process.arch}; choose another version`);
+	const target = tag.slice(1);
+	if (!values.force && config.version === target) {
+		output.say(`Pier ${tag} is already installed. Check it with: pier status (--force reinstalls)`);
+		return;
+	}
+
+	const assetUrl = `${RELEASES}/download/${tag}/${name}`;
+	const directory = stagingDirectory();
+	const keys = terminalKeys();
 	try {
 		const binary = join(directory, "pier");
-		await downloadStandaloneRelease(tag, binary);
+		const ask = keys.ask;
+		if (askRoute && ask) {
+			const suggested = BUILTIN_ROUTES[sums.from.id === "github" ? 0 : 1] as Route;
+			const choice = await chooseRoute(ask, suggested, true, output);
+			if (choice && choice !== "auto") pinned = choice;
+		}
+		let routes = routeOrder(pinned);
+		if (!pinned) routes = await rankRoutes(routes, assetUrl, sums.from.id === "github", output);
+		output.say(
+			`Updating Pier ${config.version} to ${target} (linux-${process.arch}) ${routeWhere(routes[0] as Route)}…`,
+		);
+		if (ask) output.say("  Press s to choose another route; the part already downloaded is kept.");
+		try {
+			keys.listen?.();
+			await downloadWithRoutes({
+				url: assetUrl,
+				file: binary,
+				routes,
+				pinned: !!pinned,
+				keys,
+				output,
+				asset: name,
+				...(ask
+					? {
+							choose: async (next: Route) => {
+								const choice = await chooseRoute(ask, next, false, output);
+								return choice === "auto" ? undefined : choice;
+							},
+						}
+					: {}),
+			});
+		} finally {
+			keys.close();
+		}
+		output.say(`Downloaded ${name}; verifying…`);
+		if ((await fileSha256(binary)) !== checksum) throw new Error("Release checksum mismatch; installation was kept");
+		chmodSync(binary, 0o700);
+		const check = spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 30_000 });
+		if (check.status !== 0 || ![`pier ${target}`, `pier-host ${target}`].includes(check.stdout.trim()))
+			throw new Error(
+				`Downloaded Host version check failed${check.error ? ` (${check.error.message}); if ${directory} is mounted noexec, set XDG_CACHE_HOME to another directory` : ""}`,
+			);
 		process.env.PIER_HOST_PREFIX = config.prefix;
 		process.env.XDG_CONFIG_HOME = config.configHome;
-		await installHost(
-			binary,
-			[`--${config.scope}`, ...(values["no-start"] ? ["--no-start"] : [])],
-			tag.slice(1),
-			config,
-		);
+		await installHost(binary, [`--${config.scope}`, ...(values["no-start"] ? ["--no-start"] : [])], target, config);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

@@ -13,6 +13,7 @@ import {
 	type ShellMethod,
 	StdioShell,
 } from "../src/shell.ts";
+import { standaloneExecutable } from "../src/standalone/self.ts";
 import type { Installation } from "../src/standalone/service.ts";
 import { StandaloneUpdater } from "../src/standalone/updater.ts";
 import { Recorder, startTestHost, type TestHost, TOKEN } from "./helpers.ts";
@@ -151,6 +152,25 @@ describe("update.* (the desktop app's updater through the host)", () => {
 		});
 		await expectCode(client.request("update.check"), "UNSUPPORTED");
 		await expectCode(client.request("update.install"), "UNSUPPORTED");
+	});
+
+	it("tells paired computers how the single-file Pier updates without a desktop app", async () => {
+		standaloneExecutable.path = "/opt/pier/current/pier";
+		standaloneExecutable.installed = true;
+		try {
+			const t = await startTestHost();
+			hosts.push(t);
+			const client = await t.connect();
+			expect(await client.request("update.status")).toMatchObject({
+				state: "unsupported",
+				error: expect.stringContaining("pier update"),
+			});
+			standaloneExecutable.installed = false;
+			expect((await client.request("update.status")).error).toContain("重新运行安装脚本");
+		} finally {
+			delete standaloneExecutable.path;
+			delete standaloneExecutable.installed;
+		}
 	});
 
 	it("relays the app's status, checks and installs", async () => {

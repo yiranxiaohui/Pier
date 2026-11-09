@@ -222,7 +222,11 @@ function peerUpdateText(
 	const pendingVersion = status.version ? `v${status.version}` : "新版本";
 	switch (status.state) {
 		case "unsupported":
-			return { text: status.error ?? "那台电脑运行的是开发版本或未经打包的构建，无法自动更新" };
+			return {
+				text:
+					status.error ??
+					"那台电脑的 Pier 不能在这里远程更新（单文件版、开发版本或未经打包的构建）。单文件版请在那台电脑上运行 pier update，下载慢时可加 --mirror ghfast 选择线路",
+			};
 		case "idle":
 			return { text: `Pier v${status.currentVersion}` };
 		case "checking":

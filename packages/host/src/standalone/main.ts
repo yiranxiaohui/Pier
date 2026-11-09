@@ -29,7 +29,7 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 	}
 	if (command === "--help" || command === "-h" || command === "help") {
 		console.log(
-			`pier ${version}\n\nUsage: pier                         Open the desktop, or the CLI in a terminal\n       pier desktop                 Open the graphical interface\n       pier run [host options]      Run without a graphical interface\n       pier cli [CLI options]       Attach the CLI to a running Host\n       pier install [--user|--system] [--no-start]\n       pier {start|stop|restart|status|logs}\n       pier update [--version vX.Y.Z] [--no-start]\n       pier uninstall [--purge]\n       pier completion [bash]       Print shell completion: source <(pier completion bash)\n\nRun directly from this one executable. No installation or shell script is required.\nIn a terminal, pier opens the CLI on the running Host, or starts one until you quit.\ninstall adds a systemd service and pier command; uninstall keeps data by default.\nUse run --help for Host options, or cli --help for pairing commands.`,
+			`pier ${version}\n\nUsage: pier                         Open the desktop, or the CLI in a terminal\n       pier desktop                 Open the graphical interface\n       pier run [host options]      Run without a graphical interface\n       pier cli [CLI options]       Attach the CLI to a running Host\n       pier install [--user|--system] [--no-start]\n       pier {start|stop|restart|status|logs}\n       pier update [--version vX.Y.Z] [--mirror ROUTE] [--force] [--no-start]\n       pier uninstall [--purge]\n       pier completion [bash]       Print shell completion: source <(pier completion bash)\n\nRun directly from this one executable. No installation or shell script is required.\nIn a terminal, pier opens the CLI on the running Host, or starts one until you quit.\ninstall adds a systemd service and pier command; uninstall keeps data by default.\nupdate asks for the download route in a terminal; --mirror github|ghfast|gh-proxy|ghproxy or\nan https:// prefix skips the menu, --mirror auto measures the routes. Press s to change it.\nUse run --help for Host options, or cli --help for pairing commands.`,
 		);
 		return;
 	}
@@ -81,6 +81,7 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 	process.env.PI_PACKAGE_DIR = prepareResources(archive, stateDir);
 	standaloneExecutable.path = process.execPath;
 	standaloneExecutable.version = version;
+	standaloneExecutable.installed = installed !== undefined;
 	await import("../main.ts");
 }
 

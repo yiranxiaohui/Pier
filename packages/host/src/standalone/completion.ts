@@ -41,7 +41,7 @@ export const PIER_OPTIONS: Readonly<Record<string, readonly string[]>> = {
 	],
 	cli: ["--url", "--token", "--pier-dir", "--help"],
 	install: ["--user", "--system", "--no-start"],
-	update: ["--version", "--no-start"],
+	update: ["--version", "--mirror", "--force", "--no-start"],
 	uninstall: ["--purge"],
 };
 
@@ -59,6 +59,9 @@ const VALUE_OPTIONS = [
 ];
 
 export const COMPLETION_SHELLS = ["bash"] as const;
+
+/** `pier update --mirror` routes (see `update-download.ts`). */
+const MIRROR_ROUTES = ["auto", "github", "ghfast", "gh-proxy", "ghproxy"];
 
 function bash(): string {
 	const cases = Object.entries(PIER_OPTIONS)
@@ -83,6 +86,9 @@ _pier() {
 		compopt -o filenames 2>/dev/null
 		local IFS=$'\\n'
 		COMPREPLY=($(compgen -d -- "$cur"))
+		return ;;
+	--mirror)
+		COMPREPLY=($(compgen -W "${MIRROR_ROUTES.join(" ")}" -- "$cur"))
 		return ;;
 	${VALUE_OPTIONS.join("|")})
 		COMPREPLY=()
