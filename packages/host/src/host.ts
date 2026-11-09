@@ -85,6 +85,7 @@ import { SessionArchiveStore } from "./session-archive.ts";
 import { SessionPool } from "./session-pool.ts";
 import type { AppShell, ShellMethod } from "./shell.ts";
 import { SpeechService } from "./speech.ts";
+import { standaloneExecutable } from "./standalone/self.ts";
 import { HostTerminals } from "./terminals.ts";
 import {
 	authorizeWorkspaceFilePreview,
@@ -102,6 +103,17 @@ import { transferWorkspacePath } from "./workspace-path-transfers.ts";
 import { WorkspaceUploads } from "./workspace-uploads.ts";
 
 export const PIER_HOST_VERSION = "0.2.61";
+
+/**
+ * How the single-file Pier running without its desktop (`pier run` or the installed service)
+ * is updated, for the "unsupported" update status that paired computers show.
+ */
+export function standaloneUpdateHint(): string | undefined {
+	if (!standaloneExecutable.path) return undefined;
+	return standaloneExecutable.installed
+		? "该电脑运行的是 Pier 单文件版服务，不能在这里远程更新。请在该电脑上运行 pier update；下载慢或卡住时可加 --mirror ghfast（或 gh-proxy、ghproxy）选择下载线路"
+		: "该电脑运行的是 Pier 单文件版（未安装为服务），不能在这里远程更新。请在该电脑上重新运行安装脚本，或下载新版单文件替换";
+}
 
 /** How Pier introduces itself to NewAPI sites (their login sessions list shows the system). */
 function pierUserAgent(): string {
@@ -702,14 +714,16 @@ export class PierHost implements RequestHandler {
 
 	/** The desktop app's updater status; `unsupported` without a desktop app that reports one. */
 	updateStatus(): AppUpdateStatus {
-		return (
-			this.shell?.updateStatus ?? {
-				state: "unsupported",
-				currentVersion: PIER_HOST_VERSION,
-				autoCheck: false,
-				downloaded: 0,
-			}
-		);
+		if (this.shell?.updateStatus) return this.shell.updateStatus;
+		// Without any desktop app, say how this single-file Pier updates instead.
+		const error = this.shell ? undefined : standaloneUpdateHint();
+		return {
+			state: "unsupported",
+			currentVersion: PIER_HOST_VERSION,
+			autoCheck: false,
+			downloaded: 0,
+			...(error ? { error } : {}),
+		};
 	}
 
 	private async updateRequest(method: ShellMethod): Promise<AppUpdateStatus> {

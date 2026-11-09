@@ -79,9 +79,13 @@ echo 'source <(pier completion bash)' >> ~/.bashrc
 ```bash
 pier update --version v0.2.60
 pier update --no-start
+pier update --mirror ghfast    # 跳过选线菜单，固定经 GHFast 下载；也可用 github、gh-proxy、ghproxy、auto 或自定义 https:// 前缀
+pier update --force            # 已是该版本时也重新安装
 ```
 
-内置更新命令下载对应架构的单文件，并校验 Release 的 SHA-256 和版本后替换，启动失败时恢复上一版。可用 `PIER_PREFIX` 自定义安装前缀、`PIER_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。`PIER_HOST_PREFIX` / `PIER_HOST_STATE_DIR` 继续兼容。直接运行时无需 systemd；不安装的便携副本停机后删除该文件即可。服务模式支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端需要桌面模式。单文件版在“关于与更新”提示通过 `pier update`（已安装）或下载新文件替换（便携运行）更新整个程序；独立的桌面安装包仍支持应用内更新。切换到桌面模式前先用 `pier stop` 停止同一状态目录的后台服务。
+`pier update` 的下载线路与安装脚本一致。在终端中运行且没有指定 `--mirror` 时，先列出 GitHub、GHFast、GH-Proxy、GHProxy 供输入编号选择（直接回车用默认项：GitHub 能连通时为 GitHub，否则为 GHFast），也可以粘贴自定义的 `https://` 加速前缀，或输入 `a` 改用自动选线；选好的线路固定使用，失败时在这条线路上重试。下载中按 `s` 重新选择线路（回车为下一条），并从已下载的位置接着下载；Ctrl+C 取消，不改动已安装的版本。`--mirror github|ghfast|gh-proxy|ghproxy|<https 前缀>`（或环境变量 `PIER_MIRROR`）跳过菜单、固定线路；`--mirror auto` 或没有终端时自动选线：GitHub 直连足够快（2 MB/s 以上）时直接使用，否则同时测速各条加速线路，从最快的开始，某条线路断开、20 秒内没有响应或连续 20 秒低于 100 KB/s 时自动换下一条并接着下载。校验和始终优先直接从 GitHub 获取，GitHub 无法访问时才经加速线路获取并给出提示；终端中显示下载进度、速度和当前线路。已是目标版本时直接退出（`--force` 重新安装）。下载暂存在 `~/.cache`（或 `XDG_CACHE_HOME`）中，完成后删除。
+
+内置更新命令下载对应架构的单文件，并校验 Release 的 SHA-256 和版本后替换，启动失败时恢复上一版。可用 `PIER_PREFIX` 自定义安装前缀、`PIER_DIR` 自定义 Pier 状态目录；更新和卸载会沿用安装时保存的路径。`PIER_HOST_PREFIX` / `PIER_HOST_STATE_DIR` 继续兼容。直接运行时无需 systemd；不安装的便携副本停机后删除该文件即可。服务模式支持 Agent 会话、工作区、文件 / Git、定时任务和远程访问；交互终端需要桌面模式。单文件版在“关于与更新”提示通过 `pier update`（已安装）或下载新文件替换（便携运行）更新整个程序；以服务模式运行时，其他电脑的“关于与更新”同样显示这一提示，而不是“开发版本”；独立的桌面安装包仍支持应用内更新。切换到桌面模式前先用 `pier stop` 停止同一状态目录的后台服务。
 
 Linux 单文件统一以 `pier-v<版本>-linux-<架构>` 发布。v0.2.57 是最后一个附带旧名 `pier-host-*` 兼容单文件和 `.tar.gz` 压缩包的版本。v0.2.56 及更早的单文件安装，先运行一次 `pier-host update --version v0.2.57` 过渡，之后的 `update` 会自动下载新名称的单文件；升级时保留原安装目录、`pier-host.service` 和配置，运行新版 `install` 或再次 `update` 后补充 `pier` 命令。通过脚本安装的压缩包版本最多更新到 v0.2.57；改用单文件时，先用旧 `pier-host uninstall` 卸载（默认保留数据），再执行新单文件的 `install`，`pier-host update` 遇到新版本时会给出具体命令。
 

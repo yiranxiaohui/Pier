@@ -78,6 +78,8 @@ describe("pier completion", () => {
 			`${root}/state/beta dir`,
 		]);
 		expect(complete("pier", "update", "--version", "")).toEqual([]);
+		expect(complete("pier", "update", "--mirror", "gh")).toEqual(["ghfast", "gh-proxy", "ghproxy"]);
+		expect(complete("pier", "update", "--m")).toEqual(["--mirror"]);
 		expect(complete("pier", "run", "--port", "")).toEqual([]);
 	});
 });

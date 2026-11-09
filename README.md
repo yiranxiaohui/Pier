@@ -121,7 +121,7 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/yiranxiaohui/Pi
 - 普通账号安装为 systemd 用户服务（程序在 `~/.local/share/pier`，命令为 `~/.local/bin/pier`），并在无需密码时开启 linger，让服务在退出 SSH 后继续运行、开机自动启动；用 `curl … | sudo bash` 以 root 执行则安装为系统服务（`/opt/pier`、`/usr/local/bin/pier`）。
 - 有图形桌面时默认只安装 `pier` 命令（运行 `pier` 打开桌面界面），不安装后台服务，因为桌面窗口和后台服务不能同时使用同一个状态目录；需要服务时加 `--service`。已经安装过的电脑沿用原来的方式。
 - 没有 systemd 管理器（例如容器中）时只安装、不启动，之后用 `pier run` 运行。
-- 再次执行即更新到最新版，已是最新版时直接退出；安装为服务后也可以用 `pier update` 更新。Pier 状态（`~/.pier`）、配对和 Agent 数据保持不变。
+- 再次执行即更新到最新版，已是最新版时直接退出；安装为服务后也可以用 `pier update` 更新，它同样在终端中让你选择下载线路、下载中按 `s` 重新选择，也支持 `--mirror` 指定线路。Pier 状态（`~/.pier`）、配对和 Agent 数据保持不变。
 
 #### 下载线路
 
@@ -157,7 +157,7 @@ Linux 单文件安装后的常用命令（Windows / macOS 桌面安装不提供�
 ```bash
 pier                  # 打开 CLI：/ws add <目录> 添加工作区，/new 新建会话，/help 查看全部命令
 pier status           # 服务状态；pier logs 查看日志，pier start / stop / restart 控制服务
-pier update           # 更新到最新正式版（--version vX.Y.Z 指定版本）
+pier update           # 更新到最新正式版（--version vX.Y.Z 指定版本，--mirror ghfast 等选择下载线路）
 pier uninstall        # 卸载服务和程序，保留 ~/.pier（--purge 一并删除 Pier 状态）
 ```
 
