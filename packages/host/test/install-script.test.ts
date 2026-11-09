@@ -534,28 +534,96 @@ describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("one-l
 		expect(f.log("curl.log")).not.toContain(`probe ${asset("v0.2.58")}`);
 	});
 
+	/** Runs the installer in a terminal; `steps` are sent in turn, each once `waitFor` appears `count` times. */
+	async function terminal(
+		f: ReturnType<typeof fixture>,
+		extra: NodeJS.ProcessEnv,
+		steps: { waitFor: string; count?: number; send: string }[],
+		args = "--portable",
+	) {
+		const child = spawn("script", ["-qec", `bash ${installer} ${args}`, "/dev/null"], {
+			env: { ...f.env, SHELL: "/bin/bash", ...extra },
+		});
+		children.push(child);
+		let output = "";
+		let next = 0;
+		const timer = setInterval(() => {
+			const step = steps[next];
+			if (step && output.split(step.waitFor).length - 1 >= (step.count ?? 1)) {
+				next++;
+				child.stdin.write(step.send);
+			}
+		}, 200);
+		child.stdout.on("data", (data) => {
+			output += data;
+		});
+		const code = await new Promise((resolve) => child.on("close", resolve));
+		clearInterval(timer);
+		return { code, output: output.replace(/\r/g, "") };
+	}
+
 	it.skipIf(!hasScript)(
-		"switches routes when s is pressed in the terminal",
+		"lets the terminal choose the route without measuring any",
 		async () => {
 			const f = fixture();
-			const child = spawn("script", ["-qec", `bash ${installer} --portable`, "/dev/null"], {
-				env: { ...f.env, SHELL: "/bin/bash", PIER_TEST_HANG: "github" },
-			});
-			children.push(child);
-			let output = "";
-			let presses = 0;
-			const press = setInterval(() => {
-				if (output.includes("Press s") && !output.includes("Switching to") && presses < 10) {
-					presses++;
-					child.stdin.write("s");
-				}
-			}, 300);
-			child.stdout.on("data", (data) => {
-				output += data;
-			});
-			const code = await new Promise((resolve) => child.on("close", resolve));
-			clearInterval(press);
+			const picked = await terminal(f, slowGitHub, [{ waitFor: "Route [", send: "3\n" }]);
+			expect(picked.code, picked.output).toBe(0);
+			expect(picked.output).toContain("Choose the download route:");
+			expect(picked.output).toMatch(/1\) GitHub +github\.com +\(default\)/);
+			expect(picked.output).toMatch(/3\) GH-Proxy +gh-proxy\.com/);
+			expect(picked.output).toContain("Downloading Pier v0.2.58 (linux-x64) through GH-Proxy");
+			expect(picked.output).not.toContain("Route speed");
+			expect(f.log("curl.log").split("\n")).toEqual([
+				`get ${latestSums}`,
+				`get https://gh-proxy.com/${asset("v0.2.58")}`,
+				"",
+			]);
+			rmSync(join(f.root, "curl.log"));
+			// An invalid answer asks again; a pasted prefix is a route as well.
+			const custom = await terminal(
+				f,
+				{ PIER_TEST_GITHUB_DOWN: "1" },
+				[
+					{ waitFor: "Route [", send: "9\n" },
+					{ waitFor: "Route [", count: 2, send: "https://mirror.example/sub/\n" },
+				],
+				"--portable --force",
+			);
+			expect(custom.code, custom.output).toBe(0);
+			// GitHub did not answer, so a mirror is suggested.
+			expect(custom.output).toMatch(/2\) GHFast +ghfast\.top +\(default\)/);
+			expect(custom.output).toContain("Enter 1-4, a, or an https:// prefix");
+			expect(custom.output).toContain("through https://mirror.example/sub/...");
+			expect(f.log("curl.log")).toContain(`get https://mirror.example/sub/${asset("v0.2.58")}`);
+		},
+		20_000,
+	);
+
+	it.skipIf(!hasScript)(
+		"measures the routes when the terminal asks for automatic",
+		async () => {
+			const f = fixture();
+			const result = await terminal(f, slowGitHub, [{ waitFor: "Route [", send: "a\n" }]);
+			expect(result.code, result.output).toBe(0);
+			expect(result.output).toContain("Route speed: GitHub 196 KB/s, GHFast 879 KB/s, GH-Proxy 2.9 MB/s");
+			expect(result.output).toContain("through GH-Proxy");
+		},
+		20_000,
+	);
+
+	it.skipIf(!hasScript)(
+		"chooses another route when s is pressed in the terminal",
+		async () => {
+			const f = fixture();
+			const { code, output } = await terminal(f, { PIER_TEST_HANG: "github" }, [
+				{ waitFor: "Route [", send: "\n" },
+				{ waitFor: "Press s", send: "s" },
+				{ waitFor: "Route [", count: 2, send: "\n" },
+			]);
 			expect(code, output).toBe(0);
+			expect(output).toContain("from GitHub...");
+			expect(output).toContain("Route [Enter = GHFast]");
+			expect(output.split("a) Automatic")).toHaveLength(2);
 			expect(output).toContain("Switching to GHFast...");
 			expect(output).toContain("Installed Pier v0.2.58");
 			expect(f.log("curl.log")).toContain(`get https://ghfast.top/${asset("v0.2.58")}`);

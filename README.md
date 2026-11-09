@@ -105,7 +105,7 @@ ARM64 将文件名中的 `linux-x64` 换成 `linux-arm64`。AppImage 需要 FUSE
 curl -fsSL https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.sh | bash
 ```
 
-国内网络连不上 `raw.githubusercontent.com` 时，改用镜像获取脚本（任选一条；脚本内容与上面完全相同，安装文件仍按[下载线路](#下载线路)自动选线并校验）：
+国内网络连不上 `raw.githubusercontent.com` 时，改用镜像获取脚本（任选一条；脚本内容与上面完全相同，安装文件仍可按[下载线路](#下载线路)选择线路并校验）：
 
 ```bash
 # GHFast
@@ -127,9 +127,10 @@ curl -fsSL https://ghproxy.net/https://raw.githubusercontent.com/yiranxiaohui/Pi
 
 Linux / macOS 脚本的安装文件可以经 GitHub 直连或 GHFast（`ghfast.top`）、GH-Proxy（`gh-proxy.com`）、GHProxy（`ghproxy.net`）加速线路下载：
 
-- **自动选线（默认）**：GitHub 直连足够快（2 MB/s 以上）时直接使用；否则同时测速各条加速线路，从最快的开始下载。某条线路断开或连续 20 秒低于 100 KB/s 时，自动换到下一条线路，并且从已下载的位置接着下载。只有 wget 时不测速，依次尝试 GitHub 与各条加速线路。
-- **手动切换**：在终端中下载时按 `s`，立即换到下一条线路，同样接着已下载的部分继续。
-- **指定线路**：`--mirror ghfast`（或 `github`、`gh-proxy`、`ghproxy`、自定义的 `https://` 加速前缀）固定从这条线路下载，失败时在这条线路上重试，不会自动换线；按 `s` 仍可手动切换。
+- **手动选线（终端中默认）**：在终端中运行且没有指定 `--mirror` 时，脚本不再测速，而是列出 GitHub、GHFast、GH-Proxy、GHProxy 让你输入编号选择（直接回车用默认项：GitHub 能连通时为 GitHub，否则为 GHFast），也可以粘贴自定义的 `https://` 加速前缀，或输入 `a` 改用自动选线。选好的线路固定使用，失败时在这条线路上重试。
+- **下载中换线**：在终端中下载时按 `s`，重新列出线路供选择（回车为下一条），并从已下载的位置接着下载。
+- **自动选线**：`--mirror auto`，或没有终端（例如 CI、`ssh host 'curl … | bash'`）时使用。GitHub 直连足够快（2 MB/s 以上）时直接使用；否则同时测速各条加速线路，从最快的开始下载。某条线路断开或连续 20 秒低于 100 KB/s 时，自动换到下一条线路，并且从已下载的位置接着下载。只有 wget 时不测速，依次尝试 GitHub 与各条加速线路。
+- **指定线路**：`--mirror ghfast`（或 `github`、`gh-proxy`、`ghproxy`、自定义的 `https://` 加速前缀）跳过选择菜单，固定从这条线路下载，失败时在这条线路上重试，不会自动换线；按 `s` 仍可手动换线。
 
 无论走哪条线路，校验和都优先直接从 GitHub 获取；GitHub 无法访问时才从加速线路获取，并给出提示。经镜像获取的脚本同样可以带参数，例如固定走 GHFast 下载：
 
@@ -146,7 +147,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 | `--service` / `--portable` | 仅 Linux：安装后台服务和 `pier` 命令 / 只安装 `pier` 命令 |
 | `--user` / `--system` | 仅 Linux：服务范围，默认普通账号为用户服务、root 为系统服务 |
 | `--no-start` | 仅 Linux：安装服务但不启动 |
-| `--mirror <线路>` | `auto`（默认，自动选线）、`github`、`ghfast`、`gh-proxy`、`ghproxy` 或自定义的 `https://` 加速前缀 |
+| `--mirror <线路>` | 不指定时在终端中手动选择；`auto`（自动测速选线，无终端时的默认）、`github`、`ghfast`、`gh-proxy`、`ghproxy` 或自定义的 `https://` 加速前缀 |
 | `--force` | 已是该版本时也重新安装 |
 
 参数写在 `bash -s --` 之后。也可以用环境变量 `PIER_VERSION`、`PIER_MIRROR` 代替 `--version`、`--mirror`，用 `PIER_PREFIX`、`PIER_DIR` 指定安装前缀和 Pier 状态目录。

@@ -12,8 +12,9 @@
 # macOS: downloads the DMG, verifies SHA256SUMS.txt, bundle identity/version and ad-hoc
 # signature, then installs Pier.app. Rerun to update; quit the desktop app first.
 # Pier state (~/.pier), pairing, Agent data and project files are never modified or removed.
-# Downloads pick the fastest route (GitHub or a mirror) and switch routes, keeping the part
-# already downloaded, when one fails, is too slow, or s is pressed.
+# In a terminal, the download route (GitHub or a mirror) is chosen from a menu, and pressing
+# s during the download picks another one, keeping the part already downloaded. Without a
+# terminal, or with --mirror auto, the fastest route is measured and routes switch by themselves.
 # Everything runs inside main, so a partially downloaded script does nothing.
 set -euo pipefail
 
@@ -58,14 +59,15 @@ Options:
                      (the default on a graphical desktop)
   --user | --system  Service scope (default: user for ordinary accounts, system for root)
   --no-start         Install the service without starting it
-  --mirror ROUTE     Download route. auto (the default) measures GitHub and the mirrors,
-                     uses the fastest and switches when one fails or is too slow; github,
-                     ghfast, gh-proxy, ghproxy or another https:// mirror prefix starts
-                     with that route and stays on it
+  --mirror ROUTE     Download route: github, ghfast, gh-proxy, ghproxy or another https://
+                     mirror prefix stays on that route; auto measures GitHub and the
+                     mirrors, uses the fastest and switches when one fails or is too slow.
+                     Without --mirror a terminal shows a menu to choose the route, and
+                     anything else uses auto
   --force            Reinstall even when this version is already installed
   -h, --help         Show this help
 
-While downloading in a terminal, press s to switch to the next route; the part already
+While downloading in a terminal, press s to choose another route; the part already
 downloaded is kept. Checksums always come from GitHub when it answers.
 Rerunning the installer updates Pier. An installed service also updates with: pier update
 Environment: PIER_VERSION and PIER_MIRROR preset --version and --mirror; PIER_PREFIX and
@@ -125,6 +127,66 @@ route_name() {
     ghproxy) printf 'GHProxy' ;;
     *) printf '%s' "$1" ;;
   esac
+}
+
+route_host() {
+  case "$1" in
+    github) printf 'github.com' ;;
+    ghfast|gh-proxy|ghproxy) route_url "$1" '' | awk '{ sub(/^https:\/\//, ""); sub(/\/$/, ""); print }' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# route_choice <value>: the route for --mirror or a menu answer, normalised; fails when invalid.
+route_choice() {
+  case "$1" in
+    github|ghfast|gh-proxy|ghproxy) printf '%s' "$1" ;;
+    *://*)
+      [[ "$1" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$ ]] || return 1
+      printf '%s/' "${1%"${1##*[!/]}"}" ;;
+    *) return 2 ;;
+  esac
+}
+
+# use_route <route>: download through <route> first; the others stay for retries in auto mode.
+use_route() {
+  local candidate
+  routes=("$1")
+  for candidate in "${BUILTIN_ROUTES[@]}"; do
+    [[ "$candidate" == "$1" ]] || routes+=("$candidate")
+  done
+}
+
+# choose_route <default route> <whether auto is offered>: ask on the terminal (fd 3) and set
+# choice to a route, or to auto. Fails when the terminal gives no answer.
+choose_route() {
+  local default=$1 offer_auto=$2 n=0 answer mark candidate result
+  local -a menu=("${BUILTIN_ROUTES[@]}")
+  [[ " ${BUILTIN_ROUTES[*]} " == *" $default "* ]] || menu+=("$default")
+  {
+    printf 'Choose the download route:\n'
+    for candidate in "${menu[@]}"; do
+      n=$(( n + 1 ))
+      mark=''
+      [[ "$candidate" != "$default" ]] || mark='  (default)'
+      printf '  %d) %-9s %s%s\n' "$n" "$(route_name "$candidate")" "$(route_host "$candidate")" "$mark"
+    done
+    if "$offer_auto"; then printf '  a) Automatic: measure the routes and use the fastest\n'; fi
+    printf '  Or paste another https:// mirror prefix.\n'
+  } >&2
+  while :; do
+    printf 'Route [Enter = %s]: ' "$(route_name "$default")" >&2
+    IFS= read -r answer <&3 || { printf '\n' >&2; return 1; }
+    answer=${answer//[[:space:]]/}
+    if [[ -z "$answer" ]]; then choice=$default; return 0; fi
+    if [[ "$answer" =~ ^[0-9]+$ ]] && (( 10#$answer >= 1 && 10#$answer <= ${#menu[@]} )); then
+      choice=${menu[10#$answer - 1]}; return 0
+    fi
+    if "$offer_auto" && [[ "$answer" == [aA] || "$answer" == auto ]]; then choice=auto; return 0; fi
+    if result=$(route_choice "$answer"); then choice=$result; return 0; fi
+    printf 'Enter 1-%d%s, or an https:// prefix without credentials, query or fragment.\n' \
+      "${#menu[@]}" "$("$offer_auto" && printf ', a')" >&2
+  done
 }
 
 route_where() {
@@ -370,22 +432,21 @@ main() {
     [[ "$version" == v* ]] || version=v$version
     [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || fail "Invalid version: $version (expected vX.Y.Z)"
   fi
-  # auto ranks every route; a chosen route comes first and the others stay for pressing s.
-  local pinned=''
+  # auto ranks every route; a chosen route stays first. Without --mirror a terminal asks.
+  local pinned='' ask=false choice=''
   local -a routes=()
   case "$mirror_option" in
-    ''|auto) ;;
-    github|ghfast|gh-proxy|ghproxy) pinned=$mirror_option ;;
-    *://*)
-      [[ "$mirror_option" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._~/-]*)?$ ]] \
-        || fail "Invalid mirror: $mirror_option (an https:// prefix without credentials, query or fragment)"
-      pinned=${mirror_option%"${mirror_option##*[!/]}"}/ ;;
-    *) fail "Unknown mirror: $mirror_option (use auto, github, ghfast, gh-proxy, ghproxy or an https:// prefix)" ;;
+    '') ask=true ;;
+    auto) ;;
+    *)
+      if pinned=$(route_choice "$mirror_option"); then :
+      elif [[ "$mirror_option" == *://* ]]; then
+        fail "Invalid mirror: $mirror_option (an https:// prefix without credentials, query or fragment)"
+      else
+        fail "Unknown mirror: $mirror_option (use auto, github, ghfast, gh-proxy, ghproxy or an https:// prefix)"
+      fi ;;
   esac
-  [[ -z "$pinned" ]] || routes=("$pinned")
-  for candidate in "${BUILTIN_ROUTES[@]}"; do
-    [[ "$candidate" == "$pinned" ]] || routes+=("$candidate")
-  done
+  use_route "${pinned:-github}"
 
   local installed_version=''
   if [[ "$platform" == darwin ]]; then
@@ -538,26 +599,37 @@ main() {
 
   local asset_url=$PIER_RELEASES/download/$tag/$asset github_ok=false
   [[ "$sums_from" != github ]] || github_ok=true
+  # A key press or the route menu needs the terminal, which is not stdin under curl | bash.
+  if [[ -t 2 ]] && { exec 3</dev/tty; } 2>/dev/null; then keys=true; fi
+  if "$ask" && "$keys"; then
+    local suggested=github
+    "$github_ok" || suggested=ghfast
+    if ! choose_route "$suggested" true; then keys=false; choice=auto; fi
+    if [[ "$choice" != auto ]]; then pinned=$choice; use_route "$pinned"; fi
+  fi
   if [[ -z "$pinned" ]]; then
     if [[ "$fetcher" == curl ]]; then rank_routes "$asset_url" "$github_ok"
     elif ! "$github_ok"; then routes=(ghfast gh-proxy ghproxy github); fi
   fi
-  # A key press switches routes; it needs the terminal, which is not stdin under curl | bash.
-  if [[ -t 2 ]] && { exec 3</dev/tty; } 2>/dev/null; then keys=true; fi
-
   local count=${#routes[@]} i=0 failures=0 limit=3 status reason floor current
   # auto tries each route quickly once, then again waiting out slow ones; a chosen route retries.
   [[ -n "$pinned" ]] || limit=$(( 2 * count ))
   if [[ -n "$installed_version" ]]; then say "Updating Pier $installed_version to $target ($platform-$arch) $(route_where "${routes[0]}")..."
   else say "Downloading Pier $tag ($platform-$arch) $(route_where "${routes[0]}")..."; fi
-  if "$keys"; then say '  Press s to switch to another route; the part already downloaded is kept.'; fi
+  if "$keys"; then say '  Press s to choose another route; the part already downloaded is kept.'; fi
   while :; do
     current=${routes[i]}
     floor=stall
     if [[ -z "$pinned" ]] && (( failures < count - 1 )); then floor=slow; fi
     if download "$(route_url "$current" "$asset_url")" "$stage/pier" "$floor"; then break; else status=$?; fi
     if (( status == 2 )); then
-      i=$(( (i + 1) % count ))
+      # The chosen route is then kept, with the retries of a route chosen by --mirror.
+      if choose_route "${routes[(i + 1) % count]}" false; then
+        pinned=$choice; use_route "$pinned"
+        count=${#routes[@]} i=0 failures=0 limit=3
+      else
+        keys=false i=$(( (i + 1) % count ))
+      fi
       say "Switching to $(route_name "${routes[i]}")$(kept_text "$stage/pier")..."
       continue
     fi
@@ -569,7 +641,7 @@ main() {
     failures=$(( failures + 1 ))
     if (( failures >= limit )); then
       if [[ -z "$pinned" ]]; then fail "Downloading $asset failed on every route; nothing was changed. Check the network and retry"; fi
-      fail "Downloading $asset $(route_where "$current") failed; nothing was changed. Retry, or leave out --mirror to try every route"
+      fail "Downloading $asset $(route_where "$current") failed; nothing was changed. Retry and choose another route, or use --mirror auto to try every route"
     fi
     [[ -n "$pinned" ]] || i=$(( (i + 1) % count ))
     if (( status == 28 )); then reason='was too slow'; else reason="failed (exit $status)"; fi
