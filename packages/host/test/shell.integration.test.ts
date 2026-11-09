@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { PierClient } from "@pier/client";
@@ -13,6 +13,8 @@ import {
 	type ShellMethod,
 	StdioShell,
 } from "../src/shell.ts";
+import type { Installation } from "../src/standalone/service.ts";
+import { StandaloneUpdater } from "../src/standalone/updater.ts";
 import { Recorder, startTestHost, type TestHost, TOKEN } from "./helpers.ts";
 
 const REMOTE = { enabled: true, port: 0, bindHost: "127.0.0.1", mdns: false } as const;
@@ -185,56 +187,89 @@ describe("update.* (the desktop app's updater through the host)", () => {
 		await expectCode(client.request("update.install"), "UNSUPPORTED");
 	});
 
-	it("lets a paired computer update Pier here, telling the local window and the audit log", async () => {
-		const fake = new FakeShell();
-		const shell = new StdioShell(fake.toHost, fake.fromHost);
-		const [a, b] = await Promise.all([
-			startTestHost({ peers: { openTimeoutMs: 1000 } }),
-			startTestHost({ remote: { ...REMOTE, approvalTimeoutMs: 2000 }, shell }),
-		]);
-		hosts.push(a, b);
-		const aDesktop = await a.connect();
-		const bDesktop = await b.connect();
-		const bEvents = new Recorder();
-		bDesktop.onEvent(bEvents.handler);
+	it.each([false, true])(
+		"lets a paired computer update Pier (standalone=%s), notifying the local window and audit log",
+		async (standalone) => {
+			const fake = new FakeShell();
+			const shell = new StdioShell(fake.toHost, fake.fromHost);
+			const a = await startTestHost({ peers: { openTimeoutMs: 1000 } });
+			hosts.push(a);
+			const config: Installation = {
+				format: 1,
+				app: "pier",
+				scope: "user",
+				version: IDLE.currentVersion,
+				prefix: a.root,
+				stateDir: join(a.root, "target-state"),
+				configHome: join(a.root, "config"),
+				installDir: join(a.root, "installation"),
+				binDir: join(a.root, "bin"),
+				serviceFile: join(a.root, "config/systemd/user/pier.service"),
+			};
+			mkdirSync(config.installDir, { recursive: true });
+			const updater = standalone
+				? new StandaloneUpdater({
+						version: IDLE.currentVersion,
+						config,
+						latest: async () => ({ tag: "v0.3.0" }),
+						download: async (_tag, _file, options) => {
+							await new Promise<void>((resolve) =>
+								options?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+							);
+							throw new Error("Stopped");
+						},
+					})
+				: undefined;
+			const b = await startTestHost({
+				remote: { ...REMOTE, approvalTimeoutMs: 2000 },
+				...(updater ? { updater } : { shell }),
+			});
+			hosts.push(b);
+			const aDesktop = await a.connect();
+			const bDesktop = await b.connect();
+			const bEvents = new Recorder();
+			bDesktop.onEvent(bEvents.handler);
 
-		const { uri } = await bDesktop.request("pairing.start");
-		void bEvents.waitForType("pairing.request").then((frame) =>
-			bDesktop.request("pairing.respond", {
-				requestId: (frame.event.request as PairingRequest).id,
-				accept: true,
-			}),
-		);
-		const peer: PeerInfo = (await aDesktop.request("peer.pair", { uri }, { timeoutMs: 10_000 })).peer;
-		const remote = new PierClient({
-			url: `${a.url}/peer/${encodeURIComponent(peer.id)}`,
-			token: TOKEN,
-			client: { name: "pier-desktop", version: "0.0.0" },
-		});
-		clients.push(remote);
-		await remote.connect();
-		const remoteEvents = new Recorder();
-		remote.onEvent(remoteEvents.handler);
+			const { uri } = await bDesktop.request("pairing.start");
+			void bEvents.waitForType("pairing.request").then((frame) =>
+				bDesktop.request("pairing.respond", {
+					requestId: (frame.event.request as PairingRequest).id,
+					accept: true,
+				}),
+			);
+			const peer: PeerInfo = (await aDesktop.request("peer.pair", { uri }, { timeoutMs: 10_000 })).peer;
+			const remote = new PierClient({
+				url: `${a.url}/peer/${encodeURIComponent(peer.id)}`,
+				token: TOKEN,
+				client: { name: "pier-desktop", version: "0.0.0" },
+			});
+			clients.push(remote);
+			await remote.connect();
+			const remoteEvents = new Recorder();
+			remote.onEvent(remoteEvents.handler);
 
-		fake.pushStatus({ ...IDLE, state: "available", version: "0.3.0" });
-		// Status events reach paired computers too.
-		await remoteEvents.waitFor(
-			(f) => f.event.type === "update.status" && (f.event.status as AppUpdateStatus).state === "available",
-		);
+			if (standalone)
+				expect(await remote.request("update.check")).toMatchObject({ state: "available", version: "0.3.0" });
+			else fake.pushStatus({ ...IDLE, state: "available", version: "0.3.0" });
+			// Status events reach paired computers too.
+			await remoteEvents.waitFor(
+				(f) => f.event.type === "update.status" && (f.event.status as AppUpdateStatus).state === "available",
+			);
 
-		const from = bEvents.mark();
-		fake.answer = () => ({
-			ok: true,
-			result: { ...IDLE, state: "downloading", version: "0.3.0", downloaded: 0, total: 1000 },
-		});
-		expect(await remote.request("update.install")).toMatchObject({ state: "downloading", version: "0.3.0" });
-		const notice = await bEvents.waitForType("host.notice", from);
-		expect(notice.event.message).toContain(a.host.info().hostName);
-		expect(notice.event.message).toContain("v0.3.0");
-		// The paired computer asking gets no notice about itself.
-		expect(remoteEvents.types()).not.toContain("host.notice");
+			const from = bEvents.mark();
+			fake.answer = () => ({
+				ok: true,
+				result: { ...IDLE, state: "downloading", version: "0.3.0", downloaded: 0, total: 1000 },
+			});
+			expect(await remote.request("update.install")).toMatchObject({ state: "downloading", version: "0.3.0" });
+			const notice = await bEvents.waitForType("host.notice", from);
+			expect(notice.event.message).toContain(a.host.info().hostName);
+			expect(notice.event.message).toContain("v0.3.0");
+			// The paired computer asking gets no notice about itself.
+			expect(remoteEvents.types()).not.toContain("host.notice");
 
-		const audit = readFileSync(join(b.root, "pier", "audit.log"), "utf8");
-		expect(audit).toContain('"event":"update.install"');
-	});
+			const audit = readFileSync(join(b.root, "pier", "audit.log"), "utf8");
+			expect(audit).toContain('"event":"update.install"');
+		},
+	);
 });

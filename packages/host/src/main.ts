@@ -19,6 +19,7 @@ import { installCodemodeWasmRedirect } from "./pi/codemode-wasm.ts";
 import { checkImageSupport, installPhotonWasmRedirect } from "./pi/photon-wasm.ts";
 import { checkP2PSupport } from "./remote/p2p.ts";
 import { StdioShell } from "./shell.ts";
+import { createStandaloneUpdater } from "./standalone/updater.ts";
 
 const HELP = `pier ${PIER_HOST_VERSION}
 
@@ -132,7 +133,7 @@ async function main(): Promise<void> {
 			: undefined;
 	const host = await PierHost.create({
 		pierDir,
-		...(shell ? { shell } : {}),
+		...(shell ? { shell } : { updater: createStandaloneUpdater(pierDir) }),
 		localToken: token,
 		env: values["agent-dir"] ? { agentDir: values["agent-dir"] } : {},
 		log,

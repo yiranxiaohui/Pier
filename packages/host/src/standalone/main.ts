@@ -8,10 +8,16 @@ import { launchMode } from "./mode.ts";
 import { prepareResources } from "./resources.ts";
 import { standaloneExecutable } from "./self.ts";
 import { findInstallation, installHost, serviceCommand, uninstallHost, updateHost } from "./service.ts";
+import { applyServiceUpdate } from "./update-worker.ts";
 
 export async function runStandalone(archive: string, version: string, desktop?: DesktopImage): Promise<void> {
 	const args = process.argv.slice(2);
 	const command = args[0];
+	if (command === "--apply-service-update") {
+		if (args.length !== 2 || !args[1]) throw new Error("Invalid internal update job");
+		await applyServiceUpdate(args[1]);
+		return;
+	}
 	if (command === "--version") {
 		console.log(`pier ${version}`);
 		return;

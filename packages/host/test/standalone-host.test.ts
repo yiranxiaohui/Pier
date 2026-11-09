@@ -18,9 +18,11 @@ import {
 	findInstallation,
 	type Installation,
 	installHost,
+	standaloneUpdateSupport,
 	uninstallHost,
 	updateHost,
 } from "../src/standalone/service.ts";
+import { applyServiceUpdate, launchUpdateWorker, readUpdateReceipt } from "../src/standalone/update-worker.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -48,9 +50,13 @@ function fixture() {
 [ "$PIER_TEST_MANAGER" = 1 ] || exit 1
 case "$1" in
   is-active) [ -f "$PIER_TEST_ROOT/active" ] ;;
-  show) echo "$PIER_TEST_PID" ;;
+  show) if [ -f "$PIER_TEST_ROOT/active" ]; then echo "$PIER_TEST_PID"; else echo 0; fi ;;
   enable|start)
     [ "$PIER_TEST_FAIL_START" != 1 ] || exit 1
+    if [ "$PIER_TEST_FAIL_ONCE" = 1 ] && [ ! -f "$PIER_TEST_ROOT/failed-once" ]; then
+      touch "$PIER_TEST_ROOT/failed-once"
+      exit 1
+    fi
     touch "$PIER_TEST_ROOT/active"
     mkdir -p "$PIER_HOST_STATE_DIR/run"
     printf '{"pid":%s,"version":"%s"}' "$PIER_TEST_PID" "$PIER_TEST_VERSION" > "$PIER_HOST_STATE_DIR/run/host.json"
@@ -70,6 +76,7 @@ esac
 		PIER_TEST_ROOT: root,
 		PIER_TEST_MANAGER: "0",
 		PIER_TEST_FAIL_START: "0",
+		PIER_TEST_FAIL_ONCE: "0",
 		PIER_TEST_PID: String(process.pid),
 		PIER_TEST_VERSION: "1.0.0",
 	}))
@@ -263,6 +270,84 @@ describe.skipIf(process.platform !== "linux")("native single-file installation",
 		expect(findInstallation(f.command)?.version).toBe("1.0.1");
 		expect(readFileSync(join(config.installDir, "current", config.app), "utf8")).toBe(binary);
 		expect(readFileSync(join(f.state, "config.json"), "utf8")).toBe("retained");
+	});
+});
+
+describe.skipIf(process.platform !== "linux")("standalone remote update worker", () => {
+	it("only enables remote updates for the owning service and state directory", async () => {
+		const f = fixture();
+		const config = await installHost(f.source, ["--user", "--no-start"], "1.0.0");
+		expect(standaloneUpdateSupport(undefined, f.state)).toContain("便携");
+		expect(standaloneUpdateSupport(config, f.root)).toContain("状态目录");
+		expect(standaloneUpdateSupport(config, f.state)).toContain("systemd");
+		vi.stubEnv("PIER_TEST_MANAGER", "1");
+		writeFileSync(join(f.root, "active"), "");
+		vi.stubEnv("PIER_TEST_PID", String(process.pid + 1));
+		expect(standaloneUpdateSupport(config, f.state)).toContain("systemd");
+		vi.stubEnv("PIER_TEST_PID", String(process.pid));
+		const runner = join(f.root, "tools/systemd-run");
+		writeFileSync(runner, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+		expect(standaloneUpdateSupport(config, f.state)).toBeUndefined();
+	});
+	it("launches the old executable in a separate unit of the same scope, without a shell", async () => {
+		const f = fixture();
+		const config = await installHost(f.source, ["--user", "--no-start"], "1.0.0");
+		writeFileSync(
+			join(f.root, "tools/systemd-run"),
+			'#!/bin/sh\nprintf "%s\\n" "$@" > "$PIER_TEST_ROOT/runner-args"\n',
+			{ mode: 0o755 },
+		);
+		const directory = join(config.installDir, "updates/update-test");
+		mkdirSync(directory, { recursive: true });
+		await launchUpdateWorker(config, directory, "v1.0.1", "a".repeat(64));
+		const args = readFileSync(join(f.root, "runner-args"), "utf8").trim().split("\n");
+		expect(args).toContain("--user");
+		expect(args).toContain("--property=Type=exec");
+		expect(args).not.toContain("--scope");
+		expect(args).not.toContain("--wait");
+		expect(args.slice(-4)).toEqual([
+			"--",
+			join(directory, "worker"),
+			"--apply-service-update",
+			join(directory, "job.json"),
+		]);
+		expect(readFileSync(join(directory, "worker"), "utf8")).toBe("original-binary");
+		expect(readUpdateReceipt(config)).toMatchObject({ state: "installing", version: "1.0.1" });
+	});
+	it.each([false, true])("applies a verified staged release and rolls back on failure=%s", async (fail) => {
+		const f = fixture();
+		const config = await installHost(f.source, ["--user", "--no-start"], "1.0.0");
+		writeFileSync(join(f.state, "config.json"), "paired-devices-kept");
+		const directory = join(config.installDir, "updates/update-test");
+		mkdirSync(directory, { recursive: true });
+		const binary = "#!/bin/sh\necho 'pier 1.0.1'\n";
+		writeFileSync(join(directory, "pier"), binary, { mode: 0o700 });
+		const job = join(directory, "job.json");
+		writeFileSync(
+			job,
+			JSON.stringify({
+				executable: f.binary,
+				tag: "v1.0.1",
+				sha256: createHash("sha256").update(binary).digest("hex"),
+			}),
+		);
+		vi.stubEnv("PIER_TEST_MANAGER", "1");
+		vi.stubEnv("PIER_TEST_VERSION", "1.0.1");
+		vi.stubEnv("PIER_TEST_FAIL_ONCE", fail ? "1" : "0");
+		writeFileSync(join(f.root, "active"), "");
+		if (fail) {
+			await expect(applyServiceUpdate(job)).rejects.toThrow("previous binary restored");
+			expect(readFileSync(f.binary, "utf8")).toBe("original-binary");
+			expect(findInstallation(f.command)?.version).toBe("1.0.0");
+			expect(readUpdateReceipt(config)).toMatchObject({ state: "error" });
+		} else {
+			await applyServiceUpdate(job);
+			expect(findInstallation(f.command)?.version).toBe("1.0.1");
+			expect(readUpdateReceipt(config)).toMatchObject({ state: "done" });
+		}
+		expect(existsSync(join(f.root, "active"))).toBe(true);
+		expect(readFileSync(join(f.state, "config.json"), "utf8")).toBe("paired-devices-kept");
+		expect(existsSync(directory)).toBe(false);
 	});
 });
 

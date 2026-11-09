@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
 	chmodSync,
 	copyFileSync,
@@ -19,6 +18,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
+import { downloadStandaloneRelease, latestStandaloneRelease } from "./update-release.ts";
 
 export interface Installation {
 	format: 1;
@@ -98,6 +98,19 @@ function control(config: Installation, args: string[], required = true, inherit 
 
 function managerAvailable(config: Installation): boolean {
 	return control(config, ["show-environment"], false).status === 0;
+}
+
+/** Never stop a different service when this executable was started manually or by the CLI. */
+export function standaloneUpdateSupport(config: Installation | undefined, stateDir: string): string | undefined {
+	if (!config) return "当前为便携单文件版，请先用 pier install 安装服务，或停止运行后下载新文件替换";
+	if (resolve(config.stateDir) !== resolve(stateDir)) return "当前状态目录与安装的服务不同，请手动更新";
+	if (config.scope === "system" && process.getuid?.() !== 0) return "系统服务更新需要 root 权限";
+	const pid = control(config, ["show", "-p", "MainPID", "--value", basename(config.serviceFile)], false);
+	if (pid.status !== 0 || Number(pid.stdout.trim()) !== process.pid)
+		return "远程更新仅支持由 systemd 托管的单文件服务；请用 pier start 启动服务，或手动运行 pier update";
+	if (spawnSync("systemd-run", ["--version"], { timeout: 5000, stdio: "ignore" }).status !== 0)
+		return "未找到 systemd-run，无法安全重启更新；请手动运行 pier update";
+	return undefined;
 }
 
 function assertStopped(stateDir: string): void {
@@ -235,7 +248,9 @@ export async function installHost(
 	const active =
 		previous &&
 		available &&
-		control(config, ["is-active", "--quiet", basename(config.serviceFile)], false).status === 0;
+		(control(config, ["is-active", "--quiet", basename(config.serviceFile)], false).status === 0 ||
+			Number(control(config, ["show", "-p", "MainPID", "--value", basename(config.serviceFile)], false).stdout.trim()) >
+				0);
 	if (active) control(config, ["stop", basename(config.serviceFile)]);
 	assertStopped(config.stateDir);
 	const binary = join(config.installDir, "current", config.app);
@@ -343,38 +358,11 @@ export function serviceCommand(config: Installation, command: string): void {
 export async function updateHost(config: Installation, args: string[]): Promise<void> {
 	requirePrivilege(config);
 	const { values } = parseArgs({ args, options: { version: { type: "string" }, "no-start": { type: "boolean" } } });
-	const download = async (url: string) => {
-		const response = await fetch(url, { signal: AbortSignal.timeout(600_000) });
-		if (!response.ok || !response.url.startsWith("https://"))
-			throw new Error(`Release download failed (${response.status})`);
-		return response;
-	};
-	const tag =
-		values.version ??
-		(
-			(await (await download("https://api.github.com/repos/yiranxiaohui/Pier/releases/latest")).json()) as {
-				tag_name: string;
-			}
-		).tag_name;
-	if (!/^v\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(tag)) throw new Error("Invalid release tag");
-	const names = [`pier-${tag}-linux-${process.arch}`, `pier-host-${tag}-linux-${process.arch}`];
-	const base = `https://github.com/yiranxiaohui/Pier/releases/download/${tag}`;
-	const checksums = await (await download(`${base}/SHA256SUMS.txt`)).text();
-	const entries = checksums.split("\n").map((line) => line.trim().split(/\s+/));
-	const name = names.find((candidate) => entries.some((parts) => parts[1]?.replace(/^\*/, "") === candidate));
-	const checksum = entries.find((parts) => parts[1]?.replace(/^\*/, "") === name)?.[0];
-	if (!name || !checksum || !/^[a-f0-9]{64}$/.test(checksum))
-		throw new Error("No single-binary Pier for this release and architecture");
-	const bytes = Buffer.from(await (await download(`${base}/${name}`)).arrayBuffer());
-	if (createHash("sha256").update(bytes).digest("hex") !== checksum)
-		throw new Error("Release checksum mismatch; installation was kept");
+	const tag = values.version ?? (await latestStandaloneRelease()).tag;
 	const directory = mkdtempSync(join(tmpdir(), "pier-host-update-"));
 	try {
 		const binary = join(directory, "pier");
-		writeFileSync(binary, bytes, { mode: 0o700 });
-		const check = spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 30_000 });
-		if (check.status !== 0 || ![`pier ${tag.slice(1)}`, `pier-host ${tag.slice(1)}`].includes(check.stdout.trim()))
-			throw new Error("Downloaded Host version check failed");
+		await downloadStandaloneRelease(tag, binary);
 		process.env.PIER_HOST_PREFIX = config.prefix;
 		process.env.XDG_CONFIG_HOME = config.configHome;
 		await installHost(

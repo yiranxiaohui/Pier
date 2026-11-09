@@ -90,9 +90,11 @@
 
 Host 在桌面端中运行时（Tauri 以 `--watch-stdin` 启动 sidecar），通过 sidecar 的 stdio 驱动桌面端的更新器，让已配对的电脑和手机可以远程更新这台电脑上的 Pier。只会安装 GitHub 最新正式版中、用桌面端内置公钥校验过签名的更新包，更新地址不能由客户端指定。这些方法对已配对设备开放，远程调用 `update.install` 写入审计日志。
 
+已安装且由 systemd 托管的 Linux 单文件服务也实现同一组 `update.*` 方法，无需更改协议：从固定 GitHub 仓库获取最新正式版，按 Release 的 SHA-256 和程序版本校验完整单文件，通过相同用户 / 系统 scope 的独立 systemd 临时服务安装、重启和失败回滚。这个路径不依赖 Tauri，不使用桌面更新包签名或桌面更新线路，不支持续传；`autoCheck` 为 `false`。远程请求不能指定 URL、版本、路径或命令。便携运行、手动启动、无 systemd 及单文件内置桌面模式返回 `unsupported` 和说明性的 `error`。安装结果写入本地记录，重启或回滚后的 Host 会继续发送最终状态。
+
 | 方法 | 参数 | 结果 |
 |---|---|---|
-| `update.status` | – | `AppUpdateStatus`：`{ state, currentVersion, autoCheck, version?, notes?, date?, downloaded, total?, error?, lastChecked?, installNeedsAuth? }`。`state` 为 `unsupported`（开发版本、未打包的构建、独立运行的 `pier-host`，或桌面端没有上报更新器）\|`idle`\|`checking`\|`upToDate`\|`available`\|`downloading`\|`installing`\|`error`；`version` / `notes` / `date` 为可安装的新版本（安装失败后仍保留，可重试）；`downloaded` / `total` 为已下载字节数与更新包大小，`available` / `error` 时非 0 表示该版本已下载了一部分（暂停或中断后的下载，安装时从断点继续；旧版桌面端此时为 0）；`downloading` 时的 `error` 是正在自动重试的原因；`installNeedsAuth` 表示安装时需要有人在那台电脑上输入管理员密码（Linux `.deb` / `.rpm`） |
+| `update.status` | – | `AppUpdateStatus`：`{ state, currentVersion, autoCheck, version?, notes?, date?, downloaded, total?, error?, lastChecked?, installNeedsAuth? }`。`state` 为 `unsupported`（开发版本、未打包的构建、未由 systemd 托管的单文件、单文件内置桌面模式，或桌面端没有上报更新器）\|`idle`\|`checking`\|`upToDate`\|`available`\|`downloading`\|`installing`\|`error`；`version` / `notes` / `date` 为可安装的新版本（安装失败后仍保留，可重试）；`downloaded` / `total` 为已下载字节数与更新包大小，`available` / `error` 时非 0 表示该版本已下载了一部分（暂停或中断后的下载，安装时从断点继续；旧版桌面端此时为 0）；`downloading` 时的 `error` 是正在自动重试的原因；`installNeedsAuth` 表示安装时需要有人在那台电脑上输入管理员密码（Linux `.deb` / `.rpm`） |
 | `update.check` | – | `AppUpdateStatus`：立即检查一次（最长约 30 秒，客户端请放宽超时）。检查失败时返回 `state: "error"` 而不是错误响应 |
 | `update.install` | – | `AppUpdateStatus`：还没有已知的新版本时先检查；有新版本时在后台开始下载（已下载过一部分时从断点继续），返回 `downloading`，之后 Host 与所有连接会随安装断开，桌面端安装完成后自动重启，客户端重连后在 `host.hello` 中看到新版本。已是最新版本时返回 `upToDate`，检查失败时返回 `error`，已在更新时返回当前状态。由远程设备发起时，Host 同时向本地连接发出 `host.notice`，告知谁在更新 |
 

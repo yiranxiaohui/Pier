@@ -65,18 +65,22 @@ export interface ShellTerminal {
 	kill(): void;
 }
 
-/** The desktop app around the host, as far as the host can drive it. */
-export interface AppShell {
+/** An updater owned by the desktop shell or the installed standalone service. */
+export interface AppUpdater {
 	/** The updater's latest status; undefined while the shell has not reported one. */
 	readonly updateStatus: AppUpdateStatus | undefined;
 	onUpdateStatus(listener: (status: AppUpdateStatus) => void): () => void;
-	/** Ask the shell's updater to check or install; resolves with its status afterwards. */
+	/** Check or begin installation; resolves with the current status. */
 	request(method: ShellMethod): Promise<AppUpdateStatus>;
+	close(): void;
+}
+
+/** The desktop app around the host, as far as the host can drive it. */
+export interface AppShell extends AppUpdater {
 	/** Whether the shell provides pseudo-terminals. */
 	readonly terminals?: boolean;
 	/** Start the user's shell in a pseudo-terminal. Output may arrive before this resolves. */
 	openTerminal?(options: ShellTerminalOptions, handlers: ShellTerminalHandlers): Promise<ShellTerminal>;
-	close(): void;
 }
 
 const STATES: ReadonlySet<AppUpdateState> = new Set([
