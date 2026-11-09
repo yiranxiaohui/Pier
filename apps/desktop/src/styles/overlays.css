@@ -521,12 +521,12 @@
 	border: 1px solid var(--border);
 	border-radius: 8px;
 }
-.browser-preparation > div {
+.browser-preparation-heading {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 }
-.browser-preparation > div > span:first-of-type {
+.browser-preparation-heading > span:first-of-type {
 	flex: 1;
 }
 .browser-preparation progress {
@@ -534,4 +534,25 @@
 }
 .browser-preparation > button {
 	align-self: flex-end;
+}
+.browser-preparation-details {
+	min-width: 0;
+}
+.browser-preparation-details summary {
+	cursor: pointer;
+	color: var(--muted);
+	font-size: 12px;
+}
+.browser-preparation-log {
+	max-height: 180px;
+	margin: 8px 0 0;
+	padding: 10px;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-family: var(--mono);
+	font-size: 11px;
+	line-height: 1.5;
+	border: 1px solid var(--border);
+	border-radius: 6px;
 }

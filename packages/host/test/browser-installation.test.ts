@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserPreparationProgress } from "@pier/protocol";
@@ -188,7 +197,7 @@ describe("automatic remote browser preparation", () => {
 		expect(run).toHaveBeenCalledWith(
 			"/bin/apt-get",
 			["install", "-y", "--no-install-recommends", "--no-upgrade", "xvfb"],
-			{ system: true },
+			{ system: true, onOutput: expect.any(Function) },
 		);
 	});
 	it("adds window management to an existing browser installation without downloading it again", async () => {
@@ -223,12 +232,111 @@ describe("automatic remote browser preparation", () => {
 				"--no-upgrade",
 				"openbox",
 			],
-			{ system: true },
+			{ system: true, onOutput: expect.any(Function) },
 		);
 		expect(fetch).not.toHaveBeenCalled();
 		run.mockClear();
 		await installer.ensure();
 		expect(run).not.toHaveBeenCalled();
+	});
+	it("shares live system output with late waiters and flushes failure details", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const { installer } = setup({
+			uid: 0,
+			chromium: () => "/existing/chrome",
+			find: (name) => (["openbox", "selkies", "apt-get"].includes(name) ? `/bin/${name}` : undefined),
+			run: async (_file, _args, options) => {
+				options?.onOutput?.("Reading package lists...\n");
+				await gate;
+				options?.onOutput?.("E: No space left on device", "stderr");
+				throw new Error("系统依赖安装失败");
+			},
+		});
+		const progress: BrowserPreparationProgress[] = [];
+		const first = installer.ensure((p) => progress.push(p));
+		const failed = expect(first).rejects.toThrow("系统依赖安装失败");
+		await vi.waitFor(() => expect(progress.at(-1)?.logs).toContain("Reading package lists"));
+		const late: BrowserPreparationProgress[] = [];
+		const second = installer.ensure((p) => late.push(p));
+		const alsoFailed = expect(second).rejects.toThrow("系统依赖安装失败");
+		expect(late[0]?.logs).toContain("Reading package lists");
+		expect(late[0]?.message).toContain("更新软件源索引");
+		release();
+		await Promise.all([failed, alsoFailed]);
+		expect(progress.at(-1)?.logs).toContain("E: No space left on device");
+		expect(late.at(-1)?.logs).toBe(progress.at(-1)?.logs);
+	});
+	it.skipIf(process.platform === "win32")(
+		"streams real child stdout and stderr before command completion",
+		async () => {
+			const executable = join(root, "fake-apt");
+			const marker = join(root, "installed");
+			const gate = join(root, "continue");
+			writeFileSync(
+				executable,
+				`#!${process.execPath}\nconst fs = require('node:fs');\nif (process.argv[2] === 'update') {\n console.log('Reading package lists...');\n console.error('repository warning');\n const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(gate)})) clearInterval(timer); }, 10);\n} else fs.writeFileSync(${JSON.stringify(marker)}, 'done');\n`,
+			);
+			chmodSync(executable, 0o700);
+			const { installer } = setup({
+				uid: 0,
+				run: undefined,
+				chromium: () => "/existing/chrome",
+				find: (name) =>
+					name === "apt-get"
+						? executable
+						: name === "Xvfb" && !existsSync(marker)
+							? undefined
+							: ["Xvfb", "openbox", "selkies"].includes(name)
+								? `/bin/${name}`
+								: undefined,
+			});
+			const progress: BrowserPreparationProgress[] = [];
+			const pending = installer.ensure((p) => progress.push(p));
+			try {
+				await vi.waitFor(() => {
+					expect(progress.at(-1)?.logs).toContain("Reading package lists");
+					expect(progress.at(-1)?.logs).toContain("repository warning");
+				});
+				expect(existsSync(marker)).toBe(false);
+			} finally {
+				writeFileSync(gate, "go");
+				await pending;
+			}
+			expect(existsSync(marker)).toBe(true);
+			expect(progress.at(-1)?.logs).toContain("Reading package lists");
+		},
+	);
+	it("lets an in-flight package command finish on cancellation without starting the next command", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const run = vi.fn<NonNullable<BrowserRuntimeInstallerOptions["run"]>>(async (_file, _args, options) => {
+			expect(options?.signal).toBeUndefined();
+			options?.onOutput?.("Refreshing repositories\n");
+			await gate;
+			options?.onOutput?.("Refresh finished\n");
+			return "";
+		});
+		const { installer } = setup({
+			uid: 0,
+			chromium: () => "/existing/chrome",
+			find: (name) => (["openbox", "selkies", "apt-get"].includes(name) ? `/bin/${name}` : undefined),
+			run,
+		});
+		const abort = new AbortController();
+		const pending = installer.ensure(() => {}, abort.signal);
+		const failed = expect(pending).rejects.toThrow("取消");
+		await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+		abort.abort();
+		await failed;
+		release();
+		await installer.shutdown();
+		expect(run).toHaveBeenCalledTimes(1);
+		expect(existsSync(`${root}.lock`)).toBe(false);
 	});
 	it("reports missing privileges without opening a password prompt or downloading components", async () => {
 		const { installer, fetch, run } = setup({

@@ -1,7 +1,8 @@
 import type { BrowserPreparation, BrowserTransport, LocalBrowserInfo, WorkspaceInfo } from "@pier/protocol";
 import { BrowserPreparationSchema } from "@pier/protocol";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import { BrowserPreparationStatus } from "./BrowserPreparationStatus.tsx";
 import { IconExternal, IconGlobe, IconLoader, IconTrash } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
 import { Select } from "./Select.tsx";
@@ -37,6 +38,8 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const [preparation, setPreparation] = useState<BrowserPreparation>();
+	const [lastPreparation, setLastPreparation] = useState<BrowserPreparation>();
+	const preparationRevision = useRef(0);
 	const [browsers, setBrowsers] = useState<LocalBrowserInfo[]>([]);
 	const [activeId, setActiveId] = useState<string>();
 	const [reload, setReload] = useState(0);
@@ -50,18 +53,29 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 		const off = local?.onEvent((frame) => {
 			if (mounted && frame.event.type === "browser.preparing") {
 				const parsed = BrowserPreparationSchema.safeParse(frame.event);
-				if (parsed.success && matches(parsed.data)) setPreparation(parsed.data);
+				if (parsed.success && matches(parsed.data)) {
+					preparationRevision.current++;
+					setPreparation(parsed.data);
+					setLastPreparation(parsed.data);
+				}
 			}
 		});
 		const refresh = async () => {
 			try {
+				const revision = preparationRevision.current;
 				const result = await local?.request("browser.list");
 				if (!mounted || !result) return;
-				setPreparation(result.preparations?.find(matches));
+				// Do not overwrite a newer live event with an older in-flight poll.
+				if (revision === preparationRevision.current) {
+					const current = result.preparations?.find(matches);
+					setPreparation(current);
+					if (current) setLastPreparation(current);
+				}
 				const rows = result.browsers.filter(
 					(b) => b.workspaceId === workspace.id && b.peerId === (remote ? node : undefined),
 				);
 				setBrowsers(rows);
+				if (rows.some((browser) => browser.mode === "remote")) setLastPreparation(undefined);
 				setActiveId((id) =>
 					rows.some((b) => b.browserId === id) ? id : rows.find((b) => b.mode === "remote")?.browserId,
 				);
@@ -80,10 +94,13 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 		};
 	}, [local, node, remote, workspace.id]);
 	const open = async () => {
+		preparationRevision.current++;
+		setLastPreparation(undefined);
 		setBusy(true);
 		setError("");
 		try {
 			const info = await store.openBrowser(workspace.id, url, controlled, transport);
+			setLastPreparation(undefined);
 			if (info) {
 				setBrowsers((rows) => [...rows.filter((row) => row.browserId !== info.browserId), info]);
 				setActiveId(info.browserId);
@@ -91,6 +108,7 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 		} catch (error) {
 			setError(error instanceof Error ? error.message : String(error));
 		} finally {
+			preparationRevision.current++;
 			setBusy(false);
 			setPreparation(undefined);
 		}
@@ -131,14 +149,12 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 		}
 	};
 	const preparing = Boolean(preparation);
-	const progress = preparation?.progress;
-	const percent = progress?.totalBytes
-		? Math.min(100, Math.floor(((progress.downloadedBytes ?? 0) / progress.totalBytes) * 100))
-		: undefined;
+	const progress = preparation?.progress ?? (!active ? lastPreparation?.progress : undefined);
 	const cancelPreparation = async () => {
 		if (!preparation || !local) return;
 		try {
 			await local.request("browser.close", { browserId: preparation.browserId }, { timeoutMs: 30_000 });
+			preparationRevision.current++;
 			setPreparation(undefined);
 		} catch (error) {
 			setError(error instanceof Error ? error.message : String(error));
@@ -157,25 +173,13 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 				</div>
 			) : null}
 			{progress ? (
-				<div className="browser-preparation" role="status" aria-live="polite">
-					<div>
-						<IconLoader size={16} className="spin" />
-						<span>{progress.message}</span>
-						{percent !== undefined ? <span>{percent}%</span> : null}
-					</div>
-					{progress.stage === "downloading" ? (
-						<progress aria-label="浏览器组件下载进度" max={100} value={percent} />
-					) : null}
-					<button
-						type="button"
-						className="ghost"
-						onClick={() => {
-							void cancelPreparation();
-						}}
-					>
-						取消准备
-					</button>
-				</div>
+				<BrowserPreparationStatus
+					progress={progress}
+					running={preparing}
+					onCancel={() => {
+						void cancelPreparation();
+					}}
+				/>
 			) : null}
 			{active ? (
 				<>

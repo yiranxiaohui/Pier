@@ -12,6 +12,7 @@ import { type BrowserPreparationProgress, PierProtocolError } from "@pier/protoc
 import lockfile from "proper-lockfile";
 import { findExecutable, probeVersion } from "../runtimes/executable.ts";
 import { findChromium } from "./chromium.ts";
+import { BrowserPreparationLog } from "./preparation-log.ts";
 
 const SELKIES_VERSION = "2.1.0";
 const SELKIES_SHA256 = {
@@ -27,16 +28,18 @@ export interface BrowserRuntimePaths {
 	xvfb: string;
 	openbox: string;
 }
+interface RunOptions {
+	cwd?: string;
+	signal?: AbortSignal;
+	system?: boolean;
+	onOutput?: (text: string, stream?: "stdout" | "stderr") => void;
+}
 export interface BrowserRuntimeInstallerOptions {
 	fetch?: typeof fetch;
 	find?: typeof findExecutable;
 	chromium?: () => string | undefined;
 	probe?: typeof probeVersion;
-	run?: (
-		file: string,
-		args: string[],
-		options?: { cwd?: string; signal?: AbortSignal; system?: boolean },
-	) => Promise<string>;
+	run?: (file: string, args: string[], options?: RunOptions) => Promise<string>;
 	platform?: NodeJS.Platform;
 	arch?: string;
 	uid?: number;
@@ -125,14 +128,10 @@ export class BrowserRuntimeInstaller {
 	private find(name: string, override?: string, managed?: string) {
 		return (this.options.find ?? findExecutable)(name, override, managed);
 	}
-	private async run(
-		file: string,
-		args: string[],
-		options: { cwd?: string; signal?: AbortSignal; system?: boolean } = {},
-	): Promise<string> {
+	private async run(file: string, args: string[], options: RunOptions = {}): Promise<string> {
 		if (this.options.run) return this.options.run(file, args, options);
-		return new Promise((resolve, reject) =>
-			execFile(
+		return new Promise((resolve, reject) => {
+			const child = execFile(
 				file,
 				args,
 				{
@@ -152,8 +151,12 @@ export class BrowserRuntimeInstaller {
 								),
 							)
 						: resolve(stdout),
-			),
-		);
+			);
+			if (options.onOutput) {
+				child.stdout?.setEncoding("utf8").on("data", (text: string) => options.onOutput?.(text, "stdout"));
+				child.stderr?.setEncoding("utf8").on("data", (text: string) => options.onOutput?.(text, "stderr"));
+			}
+		});
 	}
 	private async response(url: string, signal: AbortSignal, timeout = 60_000): Promise<Response> {
 		const response = await (this.options.fetch ?? fetch)(url, {
@@ -270,7 +273,7 @@ export class BrowserRuntimeInstaller {
 	}
 	private async systemPackages(
 		needs: { xvfb?: boolean; openbox?: boolean; unzip?: boolean; libraries?: boolean },
-		progress: Progress,
+		log: BrowserPreparationLog,
 		signal: AbortSignal,
 	): Promise<void> {
 		signal.throwIfAborted();
@@ -291,15 +294,26 @@ export class BrowserRuntimeInstaller {
 				throw new Error("自动安装缺少的系统依赖需要管理员权限，请为运行 Pier Host 的用户配置免密 sudo 后重试");
 			}
 		}
-		progress({
-			stage: "installing",
-			component: "system",
-			message: "正在安装缺少的系统依赖；取消后会完成当前软件包操作…",
-		});
-		const run = (file: string, args: string[]) =>
-			this.run(sudo ?? file, sudo ? ["-n", "--", "env", "DEBIAN_FRONTEND=noninteractive", file, ...args] : args, {
-				system: true,
+		const run = async (file: string, args: string[]) => {
+			log.progress({
+				stage: "installing",
+				component: "system",
+				message:
+					args[0] === "update"
+						? "正在更新软件源索引；取消后会完成当前软件包操作…"
+						: "正在安装缺少的系统依赖；取消后会完成当前软件包操作…",
 			});
+			log.output(`$ ${file} ${args.join(" ")}\n`);
+			try {
+				return await this.run(
+					sudo ?? file,
+					sudo ? ["-n", "--", "env", "DEBIAN_FRONTEND=noninteractive", file, ...args] : args,
+					{ system: true, onOutput: log.output },
+				);
+			} finally {
+				log.flush();
+			}
+		};
 		if (apt) {
 			await run(apt, ["update"]);
 			signal.throwIfAborted();
@@ -411,7 +425,16 @@ export class BrowserRuntimeInstaller {
 			]);
 		signal.throwIfAborted();
 	}
-	private async install(progress: Progress, signal: AbortSignal): Promise<BrowserRuntimePaths> {
+	private async install(onProgress: Progress, signal: AbortSignal): Promise<BrowserRuntimePaths> {
+		const log = new BrowserPreparationLog(onProgress);
+		try {
+			return await this.installRuntime(log, signal);
+		} finally {
+			log.flush();
+		}
+	}
+	private async installRuntime(log: BrowserPreparationLog, signal: AbortSignal): Promise<BrowserRuntimePaths> {
+		const progress = log.progress;
 		const platform = this.options.platform ?? process.platform;
 		const arch = this.options.arch ?? process.arch;
 		if (platform !== "linux" || (arch !== "x64" && arch !== "arm64"))
@@ -443,7 +466,7 @@ export class BrowserRuntimeInstaller {
 						unzip: !paths.chromium && !this.find("unzip"),
 						libraries: !paths.chromium,
 					},
-					progress,
+					log,
 					signal,
 				);
 			paths.xvfb = this.find("Xvfb", process.env.PIER_XVFB_BIN);
@@ -464,7 +487,11 @@ export class BrowserRuntimeInstaller {
 				);
 				progress({ stage: "installing", component: "selkies", message: "正在安装远程画面组件…" });
 				await chmod(archive, 0o700);
-				await this.run(archive, ["--appimage-extract"], { cwd: staging, signal });
+				try {
+					await this.run(archive, ["--appimage-extract"], { cwd: staging, signal, onOutput: log.output });
+				} finally {
+					log.flush();
+				}
 				const extracted = join(staging, "squashfs-root");
 				if ((await probe(join(extracted, "AppRun"), 20_000)) !== SELKIES_VERSION)
 					throw new Error("远程画面组件版本验证失败，请检查系统运行库");
@@ -503,10 +530,14 @@ export class BrowserRuntimeInstaller {
 					throw new Error("浏览器压缩包包含无效路径");
 				const extracted = join(staging, "chrome");
 				await mkdir(extracted);
-				await this.run(unzip, ["-q", archive, "-d", extracted], { signal });
+				try {
+					await this.run(unzip, ["-q", archive, "-d", extracted], { signal, onOutput: log.output });
+				} finally {
+					log.flush();
+				}
 				const executable = join(extracted, `chrome-${target}`, "chrome");
 				await chmod(executable, 0o755);
-				if (!(await probe(executable, 20_000))) await this.systemPackages({ libraries: true }, progress, signal);
+				if (!(await probe(executable, 20_000))) await this.systemPackages({ libraries: true }, log, signal);
 				if ((await probe(executable, 20_000)) !== version)
 					throw new Error("浏览器安装后版本验证失败，请检查系统运行库");
 				const destination = join(this.root, `chrome-${version}`);

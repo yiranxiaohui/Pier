@@ -1,4 +1,4 @@
-# Pier 协议 v1.52
+# Pier 协议 v1.53
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -679,6 +679,14 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 
 映射属于创建它的本地协议连接；关闭 UI 面板不会关闭该连接。管理连接断开、目标配对连接断开、设备吊销、移除配对或 Host 退出均清理监听器与流。不持久化映射或自动恢复。只有本地认证客户端可以管理映射；远程已配对设备可以查询 `host.ports`，但不能在此主机创建监听器。TCP 流继续由 `tunnel.open` 审计目标/端口，不记录流量或进程列表。
 
+## 远程浏览器准备进度（1.48，日志 1.53）
+
+`browser.preparing` 事件带 `{ browserId, workspaceId, peerId?, progress }`，只发送给打开浏览器的连接，不广播、不写 EventLog。本机 Host 转发远程进度，并通过 `browser.list.preparations` 返回当前快照，方便面板重新打开后恢复。
+
+`progress` 包含 `stage: checking | downloading | verifying | installing | starting`、`message`、可选的 `component: system | selkies | chromium`、`downloadedBytes` / `totalBytes`。1.53 新增可选 `logs`：最近最多 16,000 字符的纯文本日志快照（不是增量）；安装器捕获 stdout / stderr，过滤终端控制序列、软件源 URL 认证信息 / 查询参数及常见凭据，命令输出最多每 250 ms 推送一次，阶段切换和命令退出时立即刷新。日志仅在内存中保留。旧 Host 省略此字段，空字符串表示支持日志但尚无输出。
+
+系统依赖安装不提供估算百分比；下载时仅在已知总大小时显示百分比。取消不会强制终止正在执行的软件包操作；多个工作区等待同一次安装时，取消其中一个不会中止其他等待者。失败后桌面当前面板保留最近日志，重新开始准备时清空；关闭失败面板或重启后不恢复已结束任务的日志。
+
 ## 本地渲染的浏览器（1.37）
 
 本机 Host 负责本地浏览器进程和回环监听器，通过 `PeerManager` 为浏览器建立独立的配对加密连接（现有 Relay / P2P 可用）。远程 Host 仅连接目标 TCP 服务，运行独立 Host 的无桌面 Linux 同样可提供转发。配对仍表示完全信任；这里只对已认证连接开放。旧版目标 Host 在打开时提示更新。
@@ -690,7 +698,7 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 | `tunnel.write` | `{ tunnelId, data, end? }` | `{ written }`；单块最多 64 KiB，`end` 半关闭写方向 |
 | `tunnel.close` | `{ tunnelId }` | `{ closed }`；释放 TCP 套接字和缓冲 |
 | `browser.open` 🔒 | `{ workspaceId, peerId?, url, mode, controlled? }` | `LocalBrowserInfo`；`mode:service` 转发一个端口，返回本地 URL，由 UI 打开默认浏览器；`mode:network` 启动本地 Chromium 独立窗口和远程 HTTP / CONNECT 代理；`controlled:true` 也使用独立窗口并注册工作区控制器 |
-| `browser.list` 🔒 | — | `{ browsers: LocalBrowserInfo[] }`；只列出调用连接创建的实例 |
+| `browser.list` 🔒 | — | `{ browsers: LocalBrowserInfo[], preparations?: BrowserPreparation[] }`；只列出调用连接创建的实例和正在准备的远程浏览器 |
 | `browser.close` 🔒 | `{ browserId }` | `{ closed }`；关闭代理、转发和项目启动的独立浏览器 |
 | `browser.attach` | `{ workspaceId, browserId }` | `{ attached:true }`；调用连接声明可在本地执行此工作区的浏览器命令 |
 | `browser.detach` | `{ browserId }` | `{ detached }`；只有注册连接可以移除 |

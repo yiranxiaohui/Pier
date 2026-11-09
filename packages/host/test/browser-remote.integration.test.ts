@@ -43,6 +43,7 @@ describe("browsers running on the workspace host", () => {
 						message: "正在下载远程画面组件…",
 						downloadedBytes: 25,
 						totalBytes: 100,
+						logs: "Reading package lists...\nInstalling xvfb...\n",
 					});
 					await launchGate;
 					if (failLaunch) throw new Error("streamer failed");
@@ -199,18 +200,24 @@ describe("browsers running on the workspace host", () => {
 		const events = new Recorder();
 		local.onEvent(events.handler);
 		const pending = open().catch(() => undefined);
-		await events.waitFor(
+		const event = await events.waitFor(
 			(frame) =>
 				frame.event.type === "browser.preparing" &&
 				(frame.event.progress as { stage?: string } | undefined)?.stage === "downloading",
 		);
+		expect(event.event.progress).toMatchObject({ logs: "Reading package lists...\nInstalling xvfb...\n" });
 		const result = await local.request("browser.list");
 		expect(result.browsers).toEqual([]);
 		expect(result.preparations).toHaveLength(1);
 		expect(result.preparations?.[0]).toMatchObject({
 			workspaceId: workspace.id,
 			peerId,
-			progress: { stage: "downloading", downloadedBytes: 25, totalBytes: 100 },
+			progress: {
+				stage: "downloading",
+				downloadedBytes: 25,
+				totalBytes: 100,
+				logs: "Reading package lists...\nInstalling xvfb...\n",
+			},
 		});
 		const stranger = await a.connect();
 		expect((await stranger.request("browser.list")).preparations).toEqual([]);

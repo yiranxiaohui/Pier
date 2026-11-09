@@ -41,10 +41,13 @@ export interface RemoteBrowserInfo {
 
 /** Initial setup can download several hundred MiB on the workspace host. */
 export const BROWSER_OPEN_TIMEOUT_MS = 15 * 60_000;
+/** Bounded log snapshot, not a delta: safe to recover through browser.list after reopening the panel. */
+export const BROWSER_PREPARATION_LOG_LIMIT = 16_000;
 export const BrowserPreparationProgressSchema = z.object({
 	stage: z.enum(["checking", "downloading", "verifying", "installing", "starting"]),
 	component: z.enum(["selkies", "chromium", "system"]).optional(),
 	message: z.string().max(500),
+	logs: z.string().max(BROWSER_PREPARATION_LOG_LIMIT).optional(),
 	downloadedBytes: z
 		.number()
 		.int()

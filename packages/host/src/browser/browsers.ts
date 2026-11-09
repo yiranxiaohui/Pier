@@ -62,6 +62,7 @@ export class LocalBrowsers {
 	}
 	private progress(record: Record, progress: BrowserPreparationProgress): void {
 		if (record.closed || record.owner.isClosed) return;
+		progress = { ...progress, logs: progress.logs ?? record.preparation?.logs };
 		record.preparation = progress;
 		record.owner.send({
 			type: "evt",
