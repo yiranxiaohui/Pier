@@ -284,12 +284,12 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 							disabled={busy || preparing}
 							onChange={(event) => setControlled(event.target.checked)}
 						/>
-						允许这个工作区的 pi 操作浏览器
+						允许外部集成通过协议操作浏览器
 					</label>
 					{controlled ? (
 						<p className="muted small">
-							{remote ? "pi 操作同一个远程浏览器。" : "将打开独立浏览器窗口。"}
-							可读取页面、点击、输入和截图，沿用工作区审批策略。
+							{remote ? "外部集成可操作同一个远程浏览器。" : "将打开独立浏览器窗口。"}
+							通过 browser.action 接口可读取页面、点击、输入和截图，审批由调用方负责。内置 Agent 不提供浏览器工具。
 						</p>
 					) : null}
 					<button
@@ -312,7 +312,7 @@ function BrowserPanel({ workspace, onClose }: { workspace: WorkspaceInfo; onClos
 								<span title={browser.url}>{browser.url}</span>
 								<small className="muted">
 									{browser.mode === "remote" ? "运行在远程主机" : "本机浏览器"}
-									{browser.controllable ? " · 允许 Agent 操作" : ""}
+									{browser.controllable ? " · 允许协议控制" : ""}
 								</small>
 							</div>
 							{browser.mode === "remote" ? (

@@ -58,7 +58,7 @@ export class BrowserControllers {
 				"CONFLICT",
 				matches.length
 					? "Multiple browsers open: specify browserId"
-					: "请先在工作区的「浏览器」中打开独立浏览器并允许 Agent 操作",
+					: "请先在工作区的「浏览器」中打开浏览器并允许外部集成通过协议操作",
 			);
 		const [id, controller] = matches[0] as [string, Controller];
 		if (controller.run) return controller.run(command);

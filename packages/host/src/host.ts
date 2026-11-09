@@ -548,9 +548,7 @@ export class PierHost implements RequestHandler {
 		const installationHome = options.agentInstaller?.homeDirectory;
 		this.pool = new SessionPool({
 			runtimes: [
-				new PiRuntime(env, (workspaceId, command, browserId, signal) =>
-					this.browserControllers.action(workspaceId, command, browserId, signal),
-				),
+				new PiRuntime(env),
 				...(agents.claudeCode === false
 					? []
 					: [new ClaudeCodeRuntime({ log, managedDirectory, installationHome, ...agents.claudeCode })]),

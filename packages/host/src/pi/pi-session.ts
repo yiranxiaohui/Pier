@@ -3,8 +3,6 @@ import { stripImageHints } from "@pier/chat-state";
 import {
 	type AgentRuntimeCapabilities,
 	type ApprovalDetails,
-	type BrowserCommand,
-	type BrowserResult,
 	type ImageInput,
 	type ModelInfo,
 	PierProtocolError,
@@ -26,7 +24,6 @@ import {
 } from "../managed-session.ts";
 import { ExternalChangeGuard } from "../session-lock.ts";
 import { createApprovalExtension } from "./approval-extension.ts";
-import { createBrowserExtension } from "./browser-extension.ts";
 import { type PiEnvironment, toModelInfo } from "./environment.ts";
 import { toWireEvent } from "./events.ts";
 import { createUiContext } from "./ui-context.ts";
@@ -49,7 +46,6 @@ export const PI_CAPABILITIES: AgentRuntimeCapabilities = {
 
 export interface PiSessionOptions extends ManagedSessionOptions {
 	env: PiEnvironment;
-	browserAction?: (command: BrowserCommand, browserId?: string, signal?: AbortSignal) => Promise<BrowserResult>;
 }
 
 /** pi events that indicate the session file may have been written by this host. */
@@ -90,10 +86,7 @@ export class PiManagedSession extends ManagedSession {
 			managed.runtime = await options.env.createRuntime({
 				cwd: options.workspace().path,
 				sessionManager,
-				extensions: () => [
-					createApprovalExtension(managed.approvalGate()),
-					...(options.browserAction ? [createBrowserExtension(options.browserAction)] : []),
-				],
+				extensions: () => [createApprovalExtension(managed.approvalGate())],
 			});
 			managed.runtime.setRebindSession(async () => managed.bind());
 			await managed.bind();
