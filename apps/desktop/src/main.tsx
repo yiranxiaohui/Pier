@@ -1,3 +1,4 @@
+import "@fontsource-variable/noto-sans-sc/wght.css";
 import "highlight.js/styles/github-dark.css";
 import "./styles.css";
 import { StrictMode, useEffect } from "react";

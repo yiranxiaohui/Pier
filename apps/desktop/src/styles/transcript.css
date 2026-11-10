@@ -261,7 +261,8 @@
 .markdown h4 {
 	margin: 1.2em 0 0.5em;
 	line-height: 1.3;
-	font-weight: 650;
+	/* Bold like <strong>, well clear of the 400 body text (h4 is body-sized, so weight alone sets it apart). */
+	font-weight: 700;
 	letter-spacing: -0.01em;
 }
 

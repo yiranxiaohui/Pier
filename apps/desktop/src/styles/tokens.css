@@ -79,17 +79,18 @@
 	--content-width: 820px;
 
 	/*
-	 * system-ui, as ChatGPT uses it, is the platform's UI font for the user's locale: on Chinese
-	 * Windows that is Microsoft YaHei UI for Latin and Chinese alike, so both scripts share one
-	 * family instead of pairing Segoe UI with a separate Chinese font. Monospace text lists YaHei
-	 * UI so Chinese in code falls back to it rather than to NSimSun.
+	 * Text is set in Noto Sans SC (bundled, see main.tsx) for Latin and Chinese alike, so both
+	 * scripts share one family on every platform. It is a variable font, so every weight draws as
+	 * written: the system's Chinese fonts have none between regular and bold (Microsoft YaHei UI
+	 * draws 500 as 400 and 600 as 700). The system fonts after it only cover a failed load.
+	 * Monospace text lists YaHei UI so Chinese in code falls back to it rather than to NSimSun.
 	 */
 	--mono:
 		"SF Mono", Menlo, "Cascadia Code", Consolas, "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono",
 		"Microsoft YaHei UI", monospace;
 	--sans:
-		-apple-system, BlinkMacSystemFont, system-ui, "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
-		"Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+		"Noto Sans SC Variable", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI Variable Text", "Segoe UI",
+		"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
 	font-family: var(--sans);
 	font-size: 14px;
 	line-height: 1.6;
