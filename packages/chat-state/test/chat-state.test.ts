@@ -1,4 +1,4 @@
-import type { EventFrame, SessionSnapshot, SessionSummary, UiRequest } from "@pier/protocol";
+import type { EventFrame, SessionSnapshot, SessionSummary, SubagentInfo, UiRequest } from "@pier/protocol";
 import { describe, expect, it } from "vitest";
 import {
 	applySnapshot,
@@ -7,12 +7,14 @@ import {
 	cacheableChatState,
 	editReplacements,
 	initialChatState,
+	isSubagentTool,
 	isWaitingForModel,
 	parsePartialJson,
 	reduceChat,
 	sessionUsage,
 	stripImageHints,
 	stripTrailingImageHints,
+	subagentList,
 	summarizeToolCall,
 	userText,
 	waitingForModelLabel,
@@ -597,5 +599,55 @@ describe("stripImageHints", () => {
 		};
 		const [item] = buildTranscript(state);
 		expect(item).toMatchObject({ kind: "user", text: "看图" });
+	});
+});
+
+describe("subagents", () => {
+	const subagent = (patch: Partial<SubagentInfo>): SubagentInfo => ({
+		id: "a",
+		toolCallId: "call-1",
+		name: "explorer",
+		status: "running",
+		steps: 0,
+		stoppable: true,
+		transcript: true,
+		revision: 0,
+		...patch,
+	});
+	const call = {
+		role: "assistant",
+		content: [{ type: "toolCall", id: "call-1", name: "Agent", arguments: { prompt: "look" } }],
+		timestamp: 1,
+	};
+
+	it("keeps subagents from snapshots and updates and attaches them to their tool calls", () => {
+		let state = applySnapshot(
+			initialChatState("s1"),
+			snapshot({ messages: [call], pendingToolCalls: ["call-1"], subagents: [subagent({})] }),
+		);
+		expect(Object.keys(state.subagents)).toEqual(["a"]);
+		state = run(state, [
+			{ type: "subagent.update", subagent: subagent({ steps: 3, activity: "bash: ls" }) },
+			{ type: "subagent.update", subagent: subagent({ id: "b", name: "reviewer" }) },
+			{ type: "subagent.update", subagent: subagent({ id: "c", toolCallId: "other", parentId: "a" }) },
+		]);
+		expect(subagentList(state).map((s) => [s.id, s.steps])).toEqual([
+			["a", 3],
+			["b", 0],
+			["c", 0],
+		]);
+		const [item] = buildTranscript(state);
+		const block = item?.kind === "assistant" ? item.blocks[0] : undefined;
+		expect(block).toMatchObject({ kind: "tool", status: "running", subagents: [{ id: "a" }, { id: "b" }] });
+		// Older hosts and plain tools carry no subagents.
+		const plain = applySnapshot(initialChatState("s1"), snapshot({ messages: [call] }));
+		expect(plain.subagents).toEqual({});
+		const tool = buildTranscript(plain)[0];
+		expect(tool?.kind === "assistant" ? tool.blocks[0] : undefined).toMatchObject({ subagents: [] });
+	});
+
+	it("recognizes the tools that delegate", () => {
+		expect(["Agent", "Task", "spawn_agent", "subagent"].every(isSubagentTool)).toBe(true);
+		expect(isSubagentTool("bash")).toBe(false);
 	});
 });

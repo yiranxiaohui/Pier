@@ -658,6 +658,53 @@ export interface SessionSnapshot {
 	errorMessage?: string;
 	/** What the session's runtime supports (1.22). Absent from older hosts: everything (pi). */
 	capabilities?: AgentRuntimeCapabilities;
+	/** Subagents the session's agent started (1.54), oldest first. Absent when there are none. */
+	subagents?: SubagentInfo[];
+}
+
+/** State of a subagent (1.54). `stopped`: interrupted, or ended without reporting a result. */
+export type SubagentStatus = "running" | "completed" | "failed" | "stopped";
+
+/**
+ * A subagent a session's agent delegated work to (1.54): a Claude Code `Agent` task, a Codex
+ * sub-agent thread or a `pi-subagents` child run. Hosts send the whole object again
+ * (`subagent.update`) whenever it changes.
+ */
+export interface SubagentInfo {
+	/** Unique in the session. */
+	id: string;
+	/** Tool call of the parent transcript that started it (`Agent`, `spawn_agent`, `subagent`). */
+	toolCallId?: string;
+	/** Subagent that started it, for nested subagents. */
+	parentId?: string;
+	/** Display name: the agent type, role, nickname or task name. */
+	name: string;
+	/** Short description of the delegated task. */
+	description?: string;
+	/** The delegated task (prompt), truncated. */
+	task?: string;
+	model?: string;
+	thinkingLevel?: string;
+	status: SubagentStatus;
+	/** Epoch milliseconds. */
+	startedAt?: number;
+	endedAt?: number;
+	/** Run time when the start time is unknown (stored sessions). */
+	durationMs?: number;
+	/** Tool calls made so far. */
+	steps: number;
+	tokens?: number;
+	/** What it is doing now, e.g. the running tool or a progress summary. */
+	activity?: string;
+	/** Final report, truncated. */
+	result?: string;
+	error?: string;
+	/** `session.subagentStop` can stop it while it runs. */
+	stoppable: boolean;
+	/** `session.subagentTranscript` can return its conversation. */
+	transcript: boolean;
+	/** Increases whenever its conversation changes, so viewers know when to fetch it again. */
+	revision: number;
 }
 
 /** A remote device paired with this host (see `docs/security.md`). */

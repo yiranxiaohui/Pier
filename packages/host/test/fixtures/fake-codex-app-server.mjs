@@ -87,6 +87,150 @@ const MODELS = [
 
 const active = new Map();
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Run a sub-agent's turn: one command, then its report. `mode` "wait" runs until interrupted;
+ * `pause` milliseconds pass between steps.
+ */
+async function runChild(child, rootTurnId, mode, pause = 0) {
+	const threadId = child.id;
+	const turn = { id: id("turn"), rootTurnId, items: [], status: "inProgress", error: null, startedAt: now() };
+	child.turns.push(turn);
+	active.set(threadId, { turnId: turn.id, steered: [] });
+	const turnId = turn.id;
+	const complete = (item) => {
+		turn.items.push(item);
+		notify("item/completed", { threadId, turnId, item, completedAtMs: Date.now() });
+	};
+	notify("thread/status/changed", { threadId, status: { type: "active", activeFlags: [] } });
+	notify("turn/started", { threadId, turn: { ...turn, items: [] } });
+	const command = {
+		type: "commandExecution",
+		id: id("cmd"),
+		command: "cat a.txt",
+		cwd: child.cwd,
+		status: "inProgress",
+		commandActions: [],
+		aggregatedOutput: null,
+		exitCode: null,
+		durationMs: null,
+	};
+	await sleep(pause);
+	notify("item/started", { threadId, turnId, item: command, startedAtMs: Date.now() });
+	await sleep(pause);
+	if (mode === "approve") {
+		const answer = await ask("item/commandExecution/requestApproval", {
+			threadId,
+			turnId,
+			itemId: command.id,
+			command: command.command,
+			cwd: child.cwd,
+			reason: "needs approval",
+		});
+		child.approval = answer?.decision ?? null;
+	}
+	complete({ ...command, status: "completed", exitCode: 0, aggregatedOutput: "hello\n" });
+	for (let step = 0; pause && step < 3; step++) {
+		await sleep(pause);
+		const extra = { ...command, id: id("cmd"), command: `grep -n step${step} *.txt` };
+		notify("item/started", { threadId, turnId, item: extra, startedAtMs: Date.now() });
+		await sleep(pause);
+		complete({ ...extra, status: "completed", exitCode: 0, aggregatedOutput: `step${step}\n` });
+	}
+	if (mode === "wait") {
+		await new Promise((resolve) => {
+			const timer = setInterval(() => {
+				if (active.get(threadId)?.interrupted) {
+					clearInterval(timer);
+					resolve();
+				}
+			}, 10);
+		});
+	}
+	if (active.get(threadId)?.interrupted) {
+		turn.status = "interrupted";
+	} else {
+		await sleep(pause);
+		complete({ type: "agentMessage", id: id("msg"), text: "a.txt says hello", phase: "final_answer" });
+		notify("thread/tokenUsage/updated", {
+			threadId,
+			turnId,
+			tokenUsage: { total: { totalTokens: 42 }, last: { totalTokens: 42 } },
+		});
+		turn.status = "completed";
+	}
+	active.delete(threadId);
+	notify("thread/status/changed", { threadId, status: { type: "idle" } });
+	notify("turn/completed", { threadId, turn });
+	return turn.status;
+}
+
+/**
+ * The parent's side of sub-agents (prompts with "delegate"): `spawn_agent`, then `wait` until
+ * the children end. "delegate-hold" keeps them running until interrupted, "delegate-approve"
+ * makes them ask for approval, "team" spawns two and "slow" paces their steps (for UI work).
+ */
+async function spawnChild(thread, turn, text, complete) {
+	const count = text.includes("team") ? 2 : 1;
+	const pause = text.includes("slow") ? 1500 : 0;
+	const children = [];
+	for (let i = 0; i < count; i++) children.push(spawnOne(thread, turn, text, complete, i, pause));
+	const wait = {
+		type: "collabAgentToolCall",
+		id: id("call"),
+		tool: "wait",
+		status: "inProgress",
+		senderThreadId: thread.id,
+		receiverThreadIds: [],
+		prompt: null,
+		model: null,
+		reasoningEffort: null,
+		agentsStates: {},
+	};
+	notify("item/started", { threadId: thread.id, turnId: turn.id, item: wait, startedAtMs: Date.now() });
+	await Promise.all(children.map((start) => start()));
+	complete({ ...wait, status: "completed" });
+}
+
+/** Spawn one sub-agent; returns a function that runs it and reports its end to the parent. */
+function spawnOne(thread, turn, text, complete, index, pause) {
+	const threadId = thread.id;
+	const turnId = turn.id;
+	const path = index ? `/root/reviewer_${index}` : "/root/reader";
+	const child = newThread(thread.cwd, {
+		forkedFromId: thread.id,
+		parentThreadId: thread.id,
+		agentNickname: index ? "Noether" : "Volta",
+		agentRole: null,
+		source: { subAgent: { thread_spawn: { parent_thread_id: thread.id, depth: 1, agent_path: path } } },
+	});
+	const spawn = {
+		type: "subAgentActivity",
+		model: "gpt-test",
+		reasoningEffort: "low",
+		id: id("call"),
+		kind: "started",
+		agentThreadId: child.id,
+		agentPath: path,
+	};
+	notify("item/started", { threadId, turnId, item: spawn, startedAtMs: Date.now() });
+	complete(spawn);
+	const mode = text.includes("delegate-hold") ? "wait" : text.includes("delegate-approve") ? "approve" : "run";
+	return async () => {
+		const status = await runChild(child, turnId, mode, pause * (index + 1));
+		complete({
+			type: "subAgentActivity",
+			model: null,
+			reasoningEffort: null,
+			id: `subagent-${status}-${child.id}`,
+			kind: status === "completed" ? "completed" : "interrupted",
+			agentThreadId: child.id,
+			agentPath: path,
+		});
+	};
+}
+
 async function runTurn(thread, turn, text) {
 	const threadId = thread.id;
 	const turnId = turn.id;
@@ -96,6 +240,7 @@ async function runTurn(thread, turn, text) {
 		notify("item/completed", { threadId, turnId, item, completedAtMs: Date.now() });
 	};
 	notify("turn/started", { threadId, turn: { ...turn, items: [] } });
+	if (text.includes("delegate")) await spawnChild(thread, turn, text, complete);
 	if (text.includes("run")) {
 		const item = {
 			type: "commandExecution",
@@ -201,7 +346,7 @@ const handlers = {
 	},
 	"thread/list": (params) => ({
 		data: [...threads.values()]
-			.filter((t) => !t.archived && t.cwd === params.cwd && t.turns.length > 0)
+			.filter((t) => !t.archived && !t.parentThreadId && t.cwd === params.cwd && t.turns.length > 0)
 			.map((t) => threadView(t)),
 		nextCursor: null,
 	}),
@@ -216,6 +361,11 @@ const handlers = {
 		};
 	},
 	"thread/turns/list": (params) => ({ data: threads.get(params.threadId)?.turns ?? [], nextCursor: null }),
+	"thread/read": (params) => {
+		const thread = threads.get(params.threadId);
+		if (!thread) throw new Error("no such thread");
+		return { thread: { ...threadView(thread), status: { type: active.has(thread.id) ? "active" : "idle" } } };
+	},
 	"thread/fork": (params) => {
 		const source = threads.get(params.threadId);
 		const end = source.turns.findIndex((t) => t.id === params.lastTurnId);
@@ -286,6 +436,8 @@ const handlers = {
 		if (run) run.interrupted = true;
 		return {};
 	},
+	// Test helper: the approval decision a sub-agent got.
+	"fake/childApproval": () => [...threads.values()].find((t) => t.approval !== undefined)?.approval ?? null,
 	// Test helper: what the last turn/start asked for.
 	"fake/lastTurn": (params) => threads.get(params.threadId)?.lastTurnParams ?? null,
 	"fake/rejectSettings": (params) => {

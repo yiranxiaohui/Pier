@@ -17,6 +17,7 @@ import { SettingsPage } from "./components/Settings.tsx";
 import { Sidebar, SidebarToggle } from "./components/Sidebar.tsx";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
+import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { TerminalPanel } from "./components/TerminalPanel.tsx";
 import { TitleBar } from "./components/TitleBar.tsx";
 import { useCanOpenTerminal } from "./lib/remote-terminals.ts";
@@ -101,7 +102,11 @@ const FILES_CLOSE_MS = 320;
 
 function RightPanel({ workspace, composerKey }: { workspace?: WorkspaceInfo; composerKey?: string }) {
 	const tab = useAppState((s) => s.rightPanelTab);
+	const subagent = useAppState((s) => s.subagentView);
 	if (!workspace) return null;
+	if (tab === "subagent" && subagent && subagent.sessionId === composerKey) {
+		return <SubagentPanel key={`${subagent.sessionId}:${subagent.subagentId}`} workspace={workspace} {...subagent} />;
+	}
 	if (tab === "git") {
 		return <GitPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
 	}
@@ -124,6 +129,11 @@ export function App() {
 	const screenWorkspace = screen.workspace;
 	const canOpenTerminal = useCanOpenTerminal(screenWorkspace);
 	const showFiles = filesPanel && hasWorkspace;
+	// A subagent's conversation belongs to its session: leave it when another one is shown.
+	const subagentSession = useAppState((s) => s.subagentView?.sessionId);
+	useEffect(() => {
+		if (subagentSession && subagentSession !== screen.composerKey) store.closeSubagent(true);
+	}, [store, subagentSession, screen.composerKey]);
 	// Both side panels sit in shells that animate between open and collapsed widths. The file
 	// panel stays mounted only until its closing animation ends, so a hidden panel does not keep
 	// reloading and closing still cancels its pending upload questions.

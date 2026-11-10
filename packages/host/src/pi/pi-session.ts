@@ -1,4 +1,9 @@
-import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
+import {
+	type AgentSession,
+	type AgentSessionEvent,
+	type AgentSessionRuntime,
+	SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import { stripImageHints } from "@pier/chat-state";
 import {
 	type AgentRuntimeCapabilities,
@@ -22,10 +27,13 @@ import {
 	type SessionDescription,
 	textOf,
 } from "../managed-session.ts";
+import type { TranscriptMessage } from "../runtimes/live-transcript.ts";
+import type { SubagentRuntimeHooks } from "../runtimes/subagents.ts";
 import { ExternalChangeGuard } from "../session-lock.ts";
 import { createApprovalExtension } from "./approval-extension.ts";
 import { type PiEnvironment, toModelInfo } from "./environment.ts";
 import { toWireEvent } from "./events.ts";
+import { PI_SUBAGENT_TOOL, piSubagentUpdates, storedPiSubagents } from "./subagents.ts";
 import { createUiContext } from "./ui-context.ts";
 
 /** pi's thinking level when neither the model nor the settings name one. */
@@ -70,6 +78,8 @@ export class PiManagedSession extends ManagedSession {
 	private unsubscribePi: (() => void) | undefined;
 	private guard = new ExternalChangeGuard(undefined);
 	private boundSessionId: string | undefined;
+	/** pi session file of each `pi-subagents` child, for its conversation. */
+	private readonly subagentFiles = new Map<string, string>();
 
 	private constructor(private readonly piOptions: PiSessionOptions) {
 		super(piOptions);
@@ -152,6 +162,7 @@ export class PiManagedSession extends ManagedSession {
 			this.acquireLock(session.sessionFile);
 			this.resetLog();
 		}
+		if (replaced || previousId === undefined) this.loadSubagents(session);
 		this.boundSessionId = session.sessionId;
 		this.guard.setPath(session.sessionFile);
 
@@ -193,8 +204,49 @@ export class PiManagedSession extends ManagedSession {
 		this.lastActivity = Date.now();
 		const wire = toWireEvent(event);
 		if (wire) this.emit(wire);
+		if (event.type === "tool_execution_update" || event.type === "tool_execution_end") this.trackSubagents(event);
 		if (WRITE_EVENTS.has(event.type)) this.guard.record();
 		this.updateRunState();
+	}
+
+	/** Subagents recorded in the session's stored `subagent` tool results. */
+	private loadSubagents(session: AgentSession): void {
+		this.subagentFiles.clear();
+		const stored = storedPiSubagents(session.messages);
+		this.subagents.load(stored.map((s) => s.info));
+		for (const { info, sessionFile } of stored) if (sessionFile) this.subagentFiles.set(info.id, sessionFile);
+	}
+
+	/** Follow the children of a `pi-subagents` `subagent` tool call through its results. */
+	private trackSubagents(event: Extract<AgentSessionEvent, { type: "tool_execution_update" | "tool_execution_end" }>) {
+		if (event.toolName !== PI_SUBAGENT_TOOL) return;
+		const final = event.type === "tool_execution_end";
+		const result = (final ? event.result : event.partialResult) as { details?: unknown } | undefined;
+		const updates = piSubagentUpdates(event.toolCallId, result?.details, final);
+		for (const { id, patch, sessionFile } of updates) {
+			if (sessionFile) this.subagentFiles.set(id, sessionFile);
+			const known = this.subagents.get(id);
+			const startedAt = known?.startedAt ?? Date.now() - (patch.durationMs ?? 0);
+			const { durationMs: _duration, ...rest } = patch;
+			const changed = !known || known.steps !== rest.steps || known.status !== rest.status;
+			this.subagents.update(id, { ...rest, startedAt }, { changed });
+		}
+		if (final) {
+			for (const subagent of this.subagents.forToolCall(event.toolCallId)) {
+				if (subagent.status === "running") this.subagents.finish(subagent.id, event.isError ? "failed" : "stopped");
+			}
+		}
+	}
+
+	protected override subagentHooks(): SubagentRuntimeHooks {
+		return {
+			load: async (subagent) => {
+				const file = this.subagentFiles.get(subagent.id);
+				if (!file) return undefined;
+				const manager = SessionManager.open(file);
+				return manager.buildSessionContext().messages as unknown as TranscriptMessage[];
+			},
+		};
 	}
 
 	private computeRunState(): SessionRunState {

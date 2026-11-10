@@ -165,3 +165,12 @@ export function relativeWorkspacePath(root: string, path: string): string | unde
 	if (!comparablePath.startsWith(windows ? prefix.toLowerCase() : prefix)) return undefined;
 	return normalizedPath.slice(prefix.length);
 }
+
+/** A short duration, e.g. `58s`, `3m 05s`, `1h 02m`. */
+export function formatDuration(ms: number): string {
+	const seconds = Math.max(0, Math.floor(ms / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+	return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}

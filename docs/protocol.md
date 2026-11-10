@@ -1,4 +1,4 @@
-# Pier 协议 v1.53
+# Pier 协议 v1.54
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -196,6 +196,43 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 - **压缩**：Claude Code 发送 `/compact`，Codex 调用 `thread/compact/start`；两者的 `summary` 为空字符串。
 - **分叉**：Claude Code 用 SDK 的 `forkSession`，Codex 用 `thread/fork`（`position: "at"` 时包含该用户消息所在的整个回合）。
 - **进程**：Claude Code 会话在首次发送消息时启动 CLI，空闲 10 分钟后停止（之后自动恢复会话）；所有 Codex 会话共用一个 `codex app-server` 进程，没有打开的 Codex 会话 5 分钟后停止。
+
+### Subagent（1.54）
+
+Agent 可以把任务委派给 subagent：Claude Code 的 `Agent`（旧名 `Task`）工具、Codex 的 sub-agent 线程（`spawn_agent` 等多 Agent 协作工具），以及 pi 的 [`pi-subagents`](https://github.com/nicobailon/pi-subagents) 扩展的 `subagent` 工具。Host 把它们统一成 `SubagentInfo`，在快照的 `subagents` 中给出，状态变化时发送 `subagent.update`（见 §4.2）：
+
+```ts
+SubagentInfo = {
+  id: string;            // 会话内唯一：Claude Code 为 Agent 工具调用 ID，Codex 为 sub-agent 线程 ID，pi 为 `<工具调用 ID>:<序号>`
+  toolCallId?: string;   // 启动它的父 Agent 工具调用（Claude Code `Agent`、Codex `spawn_agent`、pi `subagent`）
+  parentId?: string;     // 嵌套时启动它的 subagent
+  name: string;          // Agent 类型、角色或任务名，如 `Explore`、`read_files`、`worker`
+  description?: string;  // 简短描述（Claude Code 的 description，Codex 的昵称 · 角色，pi 的会话名）
+  task?: string;         // 委派的任务（截断到 4000 字符；Codex 的任务内容加密，通常没有）
+  model?: string; thinkingLevel?: string;
+  status: "running" | "completed" | "failed" | "stopped";
+  startedAt?: number; endedAt?: number;  // 毫秒时间戳
+  durationMs?: number;   // 不知道开始时间时（已存储的会话）的运行时长
+  steps: number;         // 已执行的工具调用数
+  tokens?: number;
+  activity?: string;     // 正在做什么：当前工具调用或进度摘要
+  result?: string; error?: string;       // 最终报告 / 错误（截断）
+  stoppable: boolean;    // 运行中可以 session.subagentStop
+  transcript: boolean;   // 可以 session.subagentTranscript
+  revision: number;      // 对话每次变化都会增加，查看对话的客户端据此重新获取
+}
+```
+
+| 方法 | 参数 | 结果 |
+|---|---|---|
+| `session.subagentTranscript` | `{ sessionId, subagentId, from? }` | `{ subagent, messages, from, total, streamingMessage? }`：subagent 对话中从第 `from` 条（默认 0）开始的 `AgentMessage`，以及正在流式输出的消息；对话共有 `total` 条已完成的消息，`from > total` 表示对话已被替换，客户端应从 0 重新获取。客户端在 `revision` 变化时用自己已有的条数作为 `from` 增量获取。没有该 subagent → `NOT_FOUND`，`transcript: false` → `UNSUPPORTED` |
+| `session.subagentStop` | `{ sessionId, subagentId? }` | `{ stopped }`：停止一个运行中的 subagent，省略 `subagentId` 时停止所有可停止的 subagent，返回请求停止的个数；父 Agent 继续运行。`stoppable: false` 的 subagent → `UNSUPPORTED`。向已配对设备开放并记录到审计日志 |
+
+各运行时的来源：
+
+- **Claude Code**：`task_started` / `task_progress` / `task_notification` 系统消息给出类型、任务、进度、用量与最终摘要，带 `parent_tool_use_id` 的消息组成 subagent 的对话（Claude Code 不推送子 Agent 的最终回复，Host 用任务摘要补上）。停止使用 SDK 的 `stopTask`。重新打开会话时从 `Agent` 工具调用与结果恢复，对话通过 `getSubagentMessages` 读取。
+- **Codex**：`subAgentActivity` / `collabAgentToolCall` 条目给出 sub-agent 线程，Host 跟随这些线程的通知（子线程的审批请求也交给父会话，理由前加 `[名称]`），用 `thread/read` 补充昵称、角色与模型。停止对子线程调用 `turn/interrupt`。重新打开会话时从回合条目恢复，对话通过子线程的 `thread/turns/list` 读取。sub-agent 线程不出现在 `session.list` 中。
+- **pi**：从 `subagent` 工具结果（含流式的部分结果）的 `details.results` / `details.progress` 读取，对话从子 Agent 的 pi 会话文件读取；暂不支持停止。后台（`async`）运行与工作流管理操作不产生 subagent。
 
 ### session
 
@@ -490,6 +527,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 | `session.status` | `state: idle\|streaming\|compacting\|retrying` | 状态变化时发送 |
 | `session.model` | `model?, contextInfo?, thinkingLevel` | `model.set` 之后 |
 | `session.fast` | `enabled: boolean` | Codex Fast 状态变化时发送（1.43），包括原生 `thread/settings/updated` 通知 |
+| `subagent.update` | `subagent: SubagentInfo` | subagent 出现或变化时发送完整状态（1.54），见「Subagent」；状态变化立即发送，进度最多每 250ms 一次 |
 | `session.replaced` | `previousSessionId, session` | 扩展命令（如 `/new`）替换了底层 pi 会话；帧的 `sessionId` 为旧 ID，随后会收到新会话的 `session.snapshot` |
 | `session.closed` | `reason: idle\|closed\|deleted\|host_shutdown` | 会话离开活跃池；`deleted` 表示会话已被 `session.delete` 删除（1.6） |
 | `ui.request` | `request: UiRequest` | 对话框或审批请求，见 §6 |
@@ -582,6 +620,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
   statuses: Record<string, string>; widgets: Record<string, { lines: string[]; placement?: string }>;
   title?: string; errorMessage?: string;
   capabilities?: AgentRuntimeCapabilities; // 会话运行时的能力（1.22），见 §3 Agent 运行时
+  subagents?: SubagentInfo[];  // 会话中的 subagent（1.54），没有时省略，见 §3 Subagent
 }
 ```
 

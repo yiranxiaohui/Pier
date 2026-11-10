@@ -1,3 +1,4 @@
+import type { SubagentInfo } from "@pier/protocol";
 import {
 	type AnyMessage,
 	type AssistantMessage,
@@ -12,7 +13,7 @@ import {
 	type ToolResultMessage,
 	userText,
 } from "./messages.ts";
-import type { ChatState, ToolExecution } from "./reducer.ts";
+import { type ChatState, subagentsOf, type ToolExecution } from "./reducer.ts";
 
 /**
  * Tool call lifecycle as displayed:
@@ -29,6 +30,8 @@ export interface ToolBlock {
 	status: ToolStatus;
 	execution?: ToolExecution;
 	result?: ToolResultMessage;
+	/** Subagents this call started (1.54). */
+	subagents?: SubagentInfo[];
 }
 
 export type AssistantBlock =
@@ -81,12 +84,14 @@ function assistantBlocks(
 			else if (streaming && part.partialJson !== undefined && index === content.length - 1) status = "generating";
 			else if (state.runState === "idle" || state.runState === "inactive") status = "interrupted";
 			else status = "pending";
+			const subagents = part.id ? subagentsOf(state, part.id) : [];
 			blocks.push({
 				kind: "tool",
 				call: part,
 				status,
 				...(execution ? { execution } : {}),
 				...(result ? { result } : {}),
+				...(subagents.length || isSubagentTool(part.name) ? { subagents } : {}),
 			});
 		}
 	}
@@ -294,4 +299,14 @@ export function sessionUsage(state: ChatState): SessionUsage {
 	}
 	const cacheHitRate = input > 0 ? cacheRead / input : undefined;
 	return { input, output, cacheRead, cacheWrite, cacheHitRate, cost, lastContext };
+}
+
+/** Tools that delegate work to subagents: Claude Code `Agent` / `Task`, Codex `spawn_agent`, pi-subagents. */
+export function isSubagentTool(name: string): boolean {
+	return name === "Agent" || name === "Task" || name === "spawn_agent" || name === "subagent";
+}
+
+/** Subagents nested under another subagent, in start order. */
+export function childSubagents(state: ChatState, parentId: string): SubagentInfo[] {
+	return Object.values(state.subagents ?? {}).filter((s) => s.parentId === parentId);
 }

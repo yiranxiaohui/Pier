@@ -12,6 +12,7 @@ import {
 	toolOutputText,
 	waitingForModelLabel,
 } from "@pier/chat-state";
+import type { SubagentInfo, SubagentStatus } from "@pier/protocol";
 import { memo, useMemo, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { isBusy, truncate } from "../format.ts";
@@ -37,6 +38,11 @@ const TOOL_LABEL: Record<string, string> = {
 	grep: "搜索",
 	find: "查找",
 	ls: "列目录",
+	Agent: "Subagent",
+	Task: "Subagent",
+	subagent: "Subagent",
+	spawn_agent: "派出 Subagent",
+	wait_agent: "等待 Subagent",
 };
 
 const TOOL_ICON: Record<string, IconName> = {
@@ -48,7 +54,83 @@ const TOOL_ICON: Record<string, IconName> = {
 	grep: "search-outline",
 	find: "search-outline",
 	ls: "folder-outline",
+	Agent: "git-network-outline",
+	Task: "git-network-outline",
+	subagent: "git-network-outline",
+	spawn_agent: "git-network-outline",
+	wait_agent: "time-outline",
 };
+
+const SUBAGENT_STATUS: Record<SubagentStatus, string> = {
+	running: "运行中",
+	completed: "已完成",
+	failed: "失败",
+	stopped: "已停止",
+};
+
+const SUBAGENT_ICON: Record<Exclude<SubagentStatus, "running">, IconName> = {
+	completed: "checkmark-circle",
+	failed: "close-circle",
+	stopped: "remove-circle-outline",
+};
+
+function subagentColor(p: Palette, status: SubagentStatus): string {
+	if (status === "failed") return p.danger;
+	if (status === "completed") return p.ok;
+	if (status === "running") return p.accent;
+	return p.warning;
+}
+
+/** The subagents a tool call started: name, model, state, steps and what each is doing. */
+function SubagentList({ subagents }: { subagents: SubagentInfo[] }) {
+	const p = usePalette();
+	return (
+		<View style={styles.subagents}>
+			{subagents.map((s) => {
+				const summary = (s.description ?? s.task)?.split("\n").find((line) => line.trim());
+				const detail = s.status === "running" ? s.activity : s.status === "failed" ? s.error : undefined;
+				return (
+					<View key={s.id} style={[styles.subagent, { borderColor: p.border, backgroundColor: p.elevated }]}>
+						<View style={styles.subagentHead}>
+							<Icon name="hardware-chip-outline" size={14} color={p.muted} />
+							<Text style={[styles.subagentName, { color: p.text }]} numberOfLines={1}>
+								{s.name}
+							</Text>
+							{s.model ? (
+								<Text style={[styles.subagentModel, { color: p.faint }]} numberOfLines={1}>
+									{[s.model, s.thinkingLevel].filter(Boolean).join(" ")}
+								</Text>
+							) : (
+								<View style={styles.subagentModel} />
+							)}
+							{s.status === "running" ? (
+								<ActivityIndicator size="small" color={p.accentText} />
+							) : (
+								<Icon name={SUBAGENT_ICON[s.status]} size={16} color={subagentColor(p, s.status)} />
+							)}
+						</View>
+						<Text style={[styles.subagentMeta, { color: p.muted }]} numberOfLines={1}>
+							{SUBAGENT_STATUS[s.status]} · {s.steps} 个步骤
+						</Text>
+						{summary ? (
+							<Text style={[styles.subagentText, { color: p.text }]} numberOfLines={2}>
+								{summary}
+							</Text>
+						) : null}
+						{detail ? (
+							<Text
+								style={[styles.subagentDetail, { color: s.status === "failed" ? p.danger : p.faint }]}
+								numberOfLines={1}
+							>
+								{detail}
+							</Text>
+						) : null}
+					</View>
+				);
+			})}
+		</View>
+	);
+}
 
 const STATUS_ICON: Partial<Record<ToolBlock["status"], IconName>> = {
 	done: "checkmark-circle",
@@ -129,6 +211,7 @@ export const ToolCard = memo(function ToolCard({ block }: { block: ToolBlock }) 
 				)}
 				<Icon name={open ? "chevron-up" : "chevron-down"} size={14} color={p.faint} />
 			</Pressable>
+			{block.subagents?.length ? <SubagentList subagents={block.subagents} /> : null}
 			{open ? (
 				<View style={styles.toolBody}>
 					{diff ? <DiffView diff={diff} /> : null}
@@ -310,6 +393,14 @@ const styles = StyleSheet.create({
 	toolSummary: { fontFamily: MONO, fontSize: 12.5 },
 	toolStatus: { fontSize: 12, fontWeight: "500" },
 	toolBody: { gap: 6, paddingHorizontal: 8, paddingBottom: 8 },
+	subagents: { gap: 6, paddingHorizontal: 8, paddingBottom: 8 },
+	subagent: { gap: 2, padding: 9, borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md },
+	subagentHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+	subagentName: { fontSize: 14, fontWeight: "600", flexShrink: 1 },
+	subagentModel: { flex: 1, fontSize: 11, fontFamily: MONO, textAlign: "right" },
+	subagentMeta: { fontSize: 12 },
+	subagentText: { fontSize: 13 },
+	subagentDetail: { fontSize: 11, fontFamily: MONO },
 	output: { borderRadius: 10, padding: 10, maxHeight: 280 },
 	bashOutput: { marginHorizontal: 8, marginBottom: 8 },
 	mono: { fontFamily: MONO, fontSize: 12, lineHeight: 17 },

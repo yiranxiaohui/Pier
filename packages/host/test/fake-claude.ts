@@ -20,7 +20,7 @@ interface StoredEntry {
 	type: string;
 	uuid: string;
 	message: unknown;
-	parent_tool_use_id: null;
+	parent_tool_use_id: string | null;
 }
 
 interface FakeSession {
@@ -28,6 +28,10 @@ interface FakeSession {
 	cwd: string;
 	title?: string;
 	entries: StoredEntry[];
+	/** Subagent conversations by the `Agent` tool call that started them. */
+	agents: Map<string, StoredEntry[]>;
+	/** Claude Code agent id (the task id) of each `Agent` tool call. */
+	agentIds: Map<string, string>;
 	createdAt: number;
 	modifiedAt: number;
 }
@@ -41,6 +45,8 @@ export class FakeClaude {
 	readonly sessions = new Map<string, FakeSession>();
 	readonly options: Json[] = [];
 	readonly calls: string[] = [];
+	/** Task ids passed to `stopTask`. */
+	readonly stoppedTasks: string[] = [];
 	responder: FakeResponder = async function* () {
 		yield { type: "assistant", message: { id: "msg_default", content: [{ type: "text", text: "ok" }] } };
 	};
@@ -73,6 +79,16 @@ export class FakeClaude {
 					createdAt: s.createdAt,
 				}))) as never,
 		getSessionMessages: (async (id: string) => this.sessions.get(id)?.entries ?? []) as never,
+		listSubagents: (async (id: string) => {
+			const session = this.sessions.get(id);
+			return [...(session?.agents.keys() ?? [])].map((toolUseId) => session?.agentIds.get(toolUseId) ?? toolUseId);
+		}) as never,
+		getSubagentMessages: (async (id: string, agentId: string, options?: { limit?: number }) => {
+			const session = this.sessions.get(id);
+			const toolUseId = [...(session?.agentIds.entries() ?? [])].find(([, a]) => a === agentId)?.[0] ?? agentId;
+			const entries = session?.agents.get(toolUseId) ?? [];
+			return options?.limit ? entries.slice(0, options.limit) : entries;
+		}) as never,
 		renameSession: (async (id: string, title: string) => {
 			const session = this.sessions.get(id);
 			if (session) session.title = title;
@@ -84,6 +100,8 @@ export class FakeClaude {
 			const fork: FakeSession = {
 				id: crypto.randomUUID(),
 				cwd: source.cwd,
+				agents: new Map(),
+				agentIds: new Map(),
 				entries: source.entries.slice(0, end === -1 ? undefined : end + 1),
 				createdAt: Date.now(),
 				modifiedAt: Date.now(),
@@ -106,7 +124,15 @@ export class FakeClaude {
 			for await (const input of params.prompt) {
 				let session = this.sessions.get(id);
 				if (!session) {
-					session = { id, cwd, entries: [], createdAt: Date.now(), modifiedAt: Date.now() };
+					session = {
+						id,
+						cwd,
+						entries: [],
+						agents: new Map(),
+						agentIds: new Map(),
+						createdAt: Date.now(),
+						modifiedAt: Date.now(),
+					};
 					this.sessions.set(id, session);
 				}
 				const message = input.message as Json;
@@ -129,14 +155,23 @@ export class FakeClaude {
 							interrupted = true;
 							break;
 						}
-						output.push({ ...reply, parent_tool_use_id: null, session_id: id, uuid: crypto.randomUUID() });
+						const parent = typeof reply.parent_tool_use_id === "string" ? reply.parent_tool_use_id : null;
+						if (reply.subtype === "task_started") {
+							session.agentIds.set(String(reply.tool_use_id), String(reply.task_id));
+						}
+						output.push({ ...reply, parent_tool_use_id: parent, session_id: id, uuid: crypto.randomUUID() });
 						if (reply.type === "assistant" || reply.type === "user") {
-							session.entries.push({
+							const entry = {
 								type: String(reply.type),
 								uuid: crypto.randomUUID(),
 								message: reply.message,
-								parent_tool_use_id: null,
-							});
+								parent_tool_use_id: parent,
+							};
+							if (parent) {
+								const agent = session.agents.get(parent) ?? [];
+								agent.push(entry);
+								session.agents.set(parent, agent);
+							} else session.entries.push(entry);
 						}
 					}
 				} catch {
@@ -164,6 +199,9 @@ export class FakeClaude {
 			},
 			interrupt: async () => {
 				abort.abort();
+			},
+			stopTask: async (taskId: string) => {
+				this.stoppedTasks.push(taskId);
 			},
 			setModel: async (model?: string) => {
 				this.calls.push(`setModel:${model ?? "default"}`);

@@ -59,6 +59,7 @@ const TABS: Array<{ id: RightPanelTab; label: string; hint: string }> = [
 	{ id: "files", label: "文件", hint: "工作区文件（Ctrl/⌘+Shift+E）" },
 	{ id: "git", label: "源代码管理", hint: "Git 源代码管理（Ctrl/⌘+Shift+G）" },
 ];
+const SUBAGENT_TAB = { id: "subagent" as const, label: "Subagent", hint: "Subagent 的对话" };
 
 /** The right panel's view switcher (files / source control) with the workspace name below. */
 export function PanelHeading({
@@ -73,11 +74,13 @@ export function PanelHeading({
 }) {
 	const store = useStore();
 	const tab = useAppState((s) => s.rightPanelTab);
+	const subagent = useAppState((s) => s.subagentView !== undefined);
 	const count = useGitChangeCount(workspaceId);
+	const tabs = subagent ? [...TABS, SUBAGENT_TAB] : TABS;
 	return (
 		<div className="files-heading">
 			<div className="panel-tabs" role="tablist" aria-label="右侧面板">
-				{TABS.map((t) => (
+				{tabs.map((t) => (
 					<button
 						key={t.id}
 						type="button"

@@ -7,6 +7,7 @@ import type {
 	SessionRunState,
 	SessionSnapshot,
 	SessionSummary,
+	SubagentInfo,
 	UiRequest,
 } from "@pier/protocol";
 import type { AnyMessage, AssistantMessage, ThinkingPart, ToolCallPart } from "./messages.ts";
@@ -76,6 +77,8 @@ export interface ChatState {
 	nextNoticeId: number;
 	/** What the session's agent runtime supports; absent until a snapshot from a 1.22 host (pi: all). */
 	capabilities?: AgentRuntimeCapabilities;
+	/** Subagents the session's agent started, by id (1.54; empty for older hosts). */
+	subagents: Record<string, SubagentInfo>;
 }
 
 const MAX_NOTICES = 50;
@@ -97,6 +100,7 @@ export function initialChatState(sessionId: string, session?: SessionSummary): C
 		notices: [],
 		needsResync: false,
 		nextNoticeId: 1,
+		subagents: {},
 	};
 }
 
@@ -136,6 +140,7 @@ export function applySnapshot(state: ChatState, snapshot: SessionSnapshot): Chat
 		notices: state.notices,
 		needsResync: false,
 		nextNoticeId: state.nextNoticeId,
+		subagents: Object.fromEntries((snapshot.subagents ?? []).map((s) => [s.id, s])),
 	};
 	if (streaming && streaming.role === "assistant") next.streaming = cloneAssistant(streaming);
 	if (snapshot.model) next.model = snapshot.model;
@@ -421,6 +426,11 @@ export function reduceChat(state: ChatState, frame: EventFrame): ChatState {
 			return typeof event.level === "string" ? { ...state, thinkingLevel: event.level } : state;
 		case "session.fast":
 			return { ...state, fastMode: event.enabled as boolean };
+		case "subagent.update": {
+			const subagent = event.subagent as SubagentInfo | undefined;
+			if (!subagent?.id) return state;
+			return { ...state, subagents: { ...(state.subagents ?? {}), [subagent.id]: subagent } };
+		}
 		case "session.model": {
 			const next: ChatState = { ...state, thinkingLevel: String(event.thinkingLevel ?? state.thinkingLevel) };
 			if (event.model) next.model = event.model as ModelInfo;
@@ -489,4 +499,14 @@ export function cacheableChatState(state: ChatState): ChatState | undefined {
 	if (!state.loaded || state.needsResync) return undefined;
 	const { notices: _n, editorText: _e, closed: _c, ...rest } = state;
 	return { ...rest, notices: [], nextNoticeId: 1 };
+}
+
+/** Subagents in the order they started (nested ones after their parent). */
+export function subagentList(state: ChatState): SubagentInfo[] {
+	return Object.values(state.subagents ?? {});
+}
+
+/** Subagents started by one tool call, in start order. */
+export function subagentsOf(state: ChatState, toolCallId: string): SubagentInfo[] {
+	return subagentList(state).filter((s) => s.toolCallId === toolCallId);
 }

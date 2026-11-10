@@ -3,6 +3,7 @@ import {
 	buildTranscript,
 	type ChatState,
 	isWaitingForModel,
+	type ToolBlock,
 	type TranscriptItem,
 	waitingForModelLabel,
 } from "@pier/chat-state";
@@ -12,6 +13,7 @@ import { clockTime, formatTokens } from "../lib/format.ts";
 import { IconArrowDown, IconBrain, IconChevronRight, IconLayers, IconSparkles, IconTerminal } from "./Icons.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { CopyButton, Markdown, MarkdownFiles } from "./Markdown.tsx";
+import { delegates, SubagentCard, type SubagentScope, SubagentScopeContext } from "./SubagentCard.tsx";
 import { ToolCard } from "./ToolCard.tsx";
 
 function Thinking({ text, redacted, live }: { text: string; redacted: boolean; live: boolean }) {
@@ -38,13 +40,70 @@ function blocksEqual(a: AssistantBlock[], b: AssistantBlock[]): boolean {
 		const y = b[i];
 		if (!y || x.kind !== y.kind) return false;
 		if (x.kind === "tool" && y.kind === "tool") {
-			return x.status === y.status && x.execution === y.execution && x.result === y.result && x.call === y.call;
+			return (
+				x.status === y.status &&
+				x.execution === y.execution &&
+				x.result === y.result &&
+				x.call === y.call &&
+				sameItems(x.subagents, y.subagents)
+			);
 		}
 		if (x.kind === "thinking" && y.kind === "thinking") {
 			return x.text === y.text && x.redacted === y.redacted && x.live === y.live;
 		}
 		return x.kind !== "text" || (y.kind === "text" && x.text === y.text);
 	});
+}
+
+function sameItems<T>(a: T[] | undefined, b: T[] | undefined): boolean {
+	if (a === b) return true;
+	if (!a || !b || a.length !== b.length) return false;
+	return a.every((x, i) => x === b[i]);
+}
+
+/** Content parts to render: runs of consecutive delegating tool calls share one subagent card. */
+type Part = { kind: "block"; block: AssistantBlock; index: number } | { kind: "subagents"; blocks: ToolBlock[] };
+
+function groupParts(blocks: AssistantBlock[], approvals: Map<string, UiRequest>): Part[] {
+	const parts: Part[] = [];
+	for (const [index, block] of blocks.entries()) {
+		if (block.kind === "tool" && delegates(block) && !approvals.has(block.call.id)) {
+			const last = parts.at(-1);
+			if (last?.kind === "subagents") last.blocks.push(block);
+			else parts.push({ kind: "subagents", blocks: [block] });
+		} else parts.push({ kind: "block", block, index });
+	}
+	return parts;
+}
+
+/** Whether an assistant message only delegates to subagents. */
+function onlyDelegates(item: TranscriptItem, approvals: Map<string, UiRequest>): item is AssistantItem {
+	return (
+		item.kind === "assistant" &&
+		item.blocks.length > 0 &&
+		!item.message.errorMessage &&
+		item.blocks.every((b) => b.kind === "tool" && delegates(b) && !approvals.has(b.call.id))
+	);
+}
+
+/**
+ * Consecutive assistant messages that only delegate share one subagent card: Codex starts each
+ * sub-agent in a message of its own.
+ */
+function mergeDelegations(items: TranscriptItem[], approvals: Map<string, UiRequest>): TranscriptItem[] {
+	const merged: TranscriptItem[] = [];
+	for (const item of items) {
+		const previous = merged.at(-1);
+		if (previous && onlyDelegates(previous, approvals) && onlyDelegates(item, approvals)) {
+			merged[merged.length - 1] = {
+				...previous,
+				message: item.message,
+				blocks: [...previous.blocks, ...item.blocks],
+				streaming: item.streaming,
+			};
+		} else merged.push(item);
+	}
+	return merged;
 }
 
 const AssistantMessageView = memo(
@@ -62,16 +121,14 @@ const AssistantMessageView = memo(
 					</span>
 					Agent
 				</div>
-				{blocks.map((block, i) => {
-					if (block.kind === "text") {
-						// biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional content parts.
-						return <Markdown key={i} text={block.text} />;
+				{groupParts(blocks, approvals).map((part) => {
+					if (part.kind === "subagents") {
+						return <SubagentCard key={`subagents-${part.blocks[0]?.call.id}`} blocks={part.blocks} />;
 					}
+					const { block, index: i } = part;
+					if (block.kind === "text") return <Markdown key={i} text={block.text} />;
 					if (block.kind === "thinking") {
-						return (
-							// biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional content parts.
-							<Thinking key={i} text={block.text} redacted={block.redacted} live={block.live} />
-						);
+						return <Thinking key={i} text={block.text} redacted={block.redacted} live={block.live} />;
 					}
 					return <ToolCard key={block.call.id || i} block={block} approval={approvals.get(block.call.id)} />;
 				})}
@@ -198,7 +255,19 @@ const ItemView = memo(function ItemView({
 	}
 });
 
-export function Transcript({ chat, workspaceId }: { chat: ChatState; workspaceId: string }) {
+export function Transcript({
+	chat,
+	workspaceId,
+	scope,
+	emptyText,
+}: {
+	chat: ChatState;
+	workspaceId: string;
+	/** Session whose subagents the transcript's subagent cards open and stop. */
+	scope?: SubagentScope;
+	/** Shown instead of the new-chat placeholder when there are no messages. */
+	emptyText?: string;
+}) {
 	const items = useMemo(() => buildTranscript(chat), [chat]);
 	const approvals = useMemo(() => {
 		const map = new Map<string, UiRequest>();
@@ -207,6 +276,7 @@ export function Transcript({ chat, workspaceId }: { chat: ChatState; workspaceId
 		}
 		return map;
 	}, [chat.pendingUi]);
+	const shown = useMemo(() => mergeDelegations(items, approvals), [items, approvals]);
 	const scroller = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
 	const [showJump, setShowJump] = useState(false);
@@ -226,54 +296,57 @@ export function Transcript({ chat, workspaceId }: { chat: ChatState; workspaceId
 	const waitingForModel = isWaitingForModel(chat, items);
 
 	return (
-		<MarkdownFiles workspaceId={workspaceId}>
-			<div
-				className="transcript"
-				ref={scroller}
-				onScroll={(event) => {
-					const el = event.currentTarget;
-					const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-					stick.current = atBottom;
-					setShowJump(!atBottom);
-				}}
-			>
-				<div className="transcript-inner">
-					{!chat.loaded ? <div className="placeholder">正在加载会话…</div> : null}
-					{chat.loaded && items.length === 0 ? (
-						<div className="placeholder new-chat">
-							<div className="new-chat-icon">
-								<IconSparkles size={26} />
+		<SubagentScopeContext.Provider value={scope}>
+			<MarkdownFiles workspaceId={workspaceId}>
+				<div
+					className="transcript"
+					ref={scroller}
+					onScroll={(event) => {
+						const el = event.currentTarget;
+						const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+						stick.current = atBottom;
+						setShowJump(!atBottom);
+					}}
+				>
+					<div className="transcript-inner">
+						{!chat.loaded ? <div className="placeholder">正在加载会话…</div> : null}
+						{chat.loaded && items.length === 0 && emptyText ? <div className="placeholder">{emptyText}</div> : null}
+						{chat.loaded && items.length === 0 && !emptyText ? (
+							<div className="placeholder new-chat">
+								<div className="new-chat-icon">
+									<IconSparkles size={26} />
+								</div>
+								<h2>开始新的对话</h2>
+								<p>在下方输入任务，Agent 将在该工作区中读写文件、运行命令。高风险操作会先请求你批准。</p>
 							</div>
-							<h2>开始新的对话</h2>
-							<p>在下方输入任务，Agent 将在该工作区中读写文件、运行命令。高风险操作会先请求你批准。</p>
-						</div>
-					) : null}
-					{items.map((item) => (
-						<ItemView key={item.key} item={item} approvals={approvals} />
-					))}
-					{waitingForModel ? (
-						<div className="model-activity" role="status">
-							<IconBrain size={14} className="thinking-live" />
-							<span className="shimmer">{waitingForModelLabel(chat)}</span>
-						</div>
+						) : null}
+						{shown.map((item) => (
+							<ItemView key={item.key} item={item} approvals={approvals} />
+						))}
+						{waitingForModel ? (
+							<div className="model-activity" role="status">
+								<IconBrain size={14} className="thinking-live" />
+								<span className="shimmer">{waitingForModelLabel(chat)}</span>
+							</div>
+						) : null}
+					</div>
+					{showJump ? (
+						<button
+							type="button"
+							className="jump-bottom"
+							onClick={() => {
+								const el = scroller.current;
+								if (el) el.scrollTop = el.scrollHeight;
+								stick.current = true;
+								setShowJump(false);
+							}}
+						>
+							<IconArrowDown size={14} />
+							回到底部
+						</button>
 					) : null}
 				</div>
-				{showJump ? (
-					<button
-						type="button"
-						className="jump-bottom"
-						onClick={() => {
-							const el = scroller.current;
-							if (el) el.scrollTop = el.scrollHeight;
-							stick.current = true;
-							setShowJump(false);
-						}}
-					>
-						<IconArrowDown size={14} />
-						回到底部
-					</button>
-				) : null}
-			</div>
-		</MarkdownFiles>
+			</MarkdownFiles>
+		</SubagentScopeContext.Provider>
 	);
 }

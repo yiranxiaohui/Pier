@@ -1,3 +1,4 @@
+import type { SubagentInfo } from "@pier/protocol";
 import { additionDiff, type DiffHunk, hunksToDiff } from "../runtimes/diff.ts";
 import {
 	type AssistantMessage,
@@ -12,6 +13,7 @@ import {
 	type UserMessage,
 	usageFrom,
 } from "../runtimes/live-transcript.ts";
+import { clip } from "../runtimes/subagents.ts";
 
 /**
  * Conversions between Claude Code (Anthropic Messages API content, Claude Code tools and
@@ -287,4 +289,114 @@ export function convertTranscript(entries: ClaudeEntry[]): TranscriptMessage[] {
 		}
 	}
 	return messages;
+}
+
+/** Claude Code tools that delegate to a subagent. */
+export const CLAUDE_AGENT_TOOLS: ReadonlySet<string> = new Set(["Agent", "Task"]);
+
+/** Display fields of an `Agent` tool call's input. */
+export function agentCallFields(input: Json): { name: string; description?: string; task?: string } {
+	const name = str(input.subagent_type) ?? str(input.name) ?? "Agent";
+	const description = str(input.description);
+	const task = str(input.prompt);
+	return { name, ...(description ? { description } : {}), ...(task ? { task } : {}) };
+}
+
+export interface AgentReport {
+	/** The subagent's final report, without the frame Claude Code adds for the parent. */
+	report?: string;
+	agentId?: string;
+	tokens?: number;
+	toolUses?: number;
+	durationMs?: number;
+}
+
+const REPORT_MARKER = "The report follows:\n";
+
+/** Parse the result text of an `Agent` tool call: the framed report, agent id and usage. */
+export function parseAgentResult(text: string): AgentReport {
+	const result: AgentReport = {};
+	const agentId = /^agentId: (\S+)/m.exec(text)?.[1];
+	if (agentId) result.agentId = agentId;
+	const usage = /<usage>([\s\S]*?)<\/usage>/.exec(text)?.[1] ?? "";
+	const number = (key: string) => {
+		const match = new RegExp(`${key}:\\s*(\\d+)`).exec(usage);
+		return match ? Number(match[1]) : undefined;
+	};
+	const tokens = number("subagent_tokens") ?? number("total_tokens");
+	const toolUses = number("tool_uses");
+	const durationMs = number("duration_ms");
+	if (tokens !== undefined) result.tokens = tokens;
+	if (toolUses !== undefined) result.toolUses = toolUses;
+	if (durationMs !== undefined) result.durationMs = durationMs;
+	let body = text;
+	const marker = body.indexOf(REPORT_MARKER);
+	if (marker !== -1) {
+		body = body
+			.slice(marker + REPORT_MARKER.length)
+			.split("\n")
+			.map((line) => (line.startsWith("  ") ? line.slice(2) : line))
+			.join("\n");
+	}
+	body = body
+		.replace(/<usage>[\s\S]*?<\/usage>/g, "")
+		.replace(/^agentId: .*$/m, "")
+		.replace(/<tools-used-before-summary>[\s\S]*?<\/tools-used-before-summary>/g, "")
+		.trim();
+	if (body) result.report = body;
+	return result;
+}
+
+/** Messages of a stored subagent conversation (`getSubagentMessages`) as pi messages. */
+export function convertSubagentTranscript(entries: ClaudeEntry[]): TranscriptMessage[] {
+	return convertTranscript(entries.map((entry) => ({ ...entry, parent_tool_use_id: null })));
+}
+
+/** A subagent of a stored conversation and the Claude Code agent id of its transcript. */
+export interface StoredAgent {
+	info: SubagentInfo;
+	agentId?: string;
+}
+
+/** The subagents of a stored Claude Code conversation: one per `Agent` tool call. */
+export function storedSubagents(messages: TranscriptMessage[], transcript: boolean): StoredAgent[] {
+	const results = new Map<string, ToolResultMessage>();
+	for (const message of messages) if (message.role === "toolResult") results.set(message.toolCallId, message);
+	const agents: StoredAgent[] = [];
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const part of message.content) {
+			if (part.type !== "toolCall" || !CLAUDE_AGENT_TOOLS.has(part.name)) continue;
+			const fields = agentCallFields(part.arguments);
+			const result = results.get(part.id);
+			const text = (result?.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("\n");
+			const report = parseAgentResult(text);
+			const interrupted = /^\[Request interrupted by user/.test(text.trim());
+			const status = !result || interrupted ? "stopped" : result.isError ? "failed" : "completed";
+			const description = clip(fields.description, 500);
+			const task = clip(fields.task);
+			const output = status === "completed" ? clip(report.report) : undefined;
+			const error = status === "failed" ? clip(text) : undefined;
+			agents.push({
+				info: {
+					id: part.id,
+					toolCallId: part.id,
+					name: fields.name,
+					...(description ? { description } : {}),
+					...(task ? { task } : {}),
+					status,
+					steps: report.toolUses ?? 0,
+					...(report.tokens !== undefined ? { tokens: report.tokens } : {}),
+					...(report.durationMs !== undefined ? { durationMs: report.durationMs } : {}),
+					...(output ? { result: output } : {}),
+					...(error ? { error } : {}),
+					stoppable: false,
+					transcript,
+					revision: 0,
+				},
+				...(report.agentId ? { agentId: report.agentId } : {}),
+			});
+		}
+	}
+	return agents;
 }
