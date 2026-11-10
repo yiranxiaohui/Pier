@@ -11,6 +11,7 @@ import {
 	runTerminalPicker,
 	stepPicker,
 } from "../src/cli-picker.ts";
+import { c, setColorLevel } from "../src/cli-style.ts";
 
 const items: PickerItem<string>[] = [
 	{ label: "anthropic/claude-opus-5-5", detail: "Claude Opus 5.5", value: "opus" },
@@ -43,6 +44,15 @@ describe("picker state", () => {
 				10,
 			).index,
 		).toBe(0);
+	});
+
+	it("starts at a given item when none is current, clamped to the list", () => {
+		const plainItems = items.map(({ current, ...rest }) => rest);
+		expect(initialPickerState(plainItems, 10, 3).index).toBe(3);
+		expect(initialPickerState(plainItems, 10, 99).index).toBe(3);
+		expect(initialPickerState(plainItems, 10, -1).index).toBe(0);
+		expect(initialPickerState(items, 10, 3).index).toBe(1);
+		expect(initialPickerState([], 10, 2).index).toBe(0);
 	});
 
 	it("moves with the arrow keys and wraps around", () => {
@@ -129,6 +139,28 @@ describe("renderPicker", () => {
 		expect(plain(renderPicker(filtered, "t", 80, 10)).at(-1)).toBe("2/2 of 4");
 		const none = press(filtered, [char("q")]);
 		expect(plain(renderPicker(none, "t", 80, 10))).toContain("  no matches");
+	});
+
+	it("names what Esc does in the key hint", () => {
+		const state = initialPickerState(items, 10);
+		expect(plain(renderPicker(state, "t", 80, 10))[1]).toContain("Esc cancel");
+		expect(plain(renderPicker(state, "t", 80, 10, "list the agents"))[1]).toContain("Esc list the agents");
+	});
+
+	it("dims muted items but keeps them selectable", () => {
+		const muted: PickerItem<string>[] = [
+			{ label: "pi", value: "pi" },
+			{ label: "Codex", detail: "unavailable: not installed", muted: true, value: "codex" },
+		];
+		const state = initialPickerState(muted, 10);
+		setColorLevel(1);
+		try {
+			const row = renderPicker(state, "t", 80, 10).find((line) => line.includes("Codex")) ?? "";
+			expect(row).toBe(`${c.gray("  Codex")}${c.gray("  unavailable: not installed")}`);
+		} finally {
+			setColorLevel(0);
+		}
+		expect(stepPicker(press(state, [key("down")]), key("return"), 10)).toEqual({ done: muted[1] });
 	});
 
 	it("cuts wide text by terminal columns", () => {

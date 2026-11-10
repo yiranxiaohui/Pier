@@ -10,6 +10,8 @@ export interface PickerItem<T> {
 	detail?: string;
 	/** Marked as the current choice; the cursor starts here. */
 	current?: boolean;
+	/** Shown dimmed, e.g. an agent that is not installed. It can still be chosen. */
+	muted?: boolean;
 	value: T;
 }
 
@@ -18,6 +20,10 @@ export interface PickerOptions<T> {
 	items: readonly PickerItem<T>[];
 	/** At most this many rows of items are shown at once. */
 	maxRows?: number;
+	/** Where the cursor starts when no item is `current` (default: the first). */
+	start?: number;
+	/** What Esc does, in the key hint (default: "cancel"). */
+	escapeLabel?: string;
 }
 
 export interface PickerState<T> {
@@ -49,11 +55,10 @@ export function filterPickerItems<T>(items: readonly PickerItem<T>[], filter: st
 	});
 }
 
-export function initialPickerState<T>(items: readonly PickerItem<T>[], rows: number): PickerState<T> {
-	const index = Math.max(
-		0,
-		items.findIndex((item) => item.current),
-	);
+/** The cursor starts on the `current` item, otherwise on `start` (clamped to the list). */
+export function initialPickerState<T>(items: readonly PickerItem<T>[], rows: number, start = 0): PickerState<T> {
+	const current = items.findIndex((item) => item.current);
+	const index = current >= 0 ? current : Math.max(0, Math.min(start, items.length - 1));
 	// Open with the current choice in the middle, so its neighbours show on both sides.
 	return scrollTo({ items, filter: "", index, top: index - Math.floor(rows / 2) }, rows);
 }
@@ -117,12 +122,18 @@ const style = {
 };
 
 /** The picker's lines, each at most `columns - 1` wide so none of them wraps. */
-export function renderPicker<T>(state: PickerState<T>, title: string, columns: number, rows: number): string[] {
+export function renderPicker<T>(
+	state: PickerState<T>,
+	title: string,
+	columns: number,
+	rows: number,
+	escapeLabel = "cancel",
+): string[] {
 	const width = Math.max(10, columns - 1);
 	const visible = filterPickerItems(state.items, state.filter);
 	const lines = [
 		style.bold(style.cyan(fitWidth(title, width))),
-		style.dim(fitWidth("↑/↓ move · type to filter · Enter select · Esc cancel", width)),
+		style.dim(fitWidth(`↑/↓ move · type to filter · Enter select · Esc ${escapeLabel}`, width)),
 		state.filter
 			? `${style.cyan("filter:")} ${fitWidth(state.filter, width - 8)}`
 			: style.dim("filter: (type to narrow the list)"),
@@ -134,9 +145,14 @@ export function renderPicker<T>(state: PickerState<T>, title: string, columns: n
 		const label = fitWidth(`${selected ? "❯" : " "} ${item.label}${mark}`, width);
 		const room = width - displayWidth(label) - 2;
 		const detail = item.detail && room > 3 ? `  ${fitWidth(item.detail, room)}` : "";
-		lines.push(
-			`${selected ? style.cyan(style.bold(label)) : item.current ? style.green(label) : label}${style.dim(detail)}`,
-		);
+		const shown = selected
+			? style.cyan(style.bold(label))
+			: item.current
+				? style.green(label)
+				: item.muted
+					? style.dim(label)
+					: label;
+		lines.push(`${shown}${style.dim(detail)}`);
 	}
 	if (visible.length > rows || state.filter)
 		lines.push(
@@ -166,7 +182,7 @@ export function runTerminalPicker<T>(
 	options: PickerOptions<T>,
 ): Promise<T | undefined> {
 	const rows = () => Math.max(3, Math.min(options.maxRows ?? 10, (output.rows ?? 24) - 6, options.items.length));
-	let state = initialPickerState(options.items, rows());
+	let state = initialPickerState(options.items, rows(), options.start);
 	let drawn = 0;
 	const erase = () => {
 		if (drawn > 1) output.write(`\x1b[${drawn - 1}A`);
@@ -175,7 +191,7 @@ export function runTerminalPicker<T>(
 	};
 	const draw = () => {
 		erase();
-		const lines = renderPicker(state, options.title, output.columns ?? 80, rows());
+		const lines = renderPicker(state, options.title, output.columns ?? 80, rows(), options.escapeLabel);
 		output.write(lines.join("\n"));
 		drawn = lines.length;
 	};

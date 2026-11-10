@@ -14,6 +14,7 @@ import {
 	type AgentRuntimeInfo,
 	type DeviceInfo,
 	type EventFrame,
+	type ForkPoint,
 	type MethodResult,
 	type ModelInfo,
 	type PairingRequest,
@@ -74,10 +75,10 @@ const HELP_SECTIONS: HelpSection[] = [
 		commands: [
 			["/new [-a <agent>] [name]", "create a session (default agent: pi) and attach to it"],
 			["/open [n|id]", "open a session of /sessions and attach (no argument: pick with ↑/↓)"],
-			["/sessions", "list sessions in the current workspace"],
+			["/sessions", "list sessions in the current workspace (pick one with ↑/↓ to open it)"],
 			["/status", "show the attached session state"],
 			["/rename <name>", "rename the attached session"],
-			["/fork [n]", "list fork points, or fork at point n"],
+			["/fork [n]", "fork before message n (no argument: pick it with ↑/↓)"],
 			["/compact [instructions]", "compact the context"],
 		],
 	},
@@ -92,8 +93,8 @@ const HELP_SECTIONS: HelpSection[] = [
 	{
 		title: "Models and agents",
 		commands: [
-			["/agents", "list the agents on this computer (pi, Claude Code, Codex)"],
-			["/models", "list available models (numbered, ● = current)"],
+			["/agents", "list the agents on this computer (pick one with ↑/↓ to start a session with it)"],
+			["/models", "list available models (pick one with ↑/↓ to switch, ● = current)"],
 			["/models <agent>", "list the models of another agent (see /agents)"],
 			["/model", "pick a model with ↑/↓ and Enter (type to filter, Esc cancels)"],
 			["/model <n|provider/id|id>", "switch model directly (a unique part of the id or name also works)"],
@@ -103,7 +104,7 @@ const HELP_SECTIONS: HelpSection[] = [
 	{
 		title: "Workspaces",
 		commands: [
-			["/ws", "list workspaces"],
+			["/ws", "list workspaces (pick one with ↑/↓ to select it)"],
 			["/ws add <path> [policy]", "register a workspace (policy: ask|smart|auto; ~ is the home directory)"],
 			["/ws use [n|id]", "select a workspace (no argument: pick with ↑/↓)"],
 			["/ws policy <ask|smart|auto>", "set the current workspace's approval policy"],
@@ -115,7 +116,7 @@ const HELP_SECTIONS: HelpSection[] = [
 			["/allow [session]", "approve the oldest pending approval (once / for session)"],
 			["/deny [reason]", "deny the oldest pending approval"],
 			["/yes, /no", "answer a pending confirm"],
-			["/answer <text>", "answer a pending select/input/editor"],
+			["/answer <text>", "answer a pending select/input/editor (a select without <text>: pick with ↑/↓)"],
 			["/cancel", "cancel the oldest pending UI request"],
 		],
 	},
@@ -143,6 +144,7 @@ const HELP_NOTES = [
 	"Anything else is sent as a prompt (as a follow-up while the agent is running).",
 	"Press Tab to complete commands, models, thinking levels, agents, options and directories, and the numbers of sessions, workspaces, devices, fork points and answers (press Tab twice to list them).",
 	"While commands or completions are listed, ↑/↓ select one and Tab or Enter fills it in (Enter also runs a command that needs nothing more); Esc drops the selection.",
+	"In a terminal, /agents, /sessions, /models, /ws and /fork open their list for picking: ↑/↓ move, typing filters, Enter acts on the item, Esc prints the plain list instead.",
 	"Esc or Ctrl+C interrupts the agent; Ctrl+C also clears the typed line.",
 ];
 
@@ -717,8 +719,32 @@ class Cli {
 		return this.runtimes;
 	}
 
-	private async listAgents(): Promise<void> {
+	/**
+	 * `/agents`: pick an agent with ↑/↓ to start a new session with it. Without a terminal or a
+	 * workspace to create the session in, and on Esc, list them instead.
+	 */
+	private async chooseAgent(): Promise<void> {
 		const runtimes = await this.fetchRuntimes();
+		if (!this.picker || !this.workspace || !runtimes.length) return this.listAgents(runtimes);
+		const attached = this.sessionId ? (this.session?.runtime ?? "pi") : undefined;
+		const picked = await this.choose({
+			title: `Choose the agent of a new session in ${sanitize(this.workspace.name)}`,
+			escapeLabel: "list the agents",
+			items: runtimes.map((r) => ({
+				label: sanitize(r.name),
+				detail: sanitize(
+					`${r.id}${r.version ? ` ${r.version}` : ""} · ${r.available ? "available" : `unavailable${r.reason ? `: ${r.reason}` : ""}`}`,
+				),
+				current: r.id === attached,
+				muted: !r.available,
+				value: r,
+			})),
+		});
+		if (!picked) return this.listAgents(runtimes);
+		await this.createSession(requireAvailable(picked).id);
+	}
+
+	private listAgents(runtimes: readonly AgentRuntimeInfo[]): void {
 		const rows: ListRow[] = runtimes.map((r) => ({
 			cells: [
 				sanitize(r.name),
@@ -742,6 +768,22 @@ class Cli {
 	}
 
 	// ── Sessions ──────────────────────────────────────────────────────────────
+
+	/** Create a session in the current workspace (with the host's default agent) and attach to it. */
+	private async createSession(runtime?: AgentRuntimeInfo["id"], name?: string): Promise<void> {
+		const { session } = await this.client.request("session.create", {
+			workspaceId: this.requireWorkspace().id,
+			...(name ? { name } : {}),
+			...(runtime ? { runtime } : {}),
+		});
+		await this.attach(session);
+	}
+
+	private async openSession(target: SessionSummary): Promise<void> {
+		const workspaceId = this.requireWorkspace().id;
+		const { session } = await this.client.request("session.open", { workspaceId, sessionId: target.id });
+		await this.attach(session);
+	}
 
 	private resetRun(): void {
 		this.stream.finish();
@@ -1079,11 +1121,14 @@ class Cli {
 		if (request.message) rows.push(...formatBlock([span(sanitize(request.message))], inner));
 		for (const [i, option] of (request.options ?? []).entries())
 			rows.push(...formatBlock([span(sanitize(option))], inner, [span(`${i + 1}. `, c.accent)]));
+		const pickable = request.kind === "select" && Boolean(request.options?.length) && Boolean(this.picker);
 		rows.push(
 			"",
 			request.kind === "confirm"
 				? `${c.accent("/yes")}   ${c.accent("/no")}`
-				: `${c.accent("/answer")} ${c.gray(request.kind === "select" ? "<n|text>" : "<text>")}   ${c.accent("/cancel")}`,
+				: pickable
+					? `${c.accent("/answer")} ${c.gray("pick with ↑/↓, or /answer <n|text>")}   ${c.accent("/cancel")}`
+					: `${c.accent("/answer")} ${c.gray(request.kind === "select" ? "<n|text>" : "<text>")}   ${c.accent("/cancel")}`,
 		);
 		const titles: Record<string, string> = { confirm: "Confirm", select: "Choose", input: "Input", editor: "Editor" };
 		this.emit(["", ...box(rows, width, { border: c.accent, title: titles[request.kind] ?? request.kind })]);
@@ -1140,6 +1185,10 @@ class Cli {
 
 	private async listModels(): Promise<void> {
 		const { models, current } = await this.fetchModels();
+		this.showModels(models, current);
+	}
+
+	private showModels(models: ModelInfo[], current: ModelInfo | undefined | null): void {
 		this.listedModels = models;
 		if (!models.length) {
 			this.say("No models available. Sign in to a provider first.");
@@ -1160,6 +1209,35 @@ class Cli {
 				this.width,
 			),
 		]);
+	}
+
+	/**
+	 * `/model` and `/models` without an argument: pick a model for the attached session with ↑/↓
+	 * and switch to it. Without a session (nothing to switch) or a terminal, list them instead, as
+	 * Esc does for `/models`.
+	 */
+	private async chooseModel(listOnEscape: boolean): Promise<void> {
+		if (!this.picker || !this.sessionId) return this.listModels();
+		const sessionId = this.sessionId;
+		const { models, current } = await this.fetchModels();
+		if (!models.length) return this.say("No models available. Sign in to a provider first.");
+		const picked = await this.choose({
+			title: "Select a model",
+			...(listOnEscape ? { escapeLabel: "list the models" } : {}),
+			items: models.map((m) => ({
+				label: sanitize(`${m.provider}/${m.id}`),
+				detail: sanitize(m.name),
+				current: current?.provider === m.provider && current.id === m.id,
+				value: m,
+			})),
+		});
+		if (!picked) return listOnEscape ? this.showModels(models, current) : this.say("Model unchanged.", c.gray);
+		const { model } = await this.client.request("model.set", {
+			sessionId,
+			provider: picked.provider,
+			modelId: picked.id,
+		});
+		this.modelChanged(model);
 	}
 
 	/**
@@ -1323,8 +1401,11 @@ class Cli {
 		);
 	}
 
-	/** `/open` without an argument: pick a session of the workspace, or list them without a terminal. */
-	private async chooseSession(): Promise<SessionSummary | undefined> {
+	/**
+	 * `/open` and `/sessions` without an argument: pick a session of the workspace with ↑/↓. Without
+	 * a terminal, list them instead, as Esc does for `/sessions`.
+	 */
+	private async chooseSession(listOnEscape: boolean): Promise<SessionSummary | undefined> {
 		this.sessions = (await this.client.request("session.list", { workspaceId: this.requireWorkspace().id })).sessions;
 		if (!this.picker || !this.sessions.length) {
 			this.listSessions();
@@ -1333,6 +1414,7 @@ class Cli {
 		}
 		const picked = await this.choose({
 			title: "Open a session",
+			...(listOnEscape ? { escapeLabel: "list the sessions" } : {}),
 			items: this.sessions.map((s) => ({
 				label: sessionTitle(s) || "(empty)",
 				detail: `${this.sessionDetail(s)} · ${relativeTime(s.modifiedAt)}`,
@@ -1340,12 +1422,17 @@ class Cli {
 				value: s,
 			})),
 		});
-		if (!picked) this.say("No session opened.", c.gray);
-		return picked;
+		if (picked) return picked;
+		if (listOnEscape) this.listSessions();
+		else this.say("No session opened.", c.gray);
+		return undefined;
 	}
 
-	/** `/ws use` without an argument. */
-	private async chooseWorkspace(): Promise<WorkspaceInfo | undefined> {
+	/**
+	 * `/ws use` and `/ws` without an argument. Without a terminal, list the workspaces instead, as
+	 * Esc does for `/ws`.
+	 */
+	private async chooseWorkspace(listOnEscape: boolean): Promise<WorkspaceInfo | undefined> {
 		if (!this.picker || !this.workspaces.length) {
 			this.listWorkspaces();
 			if (this.workspaces.length) this.say([span("Select one with ", c.gray), span("/ws use <n>", c.accent)]);
@@ -1353,6 +1440,7 @@ class Cli {
 		}
 		const picked = await this.choose({
 			title: "Select a workspace",
+			...(listOnEscape ? { escapeLabel: "list the workspaces" } : {}),
 			items: this.workspaces.map((w) => ({
 				label: sanitize(w.name),
 				detail: sanitize(`${w.path} [${w.policy}]`),
@@ -1360,7 +1448,45 @@ class Cli {
 				value: w,
 			})),
 		});
-		if (!picked) this.say("Workspace unchanged.", c.gray);
+		if (picked) return picked;
+		if (listOnEscape) this.listWorkspaces();
+		else this.say("Workspace unchanged.", c.gray);
+		return undefined;
+	}
+
+	/**
+	 * `/fork` without an argument: pick the message to fork before, the latest first in view.
+	 * Without a terminal, and on Esc, list them instead.
+	 */
+	private async chooseForkPoint(points: readonly ForkPoint[]): Promise<ForkPoint | undefined> {
+		if (!points.length) {
+			this.say("No fork points yet.", c.gray);
+			return undefined;
+		}
+		const picked = await this.choose({
+			title: "Fork before a message (the new session keeps what came before it)",
+			escapeLabel: "list them",
+			start: points.length - 1,
+			items: points.map((p, i) => ({ label: `${i + 1}. ${flatLine(p.text, 200)}`, value: p })),
+		});
+		if (picked) return picked;
+		this.emit(
+			list(
+				points.map((p) => ({ cells: [flatLine(p.text, 80)] })),
+				this.width,
+			),
+		);
+		this.say([span("Fork with ", c.gray), span("/fork <n>", c.accent)]);
+		return undefined;
+	}
+
+	/** `/answer` without an argument on a pending select: pick the option with ↑/↓. */
+	private async chooseAnswer(request: UiRequest, options: readonly string[]): Promise<string | undefined> {
+		const picked = await this.choose({
+			title: sanitize(request.title),
+			items: options.map((option, i) => ({ label: `${i + 1}. ${sanitize(oneLine(option, 200))}`, value: option })),
+		});
+		if (picked === undefined) this.say([span("Not answered yet. ", c.gray), span("/answer <n|text>", c.accent)]);
 		return picked;
 	}
 
@@ -1444,9 +1570,10 @@ class Cli {
 						span(sanitize(workspace.name), c.bold),
 						span(` · ${workspace.policy} · selected`, c.gray),
 					]);
-				} else if (sub === "use") {
+				} else if (sub === "use" || sub === undefined) {
+					// Bare `/ws` lists them for picking too; Esc leaves the plain list.
 					this.workspaces = (await this.client.request("workspace.list")).workspaces;
-					const workspace = wsArgs[0] ? this.pick(this.workspaces, wsArgs[0]) : await this.chooseWorkspace();
+					const workspace = wsArgs[0] ? this.pick(this.workspaces, wsArgs[0]) : await this.chooseWorkspace(!sub);
 					if (!workspace) break;
 					this.selectWorkspace(workspace);
 					this.say([span("Workspace "), span(sanitize(workspace.name), c.bold), span(" selected", c.gray)]);
@@ -1464,37 +1591,30 @@ class Cli {
 				break;
 			}
 			case "agents":
-				await this.listAgents();
+				await this.chooseAgent();
 				break;
-			case "sessions":
-				this.sessions = (
-					await this.client.request("session.list", { workspaceId: this.requireWorkspace().id })
-				).sessions;
-				this.listSessions();
+			case "sessions": {
+				const target = await this.chooseSession(true);
+				if (target) await this.openSession(target);
 				break;
+			}
 			case "new": {
 				const { agent, name } = parseNewArgs(arg);
-				const workspaceId = this.requireWorkspace().id;
+				this.requireWorkspace();
 				const runtime = agent ? requireAvailable(resolveRuntime(await this.fetchRuntimes(), agent)).id : undefined;
-				const { session } = await this.client.request("session.create", {
-					workspaceId,
-					...(name ? { name } : {}),
-					...(runtime ? { runtime } : {}),
-				});
-				await this.attach(session);
+				await this.createSession(runtime, name);
 				break;
 			}
 			case "open": {
-				const workspaceId = this.requireWorkspace().id;
 				let target: SessionSummary | undefined;
 				if (arg) {
 					if (!this.sessions.length)
-						this.sessions = (await this.client.request("session.list", { workspaceId })).sessions;
+						this.sessions = (
+							await this.client.request("session.list", { workspaceId: this.requireWorkspace().id })
+						).sessions;
 					target = this.pick(this.sessions, arg);
-				} else target = await this.chooseSession();
-				if (!target) break;
-				const { session } = await this.client.request("session.open", { workspaceId, sessionId: target.id });
-				await this.attach(session);
+				} else target = await this.chooseSession(false);
+				if (target) await this.openSession(target);
 				break;
 			}
 			case "status": {
@@ -1536,19 +1656,11 @@ class Cli {
 			case "fork": {
 				const sessionId = this.requireSession();
 				const { points } = await this.client.request("session.forkPoints", { sessionId });
-				if (!arg) {
-					if (!points.length) this.say("No fork points yet.", c.gray);
-					else
-						this.emit(
-							list(
-								points.map((p) => ({ cells: [flatLine(p.text, 80)] })),
-								this.width,
-							),
-						);
+				const point = arg ? points[Number(arg) - 1] : await this.chooseForkPoint(points);
+				if (!point) {
+					if (arg) throw new Error("No such fork point");
 					break;
 				}
-				const point = points[Number(arg) - 1];
-				if (!point) throw new Error("No such fork point");
 				const { session, selectedText } = await this.client.request("session.fork", {
 					sessionId,
 					entryId: point.entryId,
@@ -1593,40 +1705,11 @@ class Cli {
 			}
 			case "models":
 				if (arg) await this.listAgentModels(arg);
-				else await this.listModels();
+				else await this.chooseModel(true);
 				break;
 			case "model": {
 				if (!arg) {
-					// Without a session (nothing to switch) or a terminal, list them instead.
-					if (!this.picker || !this.sessionId) {
-						await this.listModels();
-						break;
-					}
-					const sessionId = this.sessionId;
-					const { models, current } = await this.fetchModels();
-					if (!models.length) {
-						this.say("No models available. Sign in to a provider first.");
-						break;
-					}
-					const picked = await this.choose({
-						title: "Select a model",
-						items: models.map((m) => ({
-							label: sanitize(`${m.provider}/${m.id}`),
-							detail: sanitize(m.name),
-							current: current?.provider === m.provider && current.id === m.id,
-							value: m,
-						})),
-					});
-					if (!picked) {
-						this.say("Model unchanged.", c.gray);
-						break;
-					}
-					const { model } = await this.client.request("model.set", {
-						sessionId,
-						provider: picked.provider,
-						modelId: picked.id,
-					});
-					this.modelChanged(model);
+					await this.chooseModel(false);
 					break;
 				}
 				const sessionId = this.requireSession();
@@ -1688,6 +1771,12 @@ class Cli {
 			case "answer": {
 				const request = this.pendingAnswer();
 				if (!request) throw new Error("No pending select/input/editor request");
+				const options = request.kind === "select" ? (request.options ?? []) : [];
+				if (!arg && options.length && this.picker) {
+					const value = await this.chooseAnswer(request, options);
+					if (value !== undefined) await this.respond(request, { value });
+					break;
+				}
 				const index = Number(arg);
 				const value =
 					request.kind === "select" && request.options && Number.isInteger(index) && request.options[index - 1]
