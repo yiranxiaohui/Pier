@@ -3,7 +3,7 @@ import { BrowserPreparationSchema } from "@pier/protocol";
 import { useEffect, useRef, useState } from "react";
 import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
 import { BrowserPreparationStatus } from "./BrowserPreparationStatus.tsx";
-import { IconExternal, IconGlobe, IconLoader, IconTrash } from "./Icons.tsx";
+import { IconBrowser, IconExternal, IconLoader, IconTrash } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
 import { Select } from "./Select.tsx";
 
@@ -18,7 +18,7 @@ export function BrowserButton({ workspace }: { workspace?: WorkspaceInfo }) {
 				disabled={!workspace}
 				onClick={() => setOpen(true)}
 			>
-				<IconGlobe size={17} />
+				<IconBrowser size={15} />
 			</button>
 			{open && workspace ? (
 				<BrowserPanel key={workspace.id} workspace={workspace} onClose={() => setOpen(false)} />
