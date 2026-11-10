@@ -2,18 +2,10 @@ import type { HostStats } from "@pier/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { formatPercent, formatRate, formatSize, formatUptime } from "../lib/format.ts";
 import { type HostStatsEntry, LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import { useNodeStatus } from "./HostPanels.tsx";
 import { HostPortsPanel } from "./HostPortsPanel.tsx";
 import { HostProcessesPanel } from "./HostProcessesPanel.tsx";
-import {
-	IconActivity,
-	IconArrowDown,
-	IconArrowUp,
-	IconLink,
-	IconMonitor,
-	IconPlus,
-	IconServer,
-	IconSettings,
-} from "./Icons.tsx";
+import { IconActivity, IconArrowDown, IconArrowUp, IconLink, IconPlus, IconServer, IconSettings } from "./Icons.tsx";
 import { platformName } from "./RemotePanel.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
 
@@ -262,14 +254,17 @@ function HostStatus() {
 	};
 	const ref = useOutsideClick(open, close);
 	useEffect(() => store.watchHostStats(false), [store]);
+	const connection = useNodeStatus();
 	const local = node === LOCAL_NODE;
 	const name = local ? "本机" : store.nodeName(node);
 	const stats = entry?.state === "ok" ? entry.stats : undefined;
-	const title = stats
-		? `${local ? "本机" : name}：CPU ${formatPercent(stats.cpu.usage)}，内存 ${formatSize(stats.memory.used)} / ${formatSize(stats.memory.total)}${
-				stats.disk ? `，磁盘 ${formatPercent(diskRatio(stats.disk))}` : ""
-			}。点击查看所有主机`
-		: "主机状态：点击查看本机和远程主机的资源占用";
+	const title = `${connection.text}\n${
+		stats
+			? `${local ? "本机" : name}：CPU ${formatPercent(stats.cpu.usage)}，内存 ${formatSize(stats.memory.used)} / ${formatSize(stats.memory.total)}${
+					stats.disk ? `，磁盘 ${formatPercent(diskRatio(stats.disk))}` : ""
+				}。点击查看所有主机`
+			: "主机状态：点击查看本机和远程主机的资源占用"
+	}`;
 	return (
 		<>
 			<div className="dropdown host-status" ref={ref}>
@@ -312,8 +307,9 @@ function HostStatus() {
 							{entryText(entry)}
 						</span>
 					)}
+					{/* Presence: the computer's connection as a dot beside its name; the title spells it out. */}
 					<span className="statusbar-host">
-						<IconMonitor size={12} />
+						<span className={`status-dot ${connection.dot}`} role="img" aria-label={connection.text} />
 						{name}
 					</span>
 					{peerCount ? (
