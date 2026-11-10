@@ -52,7 +52,7 @@ export interface ShellTerminalHandlers {
 	exit(code: number | null, error?: string): void;
 }
 
-/** A shell running in one of the desktop app's pseudo-terminals. */
+/** A shell running in a pseudo-terminal: the desktop app's, or the host's own (`pty-terminals.ts`). */
 export interface ShellTerminal {
 	readonly shell: string;
 	readonly cwd: string;
@@ -75,13 +75,16 @@ export interface AppUpdater {
 	close(): void;
 }
 
-/** The desktop app around the host, as far as the host can drive it. */
-export interface AppShell extends AppUpdater {
-	/** Whether the shell provides pseudo-terminals. */
+/** Whatever starts the shells the host runs for its clients (`terminal.*`). */
+export interface TerminalProvider {
+	/** Whether it provides pseudo-terminals. */
 	readonly terminals?: boolean;
 	/** Start the user's shell in a pseudo-terminal. Output may arrive before this resolves. */
 	openTerminal?(options: ShellTerminalOptions, handlers: ShellTerminalHandlers): Promise<ShellTerminal>;
 }
+
+/** The desktop app around the host, as far as the host can drive it. */
+export interface AppShell extends AppUpdater, TerminalProvider {}
 
 const STATES: ReadonlySet<AppUpdateState> = new Set([
 	"unsupported",

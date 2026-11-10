@@ -6,6 +6,7 @@ import { type EventFrame, type PairingRequest, type PeerInfo, PROTOCOL_VERSION }
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { Connection, type RequestHandler } from "../src/connection.ts";
+import { PtyTerminals } from "../src/pty-terminals.ts";
 import type { AppShell, ShellTerminalHandlers } from "../src/shell.ts";
 import {
 	SHELL_CAPABILITIES,
@@ -17,6 +18,7 @@ import {
 	StdioShell,
 } from "../src/shell.ts";
 import { HostTerminals, MAX_TERMINALS_PER_CONNECTION } from "../src/terminals.ts";
+import { fakePtySpawn } from "./fake-pty.ts";
 import { Recorder, startTestHost, type TestHost, TOKEN } from "./helpers.ts";
 
 const REMOTE = { enabled: true, port: 0, bindHost: "127.0.0.1", mdns: false } as const;
@@ -200,7 +202,7 @@ describe("terminal.* (shells for clients)", () => {
 		await Promise.all(hosts.splice(0).map((h) => h.close()));
 	});
 
-	it("is unsupported without a desktop app that runs terminals", async () => {
+	it("is unsupported without a desktop app or its own terminals", async () => {
 		const t = await startTestHost();
 		hosts.push(t);
 		const client = await t.connect();
@@ -208,6 +210,30 @@ describe("terminal.* (shells for clients)", () => {
 		await expect(client.request("terminal.open", { cols: 80, rows: 24 })).rejects.toMatchObject({
 			code: "UNSUPPORTED",
 		});
+	});
+
+	it("runs its own terminals without a desktop app", async () => {
+		const { spawn, children } = fakePtySpawn();
+		const t = await startTestHost({ terminals: new PtyTerminals({ spawn, version: "1", env: { SHELL: "/bin/sh" } }) });
+		hosts.push(t);
+		const client = await t.connect();
+		expect(client.host?.terminals).toBe(true);
+		const events = new Recorder();
+		client.onEvent(events.handler);
+
+		const opened = await client.request("terminal.open", { cwd: t.workspaceDir, cols: 90, rows: 30 });
+		expect(opened).toMatchObject({ shell: "sh", cwd: t.workspaceDir });
+		const child = children[0];
+		expect(child?.options).toMatchObject({ argv0: "-sh", cwd: t.workspaceDir, cols: 90, rows: 30 });
+		child?.options.data(new TextEncoder().encode("$ "));
+		await expect.poll(() => outputOf(events, opened.terminalId)).toBe("$ ");
+		await client.request("terminal.write", { terminalId: opened.terminalId, data: "exit 4\r" });
+		expect(child?.writes).toEqual(["exit 4\r"]);
+
+		child?.finish(4);
+		child?.options.end();
+		const exit = await events.waitFor(exitOf(opened.terminalId));
+		expect(exit.event).toEqual({ type: "terminal.exit", terminalId: opened.terminalId, code: 4 });
 	});
 
 	it("runs a shell for the connection: output after the answer, input, resize, exit", async () => {
