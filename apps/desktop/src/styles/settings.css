@@ -38,26 +38,94 @@ button.settings-back {
 	letter-spacing: -0.04em;
 }
 
+/* The search field's rim carries two accent streaks (a conic gradient) under a soft halo; on hover
+   and focus they sweep round to the other side, and the halo brightens while it has focus.
+   Layers: the rim is the box's own background, showing through its transparent border; ::before
+   is the halo and ::after the field's fill. */
+@property --search-sweep {
+	syntax: "<angle>";
+	inherits: true;
+	initial-value: 70deg;
+}
+
 .settings-search {
+	/* Narrow, because the box is wide: a few degrees from its centre cover a long run of edge. */
+	--search-rim: conic-gradient(
+		from var(--search-sweep),
+		var(--border-strong),
+		var(--accent) 4%,
+		var(--border-strong) 9%,
+		var(--border-strong) 52%,
+		var(--accent-strong) 57%,
+		var(--border-strong) 61%
+	);
+	--search-halo: conic-gradient(
+		from var(--search-sweep),
+		transparent,
+		var(--accent) 5%,
+		transparent 38%,
+		transparent 50%,
+		var(--accent-strong) 60%,
+		transparent 87%
+	);
+	position: relative;
+	isolation: isolate;
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	margin: 0 16px 14px;
 	padding: 0 6px 0 12px;
-	border: 1px solid var(--border);
+	border: 1px solid transparent;
 	border-radius: 10px;
-	background: var(--bg-input);
+	background: var(--search-rim) border-box;
 	color: var(--text-faint);
 	transition:
-		border-color 0.15s var(--ease),
-		box-shadow 0.15s var(--ease),
-		background 0.15s var(--ease);
+		--search-sweep 2s ease,
+		color 0.2s var(--ease);
+}
+
+.settings-search::before,
+.settings-search::after {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+}
+
+.settings-search::before {
+	inset: -4px;
+	z-index: -2;
+	border-radius: 14px;
+	background: var(--search-halo);
+	filter: blur(8px);
+	opacity: 0.22;
+	transition: opacity 0.4s var(--ease);
+}
+
+.settings-search::after {
+	inset: 0;
+	z-index: -1;
+	border-radius: 9px;
+	background: var(--bg-input);
+}
+
+.settings-search:hover,
+.settings-search:focus-within {
+	--search-sweep: 250deg;
+	transition:
+		--search-sweep 4s ease,
+		color 0.2s var(--ease);
+}
+
+.settings-search:hover::before {
+	opacity: 0.5;
 }
 
 .settings-search:focus-within {
-	border-color: var(--accent);
-	box-shadow: 0 0 0 3px var(--accent-soft);
-	background: var(--bg-input);
+	color: var(--accent);
+}
+
+.settings-search:focus-within::before {
+	opacity: 0.8;
 }
 
 .settings-search input,
