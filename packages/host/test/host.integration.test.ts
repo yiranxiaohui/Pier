@@ -519,8 +519,13 @@ describe("sessions end to end", () => {
 	it("refuses to delete a running session unless forced", async () => {
 		const gate = deferred<void>();
 		t.faux.setResponses([
-			async () => {
-				await gate.promise;
+			// Like a real provider, the request stops when the run is aborted: pi 1.5.1 waits for that
+			// before it disposes a session.
+			async (_context, options) => {
+				const aborted = new Promise<void>((resolve) =>
+					options?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+				);
+				await Promise.race([gate.promise, aborted]);
 				return fauxAssistantMessage("late");
 			},
 		]);

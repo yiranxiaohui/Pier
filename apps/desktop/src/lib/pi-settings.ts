@@ -105,7 +105,7 @@ export const SETTINGS_GROUPS: GroupDef[] = [
 						{ value: "streaming", label: "运行时" },
 						{ value: "idle", label: "运行时与空闲时" },
 					],
-					default: "streaming",
+					default: "idle",
 				},
 			},
 		],

@@ -36,7 +36,11 @@ type Settings = ReturnType<SettingsManager["getGlobalSettings"]>;
 
 export interface ExtensionProgress {
 	action: ProgressEvent["action"];
-	phase: ProgressEvent["type"];
+	/**
+	 * pi's `result` (an outcome such as one changed package after an update, `npm:foo 1.2.0 -> 1.3.0`)
+	 * is reported as `progress`: the protocol has no such phase, and clients show only its message.
+	 */
+	phase: Exclude<ProgressEvent["type"], "result">;
 	source: string;
 	message?: string;
 }
@@ -171,7 +175,7 @@ export class ExtensionManager {
 		packages.setProgressCallback((event) =>
 			this.options.onProgress?.({
 				action: event.action,
-				phase: event.type,
+				phase: event.type === "result" ? "progress" : event.type,
 				source: event.source,
 				...(event.message ? { message: event.message } : {}),
 			}),
