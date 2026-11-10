@@ -9,53 +9,50 @@
 	background: radial-gradient(ellipse at 90% 0%, var(--hero-wash), transparent 55%), var(--bg);
 }
 
+/* Wordmark, greeting and subtitle, centered as one group over the composer. */
 .new-chat-hero {
 	flex: none;
 	width: 100%;
 	max-width: calc(var(--content-width) + 64px);
 	margin: auto auto 0;
 	padding: 40px 32px 28px;
+	text-align: center;
 	animation: rise-in 0.3s var(--ease);
 }
 
+/* The script wordmark above the greeting, in the accent color. */
 .new-chat-symbol {
-	display: grid;
-	place-items: center;
-	width: 46px;
-	height: 46px;
-	margin-bottom: 24px;
-	border-radius: 14px;
-	border: 1px solid var(--border);
-	background: var(--bg);
+	display: block;
+	width: auto;
+	margin: 0 auto 18px;
 	color: var(--accent-text);
-	box-shadow: var(--shadow-sm);
 }
 
-.new-chat-hero .home-eyebrow {
-	margin-bottom: 12px;
-	color: var(--text-muted);
-	font-size: 11px;
-}
-
+/* One line; on a narrow window it breaks after the comma, where the second half begins. */
 .new-chat-hero h1 {
 	margin: 0;
-	font-size: clamp(32px, 3.5vw, 46px);
-	font-weight: 550;
-	letter-spacing: -0.05em;
-	line-height: 1.35;
+	font-size: clamp(26px, 2.6vw, 32px);
+	font-weight: 600;
+	letter-spacing: -0.03em;
+	line-height: 1.3;
 	overflow-wrap: anywhere;
 }
 
 .new-chat-title-secondary {
+	display: inline-block;
 	color: var(--text-muted);
 }
 
 .new-chat-hero p {
 	max-width: 560px;
-	margin: 16px 0 0;
+	margin: 12px auto 0;
 	font-size: 13px;
 	line-height: 1.8;
 	overflow-wrap: anywhere;
+}
+
+.new-chat-banner {
+	text-align: start;
 }
 
 .new-chat-banner .no-models {
@@ -216,12 +213,11 @@
 		padding: 28px 24px 24px;
 	}
 	.new-chat-hero h1 {
-		font-size: 32px;
+		font-size: 24px;
 	}
 	.new-chat-symbol {
-		width: 38px;
 		height: 38px;
-		margin-bottom: 18px;
+		margin-bottom: 14px;
 	}
 	.new-chat-bottom {
 		padding: 0 20px 28px;

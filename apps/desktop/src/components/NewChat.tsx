@@ -19,9 +19,9 @@ import {
 	IconLoader,
 	IconMonitor,
 	IconSearch,
-	IconSparkles,
 	IconWrench,
 	IconX,
+	PierWordmark,
 } from "./Icons.tsx";
 import { NewChatModelPicker } from "./ModelPicker.tsx";
 import { NoModelsBanner } from "./ModelsPanel.tsx";
@@ -332,21 +332,14 @@ export function NewChatView({ workspaceId }: { workspaceId?: string }) {
 			<WorkbenchHeader workspace={workspace} title="新建会话" />
 			<div className="new-chat">
 				<div className="new-chat-hero">
-					<div className="new-chat-symbol" aria-hidden="true">
-						<IconSparkles size={25} />
-					</div>
-					<div className="home-eyebrow">一个新想法 · 一段新会话</div>
+					<PierWordmark height={48} className="new-chat-symbol" />
 					{workspace ? (
 						<h1>
-							让想法，
-							<br />
-							<span className="new-chat-title-secondary">从这里开始。</span>
+							让想法，<span className="new-chat-title-secondary">从这里开始。</span>
 						</h1>
 					) : (
 						<h1>
-							选一个工作区，
-							<br />
-							<span className="new-chat-title-secondary">开始新的构建。</span>
+							选一个工作区，<span className="new-chat-title-secondary">开始新的构建。</span>
 						</h1>
 					)}
 					<p className="muted">

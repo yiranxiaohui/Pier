@@ -96,7 +96,8 @@ export function NavigationRail() {
 				onClick={() => store.openSettings("general")}
 			>
 				<IconSettings size={20} />
-				<span className={`navigation-connection ${status.dot}`} />
+				{/* Only trouble gets a dot: a steady green one read as a notification (an update). */}
+				{status.online ? null : <span className={`navigation-connection ${status.dot}`} />}
 			</button>
 		</div>
 	);

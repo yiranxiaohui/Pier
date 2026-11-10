@@ -6,25 +6,22 @@
 
 /* ---- navigation ------------------------------------------------------------------ */
 
+/* Two shared lines: boxes (search, items) start at --nav-edge, and text and icons
+   inside and outside them start --nav-inset further in. */
 .settings-nav {
-	padding: 10px 0 0;
+	--nav-edge: 14px;
+	--nav-inset: 12px;
 }
 
-.settings-nav-top {
-	padding: 10px 12px 0;
-}
-
-button.settings-back {
-	gap: 8px;
-	padding: 6px 10px;
-	font-size: 13px;
-}
-
+/* The eyebrow's line is centred on the rail's logo, 38px down (navigation.css: 22px padding, 32px
+   logo): 8px sidebar padding + 22px + half its 16px line. */
 .settings-nav-heading {
-	padding: 22px 24px 18px;
+	padding: 22px calc(var(--nav-edge) + var(--nav-inset)) 18px;
 }
 
 .settings-nav-eyebrow {
+	display: block;
+	line-height: 16px;
 	color: var(--text-faint);
 	font-size: 9px;
 	font-weight: 600;
@@ -38,26 +35,95 @@ button.settings-back {
 	letter-spacing: -0.04em;
 }
 
+/* The search field's rim carries two accent streaks (a conic gradient) under a soft halo; on hover
+   and focus they sweep round to the other side, and the halo brightens while it has focus.
+   Layers: the rim is the box's own background, showing through its transparent border; ::before
+   is the halo and ::after the field's fill. */
+@property --search-sweep {
+	syntax: "<angle>";
+	inherits: true;
+	initial-value: 70deg;
+}
+
 .settings-search {
+	/* Narrow, because the box is wide: a few degrees from its centre cover a long run of edge. */
+	--search-rim: conic-gradient(
+		from var(--search-sweep),
+		var(--border-strong),
+		var(--accent) 4%,
+		var(--border-strong) 9%,
+		var(--border-strong) 52%,
+		var(--accent-strong) 57%,
+		var(--border-strong) 61%
+	);
+	--search-halo: conic-gradient(
+		from var(--search-sweep),
+		transparent,
+		var(--accent) 5%,
+		transparent 38%,
+		transparent 50%,
+		var(--accent-strong) 60%,
+		transparent 87%
+	);
+	position: relative;
+	isolation: isolate;
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	margin: 0 16px 14px;
-	padding: 0 6px 0 12px;
-	border: 1px solid var(--border);
+	margin: 0 var(--nav-edge) 14px;
+	/* Less the 1px border, so the icon sits on the inset line. */
+	padding: 0 6px 0 calc(var(--nav-inset) - 1px);
+	border: 1px solid transparent;
 	border-radius: 10px;
-	background: var(--bg-input);
+	background: var(--search-rim) border-box;
 	color: var(--text-faint);
 	transition:
-		border-color 0.15s var(--ease),
-		box-shadow 0.15s var(--ease),
-		background 0.15s var(--ease);
+		--search-sweep 2s ease,
+		color 0.2s var(--ease);
+}
+
+.settings-search::before,
+.settings-search::after {
+	content: "";
+	position: absolute;
+	pointer-events: none;
+}
+
+.settings-search::before {
+	inset: -4px;
+	z-index: -2;
+	border-radius: 14px;
+	background: var(--search-halo);
+	filter: blur(8px);
+	opacity: 0.22;
+	transition: opacity 0.4s var(--ease);
+}
+
+.settings-search::after {
+	inset: 0;
+	z-index: -1;
+	border-radius: 9px;
+	background: var(--bg-input);
+}
+
+.settings-search:hover,
+.settings-search:focus-within {
+	--search-sweep: 250deg;
+	transition:
+		--search-sweep 4s ease,
+		color 0.2s var(--ease);
+}
+
+.settings-search:hover::before {
+	opacity: 0.5;
 }
 
 .settings-search:focus-within {
-	border-color: var(--accent);
-	box-shadow: 0 0 0 3px var(--accent-soft);
-	background: var(--bg-input);
+	color: var(--accent);
+}
+
+.settings-search:focus-within::before {
+	opacity: 0.8;
 }
 
 .settings-search input,
@@ -80,7 +146,7 @@ button.settings-back {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
-	padding: 0 14px 16px;
+	padding: 0 var(--nav-edge) 16px;
 }
 
 .settings-nav-group + .settings-nav-group {
@@ -88,7 +154,7 @@ button.settings-back {
 }
 
 .settings-nav-group-title {
-	padding: 0 12px 7px;
+	padding: 0 var(--nav-inset) 7px;
 	font-size: 11.5px;
 	font-weight: 500;
 	letter-spacing: 0.02em;
@@ -101,7 +167,7 @@ button.settings-nav-item {
 	width: 100%;
 	height: 39px;
 	margin: 3px 0;
-	padding: 0 12px;
+	padding: 0 var(--nav-inset);
 	border: none;
 	border-radius: 8px;
 	background: transparent;
@@ -746,25 +812,6 @@ button.switch.on .switch-thumb {
 	line-height: 1.7;
 }
 
-.settings-nav-footer {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	margin: 0 24px;
-	padding: 14px 0;
-	border-top: 1px solid var(--border);
-	color: var(--text-faint);
-	font-size: 11px;
-}
-
-.settings-nav-footer kbd {
-	padding: 0 5px;
-	border: 1px solid var(--border-strong);
-	border-radius: 4px;
-	font-size: 10px;
-}
-
 .settings-group-copy {
 	min-width: 0;
 }
@@ -1133,8 +1180,15 @@ button.switch.on .switch-thumb {
 		--sidebar-width: 176px;
 	}
 
+	.settings-nav {
+		--nav-edge: 8px;
+		--nav-inset: 10px;
+	}
+
+	/* With the eyebrow hidden, the title's 40px line is the one centred on the logo:
+	   8px sidebar padding + 6px + its 4px margin + 20px. */
 	.settings-nav-heading {
-		padding: 12px 18px;
+		padding-block: 6px 12px;
 	}
 
 	.settings-nav-eyebrow,
@@ -1144,17 +1198,8 @@ button.switch.on .switch-thumb {
 		display: none;
 	}
 
-	.settings-nav-list {
-		padding-inline: 8px;
-	}
-
-	.settings-search {
-		margin-inline: 10px;
-	}
-
 	button.settings-nav-item {
 		gap: 8px;
-		padding-inline: 10px;
 		font-size: 12px;
 	}
 

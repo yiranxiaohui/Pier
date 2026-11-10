@@ -29,11 +29,14 @@ import {
 	IconSettings,
 	IconSquarePen,
 	IconTrash,
+	PierWordmark,
 } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
 import { platformName } from "./RemotePanel.tsx";
 import { SessionCleanupDialog } from "./SessionCleanup.tsx";
 
+/** Sessions a workspace lists before 显示全部. */
+const SESSION_PREVIEW = 6;
 const SESSION_PAGE = 30;
 
 export const SIDEBAR_SHORTCUT = "Ctrl/⌘+B";
@@ -215,26 +218,32 @@ function RunningAgents() {
 			return activity.active ? [{ session, workspace, node, pending: activity.pending }] : [];
 		});
 	});
+	// Shown only while something runs (workspace rows carry their own running counts). It eases
+	// open and shut; shutting keeps the last agents listed, so the height falls in one smooth step.
+	const last = useRef(agents);
+	if (agents.length) last.current = agents;
+	const open = agents.length > 0;
+	const shown = open ? agents : last.current;
 	if (!workspaces.length) return null;
 	return (
-		<section className="running-agents" aria-label="运行中的 Agent">
-			<button
-				type="button"
-				className={`running-agents-toggle${expanded ? " open" : ""}`}
-				onClick={() => setExpanded(!expanded)}
-				aria-expanded={expanded}
-				aria-controls="running-agent-list"
-			>
-				<IconChevronRight size={13} className="running-agents-chevron" />
-				<span className="running-agents-label">运行中的 Agent</span>
-				<span className={`running-count${agents.length ? "" : " idle"}`}>
-					{agents.length ? <span className="badge-dot running" aria-hidden="true" /> : null}
-					{agents.length}
-				</span>
-			</button>
-			<div id="running-agent-list" className="running-agent-list" hidden={!expanded}>
-				{agents.length ? (
-					agents.map(({ session, workspace, node, pending }) => {
+		<section className={`running-agents${open ? " open" : ""}`} aria-label="运行中的 Agent" inert={!open}>
+			<div className="running-agents-body">
+				<button
+					type="button"
+					className={`running-agents-toggle${expanded ? " open" : ""}`}
+					onClick={() => setExpanded(!expanded)}
+					aria-expanded={expanded}
+					aria-controls="running-agent-list"
+				>
+					<IconChevronRight size={13} className="running-agents-chevron" />
+					<span className="running-agents-label">运行中的 Agent</span>
+					<span className="running-count">
+						<span className="badge-dot running" aria-hidden="true" />
+						{shown.length}
+					</span>
+				</button>
+				<div id="running-agent-list" className="running-agent-list" hidden={!expanded}>
+					{shown.map(({ session, workspace, node, pending }) => {
 						const runtime = session.runtime ?? DEFAULT_AGENT_RUNTIME;
 						const location = node === LOCAL_NODE ? workspace.name : `${workspace.name} · ${store.nodeName(node)}`;
 						return (
@@ -257,10 +266,8 @@ function RunningAgents() {
 								</span>
 							</button>
 						);
-					})
-				) : (
-					<div className="session-empty">暂无运行中的 Agent</div>
-				)}
+					})}
+				</div>
 			</div>
 		</section>
 	);
@@ -390,12 +397,15 @@ function WorkspaceGroup({
 	const selectedWorkspaceId = useAppState((s) => s.selectedWorkspaceId);
 	const newChat = useAppState((s) => !!s.newChat);
 	const canArchive = useCanArchiveSessions(workspace.id);
-	const [limit, setLimit] = useState(SESSION_PAGE);
+	const [showAll, setShowAll] = useState(false);
 	const [archivedLimit, setArchivedLimit] = useState(SESSION_PAGE);
 	const [showArchived, setShowArchived] = useState(false);
 	const [cleanup, setCleanup] = useState(false);
 	const selected = selectedWorkspaceId === workspace.id && !selectedSessionId && !newChat;
 	const current = sessions?.filter((s) => !s.archived);
+	// The first few sessions show; an open session further down stays listed too.
+	const selectedIndex = current?.findIndex((s) => s.id === selectedSessionId) ?? -1;
+	const shown = showAll ? Number.POSITIVE_INFINITY : Math.max(SESSION_PREVIEW, selectedIndex + 1);
 	const archived = sessions?.filter((s) => s.archived) ?? [];
 	// An archived session that is open keeps the archive expanded, so it stays visible.
 	const archivedOpen = showArchived || archived.some((s) => s.id === selectedSessionId);
@@ -485,7 +495,7 @@ function WorkspaceGroup({
 					) : null}
 					{sessions && !sessions.length ? <div className="session-empty">还没有会话</div> : null}
 					{sessions?.length && !current?.length ? <div className="session-empty">没有未归档的会话</div> : null}
-					{current?.slice(0, limit).map((session) => (
+					{current?.slice(0, shown).map((session) => (
 						<SessionItem
 							key={session.id}
 							session={session}
@@ -493,9 +503,14 @@ function WorkspaceGroup({
 							canArchive={canArchive}
 						/>
 					))}
-					{current && current.length > limit ? (
-						<button type="button" className="session-more" onClick={() => setLimit(limit + SESSION_PAGE)}>
-							显示更多（还有 {current.length - limit} 个）
+					{current && current.length > shown ? (
+						<button type="button" className="session-more" onClick={() => setShowAll(true)}>
+							显示全部（还有 {current.length - shown} 个）
+						</button>
+					) : null}
+					{showAll && current && current.length > SESSION_PREVIEW ? (
+						<button type="button" className="session-more" onClick={() => setShowAll(false)}>
+							收起
 						</button>
 					) : null}
 					{archived.length ? (
@@ -662,10 +677,7 @@ export function Sidebar({ open = true }: { open?: boolean }) {
 	return (
 		<aside id="workspace-sidebar" className="sidebar">
 			<div className="brand">
-				<div className="sidebar-brand-text">
-					<span className="brand-name">Pier</span>
-					<span className="brand-caption">Agent 工作台</span>
-				</div>
+				<PierWordmark height={26} className="brand-name" />
 				<button
 					type="button"
 					className="ghost icon sidebar-collapse"

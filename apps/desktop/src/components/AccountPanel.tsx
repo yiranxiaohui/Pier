@@ -11,6 +11,7 @@ import type {
 	ProviderInfo,
 } from "@pier/protocol";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { accountQuota } from "../lib/account-quota.ts";
 import {
 	accountTokenSelectionKey,
 	readAccountTokenChoice,
@@ -37,6 +38,7 @@ import { hostSpeaksMinor } from "../lib/settings-target.ts";
 import { useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
 import { findYunlianGroupProvider, formatQuota, relayProvider, YUNLIAN_NAME, yunlianGroupId } from "../lib/yunlian.ts";
 import {
+	IconActivity,
 	IconAlert,
 	IconCheck,
 	IconChevronDown,
@@ -47,6 +49,8 @@ import {
 	IconPower,
 	IconRefresh,
 	IconTrash,
+	IconWallet,
+	IconZap,
 } from "./Icons.tsx";
 import { Select } from "./Select.tsx";
 import { SettingRow, SettingsCard, SettingsGroup } from "./SettingsUi.tsx";
@@ -1230,6 +1234,15 @@ function useAddedGroups(node: string, site: string) {
 	return [list, update] as const;
 }
 
+/** A stat card's share as a bar; decorative, since the card's badge states the percentage. */
+function StatBar({ percent }: { percent: number }) {
+	return (
+		<div className="account-stat-bar" aria-hidden="true">
+			<div className="account-stat-fill" style={{ width: `${percent}%` }} />
+		</div>
+	);
+}
+
 function Dashboard({
 	overview,
 	loading,
@@ -1275,6 +1288,9 @@ function Dashboard({
 	};
 	const quota = (value: number) => formatQuota(value, site.quota);
 	const name = user.displayName && user.displayName !== user.username ? user.displayName : user.username;
+	// Shares of balance + consumption, as in the navigation rail's tank; none before any quota.
+	const balance = accountQuota(overview);
+	const hasQuota = Math.max(0, user.quota) + Math.max(0, user.usedQuota) > 0;
 
 	return (
 		<>
@@ -1328,22 +1344,49 @@ function Dashboard({
 						</button>
 					</SettingRow>
 				</SettingsCard>
-				<div className="account-stats">
-					<div className="account-stat primary">
-						<div className="muted small">当前余额</div>
-						<div className="account-stat-value">{quota(user.quota)}</div>
-						<button type="button" className="primary" onClick={() => store.openExternal(`${site.url}/wallet`)}>
-							<IconExternal size={13} />
-							充值
-						</button>
-					</div>
-					<div className="account-stat">
-						<div className="muted small">历史消耗</div>
-						<div className="account-stat-value">{quota(user.usedQuota)}</div>
-					</div>
-					<div className="account-stat">
-						<div className="muted small">请求次数</div>
-						<div className="account-stat-value">{user.requestCount.toLocaleString("zh-CN")}</div>
+				{/* The frame is the cards' query container: they stack when the settings page is narrow. */}
+				<div className="account-stats-frame">
+					<div className="account-stats">
+						<div className="account-stat balance" data-quota={balance.level}>
+							<div className="account-stat-head">
+								<span className="account-stat-icon">
+									<IconWallet size={15} />
+								</span>
+								<span className="account-stat-title">当前余额</span>
+								{hasQuota ? <span className="account-stat-badge">剩余 {balance.percent}%</span> : null}
+								<button type="button" className="primary" onClick={() => store.openExternal(`${site.url}/wallet`)}>
+									<IconExternal size={13} />
+									充值
+								</button>
+							</div>
+							<div className="account-stat-value">{quota(user.quota)}</div>
+							{hasQuota ? <StatBar percent={balance.percent} /> : null}
+						</div>
+						<div className="account-stat">
+							<div className="account-stat-head">
+								<span className="account-stat-icon">
+									<IconActivity size={15} />
+								</span>
+								<span className="account-stat-title">历史消耗</span>
+								{hasQuota ? <span className="account-stat-badge">已用 {100 - balance.percent}%</span> : null}
+							</div>
+							<div className="account-stat-value">{quota(user.usedQuota)}</div>
+							{hasQuota ? <StatBar percent={100 - balance.percent} /> : null}
+						</div>
+						<div className="account-stat">
+							<div className="account-stat-head">
+								<span className="account-stat-icon">
+									<IconZap size={15} />
+								</span>
+								<span className="account-stat-title">请求次数</span>
+								{user.requestCount > 0 ? (
+									<span className="account-stat-badge" title="历史消耗 ÷ 请求次数">
+										均 {quota(user.usedQuota / user.requestCount)}/次
+									</span>
+								) : null}
+							</div>
+							<div className="account-stat-value">{user.requestCount.toLocaleString("zh-CN")}</div>
+						</div>
 					</div>
 				</div>
 			</SettingsGroup>
@@ -1455,6 +1498,84 @@ function Dashboard({
 
 // ---- line ------------------------------------------------------------------------------
 
+const FRIES = ["f1", "f2", "f3", "f4", "f5", "f6", "f7"];
+const BOX_FACES = ["front", "back", "right", "left", "bottom"];
+
+/**
+ * Two lines as a burger-and-fries switch: the knob carries a flat doodle burger for the first line
+ * (domestic, as the host lists them) and a turning 3D box of fries for the second (international),
+ * and springs across when switched. The names either side pick their line too.
+ */
+function LineSwitch({
+	first,
+	second,
+	current,
+	busy,
+	onChange,
+}: {
+	first: AccountLine;
+	second: AccountLine;
+	current: AccountLine;
+	busy: boolean;
+	onChange: (line: AccountLine) => void;
+}) {
+	const on = current.id === second.id;
+	const pick = (l: AccountLine) => {
+		if (l.id !== current.id) onChange(l);
+	};
+	const name = (l: AccountLine, active: boolean) => (
+		<button
+			type="button"
+			className={`line-switch-name${active ? " active" : ""}`}
+			tabIndex={-1}
+			title={new URL(l.url).host}
+			disabled={busy}
+			onClick={() => pick(l)}
+		>
+			{l.name}
+		</button>
+	);
+	return (
+		<div className={`line-switch${on ? " on" : ""}`}>
+			{name(first, !on)}
+			<button
+				type="button"
+				role="switch"
+				aria-checked={on}
+				aria-label={second.name}
+				className="line-switch-track"
+				title={`${current.name}（${new URL(current.url).host}），点击切换`}
+				disabled={busy}
+				onClick={() => pick(on ? first : second)}
+			>
+				<span className="line-switch-knob">
+					<span className="line-food" aria-hidden="true">
+						<span className="line-food-burger">
+							<span className="bun-top">
+								<span className="seeds" />
+							</span>
+							<span className="lettuce" />
+							<span className="patty" />
+							<span className="bun-bottom" />
+						</span>
+						<span className="line-food-fries">
+							<span className="fry-box">
+								{FRIES.map((fry) => (
+									<span key={fry} className={`fry ${fry}`} />
+								))}
+								{BOX_FACES.map((face) => (
+									<span key={face} className={`box-face ${face}`} />
+								))}
+							</span>
+						</span>
+					</span>
+				</span>
+			</button>
+			{name(second, on)}
+		</div>
+	);
+}
+
 /**
  * The line the host reaches 云链API through (protocol 1.29): the domestic and the international
  * address of the same site. Shown only when the host offers more than one.
@@ -1474,6 +1595,7 @@ function LineSettings({
 }) {
 	const target = useSettingsTarget();
 	const current = lines.find((l) => l.id === line) ?? lines[0];
+	const [first, second] = lines;
 	if (lines.length < 2 || !current) return null;
 	return (
 		<SettingsGroup>
@@ -1495,23 +1617,27 @@ function LineSettings({
 						</>
 					}
 				>
-					<div className="segmented" title="线路">
-						{lines.map((l) => (
-							<button
-								type="button"
-								key={l.id}
-								aria-pressed={l.id === current.id}
-								className={l.id === current.id ? "active" : undefined}
-								title={new URL(l.url).host}
-								disabled={busy}
-								onClick={() => {
-									if (l.id !== current.id) onChange(l);
-								}}
-							>
-								{l.name}
-							</button>
-						))}
-					</div>
+					{first && second && lines.length === 2 ? (
+						<LineSwitch first={first} second={second} current={current} busy={busy} onChange={onChange} />
+					) : (
+						<div className="segmented" title="线路">
+							{lines.map((l) => (
+								<button
+									type="button"
+									key={l.id}
+									aria-pressed={l.id === current.id}
+									className={l.id === current.id ? "active" : undefined}
+									title={new URL(l.url).host}
+									disabled={busy}
+									onClick={() => {
+										if (l.id !== current.id) onChange(l);
+									}}
+								>
+									{l.name}
+								</button>
+							))}
+						</div>
+					)}
 				</SettingRow>
 			</SettingsCard>
 		</SettingsGroup>

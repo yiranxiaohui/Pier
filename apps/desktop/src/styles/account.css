@@ -60,6 +60,307 @@ img.account-logo {
 	gap: 6px;
 }
 
+/* Two lines as a burger-and-fries switch (LineSwitch): a flat doodle burger for the domestic line,
+   a turning 3D box of fries for the international one. The knob winds back before it leaves the
+   fries side and overshoots as it lands there. The light theme keeps the doodle's beige track and
+   dark outline; the dark theme tints its own background with bun and fry colors instead (the
+   doodle's pale beige would only turn it grey). */
+.line-switch {
+	--track-burger: color-mix(in oklab, #e8a35c 22%, var(--bg-elevated));
+	--track-fries: color-mix(in oklab, #f0c27b 22%, var(--bg-elevated));
+	--track-line: color-mix(in oklab, #e8a35c 48%, var(--bg-elevated));
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 10px;
+}
+
+:root[data-theme="light"] .line-switch {
+	--track-burger: #ffecd2;
+	--track-fries: #fff5e6;
+	--track-line: #333;
+}
+
+button.line-switch-name,
+button.line-switch-name:hover:not(:disabled) {
+	padding: 2px 0;
+	border: none;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: 12.5px;
+	font-weight: 500;
+}
+
+button.line-switch-name:hover:not(:disabled) {
+	color: var(--text);
+}
+
+button.line-switch-name.active,
+button.line-switch-name.active:hover:not(:disabled) {
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
+/* 92 × 46, three quarters of the doodle's 120 × 60. */
+button.line-switch-track,
+button.line-switch-track:hover:not(:disabled) {
+	position: relative;
+	display: block;
+	flex: none;
+	width: 92px;
+	height: 46px;
+	padding: 0;
+	overflow: hidden;
+	border: 2px solid var(--track-line);
+	border-radius: 999px;
+	background: var(--track-burger);
+	transition: background-color 0.4s;
+}
+
+.line-switch.on button.line-switch-track,
+.line-switch.on button.line-switch-track:hover:not(:disabled) {
+	background: var(--track-fries);
+}
+
+.line-switch-knob {
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 38px;
+	height: 38px;
+	transition: transform 0.5s cubic-bezier(0.6, -0.28, 0.735, 0.045);
+}
+
+.line-switch.on .line-switch-knob {
+	transform: translateX(46px);
+	transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* The food is drawn at the doodle's own sizes, for its 50px knob, and scaled to this 38px one. */
+.line-food {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 50px;
+	height: 50px;
+	transform: translate(-50%, -50%) scale(0.76);
+}
+
+/* Spans, as a button holds them; :where keeps this below the burger's own flex layout. The doodle
+   measures without its outlines (content-box), not as the app's border-box would. */
+:where(.line-food span) {
+	display: block;
+	box-sizing: content-box;
+}
+
+/* -- the burger (2D doodle) -- */
+.line-food-burger {
+	position: absolute;
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 40px;
+	height: 40px;
+	transition:
+		transform 0.4s ease,
+		opacity 0.3s ease;
+}
+
+.line-food .bun-top {
+	position: relative;
+	z-index: 4;
+	width: 36px;
+	height: 16px;
+	border: 2px solid #333;
+	border-bottom: none;
+	border-radius: 20px 20px 0 0;
+	background: #ffa64d;
+}
+
+.line-food .seeds {
+	position: absolute;
+	top: 6px;
+	left: 10px;
+	width: 2px;
+	height: 2px;
+	border-radius: 50%;
+	background: #333;
+	box-shadow:
+		12px 0 #333,
+		6px 4px #333;
+}
+
+.line-food .lettuce {
+	z-index: 3;
+	width: 40px;
+	height: 6px;
+	margin-top: -2px;
+	border: 2px solid #333;
+	border-radius: 10px;
+	background: #8cd65e;
+}
+
+.line-food .patty {
+	z-index: 2;
+	width: 36px;
+	height: 8px;
+	margin-top: -2px;
+	border: 2px solid #333;
+	border-radius: 4px;
+	background: #8b4513;
+}
+
+.line-food .bun-bottom {
+	z-index: 1;
+	width: 36px;
+	height: 10px;
+	margin-top: -2px;
+	border: 2px solid #333;
+	border-radius: 0 0 10px 10px;
+	background: #ffa64d;
+}
+
+/* -- the fries (3D) -- */
+.line-food-fries {
+	position: absolute;
+	z-index: 1;
+	width: 40px;
+	height: 40px;
+	perspective: 600px;
+	opacity: 0;
+	transform: scale(0);
+	transition:
+		transform 0.4s ease,
+		opacity 0.3s ease;
+}
+
+.line-food .fry-box {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	transform-style: preserve-3d;
+	transform: rotateX(-20deg) rotateY(30deg);
+}
+
+.line-food .box-face {
+	position: absolute;
+	top: 5px;
+	left: 5px;
+	width: 30px;
+	height: 35px;
+	border: 2px solid #333;
+	background: #ff4757;
+	backface-visibility: visible;
+}
+
+.line-food .box-face.front {
+	transform: translateZ(15px);
+}
+
+.line-food .box-face.back {
+	transform: rotateY(180deg) translateZ(15px);
+}
+
+.line-food .box-face.right {
+	transform: rotateY(90deg) translateZ(15px);
+}
+
+.line-food .box-face.left {
+	transform: rotateY(-90deg) translateZ(15px);
+}
+
+.line-food .box-face.bottom {
+	top: 0;
+	height: 30px;
+	transform: rotateX(-90deg) translateZ(30px);
+}
+
+.line-food .fry {
+	position: absolute;
+	top: -10px;
+	width: 6px;
+	height: 25px;
+	border: 2px solid #333;
+	border-radius: 2px;
+	background: #ffd32a;
+	transform-origin: bottom;
+}
+
+/* Scattered in 3D: front left, center tall, back center, front right, back left, middle right,
+   middle center. */
+.line-food .fry.f1 {
+	left: 8px;
+	transform: translateZ(10px) rotateZ(-10deg);
+}
+
+.line-food .fry.f2 {
+	top: -17px;
+	left: 16px;
+	height: 32px;
+	transform: translateZ(5px);
+}
+
+.line-food .fry.f3 {
+	left: 12px;
+	transform: translateZ(-5px) rotateZ(8deg);
+}
+
+.line-food .fry.f4 {
+	left: 22px;
+	height: 20px;
+	transform: translateZ(10px) rotateZ(10deg);
+}
+
+.line-food .fry.f5 {
+	top: -12px;
+	left: 8px;
+	height: 28px;
+	transform: translateZ(-8px) rotateZ(-15deg);
+}
+
+.line-food .fry.f6 {
+	left: 24px;
+	height: 24px;
+	transform: rotateZ(5deg);
+}
+
+.line-food .fry.f7 {
+	top: -8px;
+	left: 14px;
+	height: 26px;
+	transform: translateZ(12px) rotateZ(-5deg);
+}
+
+/* -- switching to the fries -- */
+.line-switch.on .line-food-burger {
+	opacity: 0;
+	transform: scale(0) rotate(-90deg);
+}
+
+.line-switch.on .line-food-fries {
+	opacity: 1;
+	transform: scale(1);
+}
+
+.line-switch.on .line-food .fry-box {
+	animation: line-switch-fries 3s linear infinite;
+}
+
+@keyframes line-switch-fries {
+	from {
+		transform: rotateX(-20deg) rotateY(0deg);
+	}
+
+	to {
+		transform: rotateX(-20deg) rotateY(360deg);
+	}
+}
+
 .account-form {
 	display: flex;
 	flex-direction: column;
@@ -123,40 +424,127 @@ img.account-logo {
 	font-weight: 600;
 }
 
+/* The cards query their own width, since the room they get depends on the window and on the
+   settings sidebar both. */
+.account-stats-frame {
+	container: account-stats / inline-size;
+	margin-top: 12px;
+}
+
 .account-stats {
 	display: grid;
 	grid-template-columns: 1.4fr 1fr 1fr;
 	gap: 12px;
-	margin-top: 12px;
 }
 
+/* The cards' headings stay on one line, so three in a row need about 740px; narrower, the balance
+   takes a row of its own above the other two, and on the narrowest each card has its own row. */
+@container account-stats (max-width: 780px) {
+	.account-stats {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.account-stat.balance {
+		grid-column: 1 / -1;
+	}
+}
+
+@container account-stats (max-width: 440px) {
+	.account-stats {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+/* Stat cards: a round icon, the title and a badge, the figure, and a bar for shares of the quota.
+   --stat-tone colors the icon, badge and bar: the accent, or on the balance card the band of the
+   navigation rail's tank (--quota, from [data-quota]). */
 .account-stat {
+	--stat-tone: var(--accent);
+	--stat-ink: var(--accent-contrast);
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	padding: 14px 16px;
+	gap: 14px;
+	padding: 16px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
-	background: var(--bg-elevated);
+	background: var(--bg);
+	box-shadow:
+		0 10px 15px -3px rgba(0, 0, 0, 0.1),
+		0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
-.account-stat.primary {
-	position: relative;
-	border-color: var(--accent-ring);
-	background: var(--accent-soft);
+.account-stat.balance[data-quota] {
+	--stat-tone: var(--quota);
+	--stat-ink: #fff;
 }
 
-.account-stat.primary > button {
-	position: absolute;
-	top: 50%;
-	right: 14px;
-	transform: translateY(-50%);
+/* As tall as the balance card's 充值 button, so the figures of all three cards line up. */
+.account-stat-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 30px;
+}
+
+.account-stat-head > button {
+	height: 30px;
+	margin-left: auto;
+	padding-block: 0;
+}
+
+.account-stat-icon {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 999px;
+	background: var(--stat-tone);
+	color: var(--stat-ink);
+}
+
+.account-stat-title {
+	font-size: 14px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.account-stat-badge {
+	flex: none;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: color-mix(in oklab, var(--stat-tone) 14%, transparent);
+	color: color-mix(in oklab, var(--stat-tone) 70%, var(--text));
+	font-size: 12px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
 }
 
 .account-stat-value {
-	font-size: 20px;
-	font-weight: 600;
+	font-size: 26px;
+	font-weight: 700;
+	line-height: 1.15;
+	letter-spacing: -0.01em;
 	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* Pushed to the bottom, so the bars of neighboring cards line up. */
+.account-stat-bar {
+	height: 8px;
+	margin-top: auto;
+	overflow: hidden;
+	border-radius: 999px;
+	background: var(--bg-active);
+}
+
+.account-stat-fill {
+	height: 100%;
+	border-radius: inherit;
+	background: var(--stat-tone);
+	transition: width 0.4s var(--ease);
 }
 
 .account-group + .account-group {

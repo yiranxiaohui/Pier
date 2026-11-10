@@ -8,7 +8,7 @@ import {
 	IconAlert,
 	IconCheck,
 	IconDownload,
-	IconExternal,
+	IconGithub,
 	IconLoader,
 	IconMonitor,
 	IconRefresh,
@@ -600,9 +600,20 @@ export function UpdateSettings() {
 						</SettingRow>
 					) : null}
 					<SettingRow title="发布说明" description="在 GitHub Releases 查看所有版本和安装包。">
-						<button type="button" onClick={() => store.openExternal(RELEASES_URL)}>
-							<IconExternal size={14} />
-							打开
+						<button
+							type="button"
+							className="github-flip"
+							aria-label="在 GitHub 打开发布说明"
+							onClick={() => store.openExternal(RELEASES_URL)}
+						>
+							<span className="github-flip-icon">
+								<IconGithub size={16} />
+							</span>
+							{/* Hover or focus rolls the front face up and the GitHub face into view. */}
+							<span className="github-flip-cube" aria-hidden="true">
+								<span className="github-flip-face front">查看版本</span>
+								<span className="github-flip-face top">前往 GitHub</span>
+							</span>
 						</button>
 					</SettingRow>
 				</SettingsCard>

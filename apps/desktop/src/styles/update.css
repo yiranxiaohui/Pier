@@ -144,3 +144,71 @@
 .agent-install-progress-text {
 	font-variant-numeric: tabular-nums;
 }
+
+/* The release-notes link: a GitHub tile beside a label that rolls over, like a cube, to its
+   GitHub face on hover or focus. */
+
+.github-flip {
+	--flip-height: 30px;
+	gap: 0;
+	align-items: stretch;
+	height: calc(var(--flip-height) + 2px);
+	padding: 0;
+	overflow: hidden;
+}
+
+.github-flip:hover:not(:disabled) {
+	background: var(--bg-elevated);
+	border-color: var(--accent);
+}
+
+.github-flip-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--flip-height);
+	border-right: 1px solid var(--border-strong);
+	color: var(--text);
+	transition:
+		color 0.15s var(--ease),
+		border-color 0.15s var(--ease);
+}
+
+.github-flip:hover .github-flip-icon,
+.github-flip:focus-visible .github-flip-icon {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+.github-flip-cube {
+	position: relative;
+	width: 104px;
+	transform-style: preserve-3d;
+	transition: transform 0.4s var(--ease);
+}
+
+.github-flip:hover .github-flip-cube,
+.github-flip:focus-visible .github-flip-cube {
+	transform: rotateX(-90deg);
+}
+
+.github-flip-face {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	backface-visibility: hidden;
+}
+
+.github-flip-face.front {
+	background: var(--bg-elevated);
+	color: var(--text);
+	transform: translateZ(calc(var(--flip-height) / 2));
+}
+
+.github-flip-face.top {
+	background: var(--accent);
+	color: var(--accent-contrast);
+	transform: rotateX(90deg) translateZ(calc(var(--flip-height) / 2));
+}

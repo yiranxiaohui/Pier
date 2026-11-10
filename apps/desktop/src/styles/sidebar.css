@@ -7,17 +7,20 @@
 	padding-top: 8px;
 }
 
+/* Centred on the rail's logo, 38px down (navigation.css: 22px padding, 32px logo): 8px sidebar
+   padding + 17px + half the 26px wordmark. */
 .brand {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	padding: 12px 18px 24px;
+	padding: 17px 18px 12px;
 }
 
+/* The script wordmark, in the text color. */
 .brand-name {
-	font-weight: 700;
-	font-size: 19px;
-	letter-spacing: -0.025em;
+	display: block;
+	flex: none;
+	color: var(--text);
 }
 
 .sidebar-collapse {
@@ -34,42 +37,119 @@
 	padding: 4px 14px 20px;
 }
 
-/* The primary workspace action stays visible above the project tree. */
+/* The primary workspace action stays visible above the project tree: a bar of metal cast in the
+   accent colour, with a bevelled rim and a diagonal shine that widens on hover and lifts it. */
 .new-session-button {
+	/* The metal's base tone: a muted teal in both themes, light enough for the dark lettering
+	   (contrast ≥ 4.5 even at the deep end) without glaring. */
+	--metal: color-mix(in oklab, var(--accent) 88%, black);
+	--metal-deep: color-mix(in oklab, var(--metal) 86%, black);
+	--metal-mid: var(--metal);
+	--metal-shine: color-mix(in oklab, var(--metal) 55%, white);
+	--metal-glint: color-mix(in oklab, var(--metal) 40%, white);
+	--metal-ink: color-mix(in oklab, var(--metal) 16%, black);
+	--metal-gradient: linear-gradient(
+		160deg,
+		var(--metal-deep),
+		var(--metal-mid),
+		var(--metal-shine),
+		var(--metal-mid),
+		var(--metal-deep)
+	);
 	width: 100%;
 	justify-content: flex-start;
 	gap: 10px;
 	height: 40px;
 	padding: 0 12px;
-	border: 1px solid transparent;
+	border: 1px solid var(--metal-deep);
 	border-radius: 10px;
-	background: var(--accent);
-	color: var(--accent-contrast);
+	background: var(--metal-gradient) center / 100% 100%;
+	color: var(--metal-ink);
+	text-shadow: 0 1px 1px var(--metal-glint);
 	font-size: 14px;
-	font-weight: 500;
-	transition: background 0.12s;
+	font-weight: 600;
+	box-shadow:
+		0 3px 6px rgba(0, 0, 0, 0.16),
+		0 3px 6px color-mix(in oklab, var(--metal-deep) 40%, transparent),
+		inset 0 -2px 5px 1px var(--metal-deep),
+		inset 0 -1px 1px 3px var(--metal-glint);
+	transition:
+		background 0.2s ease-in-out,
+		box-shadow 0.2s ease-in-out,
+		border-color 0.2s ease-in-out,
+		transform 0.1s var(--ease);
 }
 
 .new-session-button .icon-svg {
 	color: inherit;
+	filter: drop-shadow(0 1px 1px var(--metal-glint));
 }
 
-.new-session-button:hover:not(:disabled) {
-	background: var(--accent-strong);
-	border-color: transparent;
+/* `background` again: the shared button hover replaces it with a flat colour. */
+.new-session-button:hover:not(:disabled),
+.new-session-button:focus-visible {
+	background: var(--metal-gradient) center / 150% 150%;
+	border-color: color-mix(in oklab, var(--metal-deep) 60%, transparent);
+	box-shadow:
+		0 10px 20px rgba(0, 0, 0, 0.19),
+		0 6px 6px rgba(0, 0, 0, 0.23),
+		inset 0 -2px 5px 1px var(--metal-mid),
+		inset 0 -1px 1px 3px var(--metal-glint);
 }
 
-.new-session-button.selected,
-.new-session-button.selected:hover:not(:disabled) {
-	background: var(--accent-strong);
-	border-color: transparent;
+.new-session-button:active:not(:disabled) {
+	box-shadow:
+		0 3px 6px rgba(0, 0, 0, 0.16),
+		0 3px 6px color-mix(in oklab, var(--metal-deep) 40%, transparent),
+		inset 0 -2px 5px 1px var(--metal-mid),
+		inset 0 -1px 1px 3px var(--metal-glint);
 }
 
+/* On the new-session page the shine stays widened. */
+.new-session-button.selected {
+	background: var(--metal-gradient) center / 150% 150%;
+}
+
+/* The light theme's accent is a dark teal, and mixing it with white turns it grey; the metal
+   borrows the dark theme's accent instead, so it is the same bright teal in both themes. */
+:root[data-theme="light"] .new-session-button {
+	--metal: color-mix(in oklab, #42c8b4 88%, black);
+}
+
+/* Grows open and shrinks shut (0fr ↔ 1fr) as agents start and finish. */
 .running-agents {
 	flex: none;
-	margin: 0 10px 8px;
-	padding-bottom: 6px;
-	border-bottom: 1px solid var(--border);
+	display: grid;
+	grid-template-rows: 0fr;
+	margin: 0 10px;
+	opacity: 0;
+	transition:
+		grid-template-rows 0.24s var(--ease),
+		opacity 0.24s var(--ease);
+}
+
+.running-agents.open {
+	grid-template-rows: 1fr;
+	opacity: 1;
+}
+
+.running-agents-body {
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* Inside, so the clipping body does not cut the focus ring off. */
+.running-agents-body :focus-visible {
+	outline-offset: -2px;
+}
+
+/* The divider and gap below live inside the clipped body, so they collapse too. */
+.running-agents-body::after {
+	content: "";
+	display: block;
+	height: 1px;
+	margin: 6px 0 8px;
+	background: var(--border);
 }
 
 .running-agents-toggle {
@@ -111,11 +191,6 @@
 	font-size: 11px;
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
-}
-
-.running-count.idle {
-	background: var(--bg-active);
-	color: var(--text-faint);
 }
 
 .workspace-running-count {
@@ -254,13 +329,20 @@
 
 .workspace-actions {
 	position: absolute;
-	top: 4px;
+	top: 50%;
 	right: 3px;
+	transform: translateY(-50%);
 	display: flex;
-	border-radius: 6px;
-	background: var(--bg-app);
+	align-items: center;
+	gap: 2px;
 	opacity: 0;
 	pointer-events: none;
+}
+
+/* Room for the action buttons; the policy tag gives way while they show (below). */
+.workspace-row:hover,
+.workspace-row:has(.workspace-actions :focus-visible) {
+	padding-right: 82px;
 }
 
 .workspace-actions .ghost.icon {
@@ -348,8 +430,13 @@
 	color: var(--warning);
 }
 
+.workspace-row:hover .policy-tag,
+.workspace-row:has(.workspace-actions :focus-visible) .policy-tag {
+	display: none;
+}
+
 .session-list {
-	margin: 2px 0 6px 17px;
+	margin: 6px 0 6px 17px;
 	padding-left: 8px;
 	border-left: 1px solid var(--border);
 }
@@ -377,7 +464,7 @@
 	justify-content: flex-start;
 	gap: 8px;
 	width: 100%;
-	margin: 1px 0;
+	margin: 4px 0;
 	border: none;
 	background: transparent;
 	text-align: left;
@@ -450,9 +537,13 @@
 
 /* Room for the action buttons over the end of the title. */
 .session-item:hover .session-row,
-.session-item:has(:focus-visible) .session-row,
-.session-item.confirming .session-row {
+.session-item:has(:focus-visible) .session-row {
 	padding-right: 56px;
+}
+
+/* 中止并删除 is wider than the two icon buttons; this comes later, so it wins while hovered too. */
+.session-item.confirming .session-row {
+	padding-right: 80px;
 }
 
 .session-action:hover:not(:disabled) {
@@ -811,18 +902,6 @@ button.sidebar-update-action {
 .session-agent.agent-codex {
 	color: #3b82f6;
 	background: color-mix(in srgb, #3b82f6 14%, transparent);
-}
-
-.sidebar-brand-text {
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-}
-
-.brand-caption {
-	color: var(--text-faint);
-	font-size: 10px;
-	letter-spacing: 0.06em;
 }
 
 .session-row-agent {
