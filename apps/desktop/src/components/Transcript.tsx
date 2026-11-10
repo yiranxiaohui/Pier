@@ -58,7 +58,7 @@ const AssistantMessageView = memo(
 			<div className={`message assistant${streaming ? " streaming" : ""}`}>
 				<div className="assistant-label">
 					<span>
-						<IconSparkles size={13} />
+						<IconSparkles size={15} />
 					</span>
 					Agent
 				</div>
@@ -138,7 +138,7 @@ const ItemView = memo(function ItemView({
 				<div className="message bash tool-card">
 					<div className="tool-header static">
 						<span className="tool-icon">
-							<IconTerminal size={14} />
+							<IconTerminal size={16} />
 						</span>
 						<span className="tool-name">终端</span>
 						<span className="tool-summary">{item.message.command}</span>

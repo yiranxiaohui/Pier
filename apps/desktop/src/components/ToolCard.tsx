@@ -214,7 +214,7 @@ export const ToolCard = memo(function ToolCard({
 		<div className={`tool-card status-${status}${approval ? " awaiting" : ""}`}>
 			<button type="button" className="tool-header" onClick={() => setOpen(!open)}>
 				<span className="tool-icon">
-					<Icon size={14} />
+					<Icon size={16} />
 				</span>
 				<span className="tool-name">{label}</span>
 				<span className="tool-summary" title={summary}>

@@ -511,11 +511,6 @@ button.markdown-image {
 }
 
 .assistant-label > span {
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 24px;
-	border-radius: 7px;
-	background: var(--accent-soft);
+	display: flex;
 	color: var(--accent-text);
 }

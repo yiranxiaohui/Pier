@@ -33,7 +33,7 @@
 	gap: 10px;
 	width: 100%;
 	min-height: 40px;
-	padding: 6px 12px 6px 8px;
+	padding: 6px 12px;
 	border: none;
 	border-radius: 0;
 	background: transparent;
@@ -50,31 +50,24 @@
 	cursor: default;
 }
 
+/* Just the glyph, no tile, so it is drawn in the full text color to stand out; its color carries
+   the status. */
 .tool-icon {
-	display: grid;
-	place-items: center;
-	width: 26px;
-	height: 26px;
+	display: flex;
 	flex: none;
-	border-radius: 8px;
-	background: var(--bg-active);
-	color: var(--text-muted);
-	box-shadow: inset 0 0 0 1px var(--border);
+	color: var(--text);
 }
 
 .status-running .tool-icon,
 .status-generating .tool-icon {
-	background: var(--accent-soft);
 	color: var(--accent-text);
 }
 
 .status-error .tool-icon {
-	background: var(--danger-soft);
 	color: var(--danger);
 }
 
 .tool-card.awaiting .tool-icon {
-	background: var(--warning-soft);
 	color: var(--warning);
 }
 
