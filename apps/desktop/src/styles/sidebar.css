@@ -40,9 +40,10 @@
 /* The primary workspace action stays visible above the project tree: a bar of metal cast in the
    accent colour, with a bevelled rim and a diagonal shine that widens on hover and lifts it. */
 .new-session-button {
-	/* The metal's base tone: a muted teal in both themes, light enough for the dark lettering
-	   (contrast ≥ 4.5 even at the deep end) without glaring. */
-	--metal: color-mix(in oklab, var(--accent) 88%, black);
+	/* The metal's base tone: a muted teal, light enough for the dark lettering (contrast ≥ 4.5 even
+	   at the deep end) without glaring. It starts from --accent-bright, the same in both themes: the
+	   light theme's accent is a dark teal, and mixing that with white turns it grey. */
+	--metal: color-mix(in oklab, var(--accent-bright) 88%, black);
 	--metal-deep: color-mix(in oklab, var(--metal) 86%, black);
 	--metal-mid: var(--metal);
 	--metal-shine: color-mix(in oklab, var(--metal) 55%, white);
@@ -108,12 +109,6 @@
 /* On the new-session page the shine stays widened. */
 .new-session-button.selected {
 	background: var(--metal-gradient) center / 150% 150%;
-}
-
-/* The light theme's accent is a dark teal, and mixing it with white turns it grey; the metal
-   borrows the dark theme's accent instead, so it is the same bright teal in both themes. */
-:root[data-theme="light"] .new-session-button {
-	--metal: color-mix(in oklab, #42c8b4 88%, black);
 }
 
 /* Grows open and shrinks shut (0fr ↔ 1fr) as agents start and finish. */
@@ -309,6 +304,8 @@
 }
 
 .workspace-row {
+	/* The room its action buttons take while they show (below). */
+	--workspace-actions-room: 30px;
 	position: relative;
 	display: flex;
 	align-items: center;
@@ -339,10 +336,19 @@
 	pointer-events: none;
 }
 
-/* Room for the action buttons; the policy tag gives way while they show (below). */
+/* Room for the action buttons, as many as the row has (24px each, 2px apart, 3px from the edge,
+   and a little air); the policy tag gives way while they show (below). */
+.workspace-row:has(.workspace-actions > :nth-child(2)) {
+	--workspace-actions-room: 56px;
+}
+
+.workspace-row:has(.workspace-actions > :nth-child(3)) {
+	--workspace-actions-room: 82px;
+}
+
 .workspace-row:hover,
 .workspace-row:has(.workspace-actions :focus-visible) {
-	padding-right: 82px;
+	padding-right: var(--workspace-actions-room);
 }
 
 .workspace-actions .ghost.icon {

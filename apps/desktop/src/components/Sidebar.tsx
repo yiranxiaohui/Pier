@@ -3,6 +3,7 @@ import type { ApprovalPolicy, PeerInfo, SessionSummary, WorkspaceInfo } from "@p
 import { DEFAULT_AGENT_RUNTIME } from "@pier/protocol";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { POLICY_DESCRIPTION, POLICY_LABEL, relativeTime, sessionTitle } from "../lib/format.ts";
+import { SESSION_PAGE, SESSION_PREVIEW, sessionWindow } from "../lib/session-list.ts";
 import {
 	type ComputerInfo,
 	LOCAL_NODE,
@@ -34,10 +35,6 @@ import {
 import { Modal } from "./Modal.tsx";
 import { platformName } from "./RemotePanel.tsx";
 import { SessionCleanupDialog } from "./SessionCleanup.tsx";
-
-/** Sessions a workspace lists before 显示全部. */
-const SESSION_PREVIEW = 6;
-const SESSION_PAGE = 30;
 
 export const SIDEBAR_SHORTCUT = "Ctrl/⌘+B";
 
@@ -201,6 +198,30 @@ function sessionActivity(store: PierStore, session: SessionSummary) {
 	return { running, pending, active: running || pending > 0 };
 }
 
+interface RunningAgent {
+	session: SessionSummary;
+	workspace: WorkspaceInfo;
+	node: string;
+	pending: number;
+}
+
+/** Whether two lists show the same agents alike; the store replaces a session when it changes. */
+function sameAgents(a: readonly RunningAgent[], b: readonly RunningAgent[]): boolean {
+	return (
+		a.length === b.length &&
+		a.every((x, i) => {
+			const y = b[i];
+			return (
+				y !== undefined &&
+				x.session === y.session &&
+				x.workspace === y.workspace &&
+				x.node === y.node &&
+				x.pending === y.pending
+			);
+		})
+	);
+}
+
 function RunningAgents() {
 	const store = useStore();
 	const workspaces = useAppState((s) => s.workspaces);
@@ -210,7 +231,7 @@ function RunningAgents() {
 	const selectedSessionId = useAppState((s) => s.selectedSessionId);
 	useAppState((s) => s.chatsVersion);
 	const [expanded, setExpanded] = useState(true);
-	const agents = workspaces.flatMap((workspace) => {
+	const agents = workspaces.flatMap((workspace): RunningAgent[] => {
 		const node = workspaceNodes[workspace.id] ?? LOCAL_NODE;
 		if (nodes[node]?.connection !== "open") return [];
 		return (sessions[workspace.id] ?? []).flatMap((session) => {
@@ -220,10 +241,11 @@ function RunningAgents() {
 	});
 	// Shown only while something runs (workspace rows carry their own running counts). It eases
 	// open and shut; shutting keeps the last agents listed, so the height falls in one smooth step.
-	const last = useRef(agents);
-	if (agents.length) last.current = agents;
+	// The last list is state, set again while rendering whenever it changes.
+	const [last, setLast] = useState(agents);
+	if (agents.length && !sameAgents(agents, last)) setLast(agents);
 	const open = agents.length > 0;
-	const shown = open ? agents : last.current;
+	const shown = open ? agents : last;
 	if (!workspaces.length) return null;
 	return (
 		<section className={`running-agents${open ? " open" : ""}`} aria-label="运行中的 Agent" inert={!open}>
@@ -397,15 +419,14 @@ function WorkspaceGroup({
 	const selectedWorkspaceId = useAppState((s) => s.selectedWorkspaceId);
 	const newChat = useAppState((s) => !!s.newChat);
 	const canArchive = useCanArchiveSessions(workspace.id);
-	const [showAll, setShowAll] = useState(false);
+	const [limit, setLimit] = useState(SESSION_PREVIEW);
 	const [archivedLimit, setArchivedLimit] = useState(SESSION_PAGE);
 	const [showArchived, setShowArchived] = useState(false);
 	const [cleanup, setCleanup] = useState(false);
 	const selected = selectedWorkspaceId === workspace.id && !selectedSessionId && !newChat;
 	const current = sessions?.filter((s) => !s.archived);
-	// The first few sessions show; an open session further down stays listed too.
 	const selectedIndex = current?.findIndex((s) => s.id === selectedSessionId) ?? -1;
-	const shown = showAll ? Number.POSITIVE_INFINITY : Math.max(SESSION_PREVIEW, selectedIndex + 1);
+	const list = sessionWindow(current?.length ?? 0, limit, selectedIndex);
 	const archived = sessions?.filter((s) => s.archived) ?? [];
 	// An archived session that is open keeps the archive expanded, so it stays visible.
 	const archivedOpen = showArchived || archived.some((s) => s.id === selectedSessionId);
@@ -495,7 +516,7 @@ function WorkspaceGroup({
 					) : null}
 					{sessions && !sessions.length ? <div className="session-empty">还没有会话</div> : null}
 					{sessions?.length && !current?.length ? <div className="session-empty">没有未归档的会话</div> : null}
-					{current?.slice(0, shown).map((session) => (
+					{current?.slice(0, list.shown).map((session) => (
 						<SessionItem
 							key={session.id}
 							session={session}
@@ -503,13 +524,13 @@ function WorkspaceGroup({
 							canArchive={canArchive}
 						/>
 					))}
-					{current && current.length > shown ? (
-						<button type="button" className="session-more" onClick={() => setShowAll(true)}>
-							显示全部（还有 {current.length - shown} 个）
+					{list.more ? (
+						<button type="button" className="session-more" onClick={() => setLimit(list.shown + SESSION_PAGE)}>
+							显示更多（还有 {list.more} 个）
 						</button>
 					) : null}
-					{showAll && current && current.length > SESSION_PREVIEW ? (
-						<button type="button" className="session-more" onClick={() => setShowAll(false)}>
+					{list.collapsible ? (
+						<button type="button" className="session-more" onClick={() => setLimit(SESSION_PREVIEW)}>
 							收起
 						</button>
 					) : null}

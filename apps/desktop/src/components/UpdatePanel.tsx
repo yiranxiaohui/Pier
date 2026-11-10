@@ -603,7 +603,8 @@ export function UpdateSettings() {
 						<button
 							type="button"
 							className="github-flip"
-							aria-label="在 GitHub 打开发布说明"
+							// Both faces' words, the front one first, so the name holds what is on screen.
+							aria-label="查看版本（前往 GitHub）"
 							onClick={() => store.openExternal(RELEASES_URL)}
 						>
 							<span className="github-flip-icon">
