@@ -70,15 +70,22 @@
 	max-width: 240px;
 }
 
+/* Copy, then the model, the reply's output and its time, each led by an icon; the tooltips spell them out. */
 .message-footer {
 	display: flex;
-	gap: 12px;
+	gap: 14px;
 	align-items: center;
 	margin-top: 8px;
 	font-size: 11.5px;
 	color: var(--text-faint);
 	opacity: 0;
 	transition: opacity 0.15s;
+}
+
+.message-footer > span {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
 }
 
 .message:hover .message-footer,

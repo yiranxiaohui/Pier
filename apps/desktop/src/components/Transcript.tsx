@@ -10,7 +10,15 @@ import {
 import type { UiRequest } from "@pier/protocol";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clockTime, formatTokens } from "../lib/format.ts";
-import { IconArrowDown, IconBrain, IconChevronRight, IconLayers, IconSparkles, IconTerminal } from "./Icons.tsx";
+import {
+	IconArrowDown,
+	IconBrain,
+	IconChevronRight,
+	IconClock,
+	IconLayers,
+	IconSparkles,
+	IconTerminal,
+} from "./Icons.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { CopyButton, Markdown, MarkdownFiles } from "./Markdown.tsx";
 import { delegates, SubagentCard, type SubagentScope, SubagentScopeContext } from "./SubagentCard.tsx";
@@ -139,9 +147,24 @@ const AssistantMessageView = memo(
 				{!streaming && text ? (
 					<div className="message-footer">
 						<CopyButton text={text} iconOnly label="复制回复" />
-						{message.model ? <span>{message.model}</span> : null}
-						{message.usage?.output ? <span>{formatTokens(message.usage.output)} tokens</span> : null}
-						{message.timestamp ? <span>{clockTime(message.timestamp)}</span> : null}
+						{message.model ? (
+							<span title={`模型：${message.model}`}>
+								<IconSparkles size={12} />
+								{message.model}
+							</span>
+						) : null}
+						{message.usage?.output ? (
+							<span title={`这条回复输出了 ${message.usage.output.toLocaleString()} tokens`}>
+								<IconArrowDown size={12} />
+								{formatTokens(message.usage.output)} tokens
+							</span>
+						) : null}
+						{message.timestamp ? (
+							<span title={new Date(message.timestamp).toLocaleString()}>
+								<IconClock size={12} />
+								{clockTime(message.timestamp)}
+							</span>
+						) : null}
 					</div>
 				) : null}
 			</div>
