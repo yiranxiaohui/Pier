@@ -1,4 +1,4 @@
-import type { ApprovalPolicy, ModelInfo, ThinkingLevel } from "@pier/protocol";
+import type { ApprovalPolicy, ModelInfo, SubagentInfo, SubagentStatus, ThinkingLevel } from "@pier/protocol";
 import { additionDiff, hunksToDiff, parseUnifiedDiff } from "../runtimes/diff.ts";
 import type {
 	AssistantMessage,
@@ -10,6 +10,7 @@ import type {
 	TranscriptMessage,
 	UserMessage,
 } from "../runtimes/live-transcript.ts";
+import { clip } from "../runtimes/subagents.ts";
 
 /** Conversions between the Codex app-server protocol (threads, turns, items) and pi messages. */
 
@@ -150,6 +151,35 @@ export function toolCallFor(item: Json): ToolCallPart | undefined {
 				name: str(item.tool) ?? "tool",
 				arguments: (item.arguments && typeof item.arguments === "object" ? item.arguments : {}) as Json,
 			};
+		case "subAgentActivity": {
+			if (item.kind !== "started") return undefined;
+			const path = str(item.agentPath);
+			return {
+				type: "toolCall",
+				id,
+				name: "spawn_agent",
+				arguments: {
+					agent: agentName(path) ?? "Subagent",
+					...(path ? { agentPath: path } : {}),
+					...(str(item.model) ? { model: str(item.model) } : {}),
+					...(str(item.reasoningEffort) ? { reasoningEffort: str(item.reasoningEffort) } : {}),
+				},
+			};
+		}
+		case "collabAgentToolCall": {
+			const receivers = Array.isArray(item.receiverThreadIds) ? (item.receiverThreadIds as string[]) : [];
+			return {
+				type: "toolCall",
+				id,
+				name: COLLAB_TOOL_NAMES[str(item.tool) ?? ""] ?? str(item.tool) ?? "agent_tool",
+				arguments: {
+					...(str(item.prompt) ? { prompt: str(item.prompt) } : {}),
+					...(receivers.length ? { receivers } : {}),
+					...(str(item.model) ? { model: str(item.model) } : {}),
+					...(str(item.reasoningEffort) ? { reasoningEffort: str(item.reasoningEffort) } : {}),
+				},
+			};
+		}
 		case "webSearch":
 			return { type: "toolCall", id, name: "web_search", arguments: { query: str(item.query) ?? "" } };
 		case "imageGeneration":
@@ -229,6 +259,16 @@ export function toolResultFor(item: Json, streamedOutput?: string): ToolResultIn
 			const text = items.map((c) => str(c.text) ?? "").join("\n");
 			return { text, isError: item.success === false };
 		}
+		case "subAgentActivity":
+			return { text: `Started ${str(item.agentPath) ?? "a subagent"}` };
+		case "collabAgentToolCall": {
+			const states = (item.agentsStates ?? {}) as Record<string, Json | undefined>;
+			const lines = Object.entries(states).map(([threadId, state]) => {
+				const message = str(state?.message);
+				return `${threadId}: ${str(state?.status) ?? "unknown"}${message ? `\n${message}` : ""}`;
+			});
+			return { text: lines.join("\n\n"), isError: item.status === "failed" };
+		}
 		default:
 			return { text: "" };
 	}
@@ -301,4 +341,105 @@ export function convertTurns(turns: Json[], provider = CODEX_PROVIDER): Transcri
 		close();
 	}
 	return messages;
+}
+
+/** Pier tool names of Codex collaboration (multi-agent) tools. */
+const COLLAB_TOOL_NAMES: Record<string, string> = {
+	spawnAgent: "spawn_agent",
+	sendInput: "send_input",
+	resumeAgent: "resume_agent",
+	wait: "wait_agent",
+	closeAgent: "close_agent",
+	sendMessage: "send_message",
+	followupTask: "followup_task",
+	interruptAgent: "interrupt_agent",
+	listAgents: "list_agents",
+};
+
+/** Task name of a Codex sub-agent from its path, e.g. `/root/read_files` → `read_files`. */
+export function agentName(path: string | undefined): string | undefined {
+	const name = path?.split("/").filter(Boolean).at(-1);
+	return name && name !== "root" ? name : undefined;
+}
+
+/** Subagent status of a Codex `CollabAgentState`, or undefined while it runs. */
+export function collabStatus(status: unknown): Exclude<SubagentStatus, "running"> | undefined {
+	switch (status) {
+		case "completed":
+			return "completed";
+		case "errored":
+		case "notFound":
+			return "failed";
+		case "interrupted":
+		case "shutdown":
+			return "stopped";
+		default:
+			return undefined;
+	}
+}
+
+/**
+ * The sub-agents a stored Codex thread started, from its `subAgentActivity` and
+ * `collabAgentToolCall` items. Their conversations are separate threads.
+ */
+export function storedSubagents(turns: Json[]): SubagentInfo[] {
+	const agents = new Map<string, SubagentInfo>();
+	const agent = (threadId: string, toolCallId: string, name: string | undefined): SubagentInfo => {
+		let info = agents.get(threadId);
+		if (!info) {
+			info = {
+				id: threadId,
+				toolCallId,
+				name: name ?? "Subagent",
+				status: "stopped",
+				steps: 0,
+				stoppable: false,
+				transcript: true,
+				revision: 0,
+			};
+			agents.set(threadId, info);
+		}
+		return info;
+	};
+	for (const turn of turns) {
+		const items = Array.isArray(turn.items) ? (turn.items as Json[]) : [];
+		for (const item of items) {
+			if (item.type === "subAgentActivity") {
+				const threadId = str(item.agentThreadId);
+				if (!threadId) continue;
+				const info = agent(threadId, str(item.id) ?? "", agentName(str(item.agentPath)));
+				if (item.kind === "started") {
+					const model = str(item.model);
+					const level = effortToLevel(item.reasoningEffort);
+					if (model) info.model = model;
+					if (level) info.thinkingLevel = level;
+				} else if (item.kind === "completed") info.status = "completed";
+				else if (item.kind === "interrupted") info.status = "stopped";
+			} else if (item.type === "collabAgentToolCall") {
+				const receivers = Array.isArray(item.receiverThreadIds) ? (item.receiverThreadIds as string[]) : [];
+				const states = (item.agentsStates ?? {}) as Record<string, Json | undefined>;
+				if (item.tool === "spawnAgent") {
+					for (const threadId of receivers) {
+						const info = agent(threadId, str(item.id) ?? "", undefined);
+						const task = clip(str(item.prompt));
+						const model = str(item.model);
+						const level = effortToLevel(item.reasoningEffort);
+						if (task) info.task = task;
+						if (model) info.model = model;
+						if (level) info.thinkingLevel = level;
+					}
+				}
+				for (const [threadId, state] of Object.entries(states)) {
+					const info = agents.get(threadId);
+					const status = collabStatus(state?.status);
+					if (!info || !status) continue;
+					info.status = status;
+					const message = clip(str(state?.message));
+					if (message && status === "completed") info.result = message;
+					else if (message && status === "failed") info.error = message;
+				}
+			}
+		}
+	}
+	return [...agents.values()];
 }

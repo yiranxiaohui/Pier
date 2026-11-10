@@ -8,6 +8,7 @@ import {
 	type SessionContextInfo,
 	type SessionSummary,
 	type StreamingBehavior,
+	type SubagentInfo,
 	type ThinkingLevel,
 	type WireEvent,
 } from "@pier/protocol";
@@ -28,15 +29,20 @@ import {
 	usageFrom,
 	userContentText,
 } from "../runtimes/live-transcript.ts";
+import { clip, type SubagentPatch, type SubagentRuntimeHooks } from "../runtimes/subagents.ts";
 import type { CodexAppServer } from "./app-server.ts";
 import {
+	agentName,
 	CODEX_PROVIDER,
 	codexPolicy,
+	collabStatus,
+	convertTurns,
 	effortToLevel,
 	levelToEffort,
 	reasoningText,
 	toolCallFor,
 	toolResultFor,
+	userInputContent,
 } from "./convert.ts";
 
 export const CODEX_CAPABILITIES: AgentRuntimeCapabilities = {
@@ -62,6 +68,10 @@ export interface CodexSessionHost {
 	defaultModel(): ModelInfo | undefined;
 	/** Route the app server's requests for this thread to the session; returns the unregister function. */
 	register(session: CodexSession): () => void;
+	/** Route the app server's requests for a sub-agent thread to the session that started it. */
+	adopt(threadId: string, session: CodexSession): () => void;
+	/** Every turn of a thread with full items, oldest first. */
+	turns(threadId: string): Promise<Json[]>;
 	log(message: string): void;
 }
 
@@ -72,6 +82,22 @@ export interface CodexThreadStart {
 	effort?: string | null;
 	serviceTier?: string | null;
 	messages?: TranscriptMessage[];
+	/** Sub-agents of a stored thread. */
+	subagents?: SubagentInfo[];
+}
+
+/** A sub-agent thread the session's agent started. */
+interface ChildThread {
+	threadId: string;
+	turnId?: string;
+	/** Tool items that started and did not complete yet. */
+	toolItems: Map<string, Json>;
+	/** Tool items whose result is in the conversation (late completions are ignored). */
+	finished: Set<string>;
+	/** Text of the last agent message, the sub-agent's report. */
+	lastText?: string;
+	error?: string;
+	unadopt?: () => void;
 }
 
 interface QueuedPrompt {
@@ -128,6 +154,10 @@ export class CodexSession extends ManagedSession {
 	private offNotifications: (() => void) | undefined;
 	private offExit: (() => void) | undefined;
 	private unregister: (() => void) | undefined;
+	/** Sub-agent threads by thread id. */
+	private readonly children = new Map<string, ChildThread>();
+	/** Turns of this thread; sub-agent turns carry the id of the turn that started them. */
+	private readonly rootTurns = new Set<string>();
 
 	private constructor(
 		options: ManagedSessionOptions,
@@ -153,6 +183,8 @@ export class CodexSession extends ManagedSession {
 			() => ({ provider: CODEX_PROVIDER, api: "openai-responses", ...(this.modelId ? { model: this.modelId } : {}) }),
 		);
 		if (start.messages) this.transcript.load(start.messages);
+		this.subagents.provider = CODEX_PROVIDER;
+		if (start.subagents) this.subagents.load(start.subagents);
 	}
 
 	static start(options: ManagedSessionOptions, host: CodexSessionHost, start: CodexThreadStart): CodexSession {
@@ -161,10 +193,15 @@ export class CodexSession extends ManagedSession {
 		session.unregister = host.register(session);
 		const server = host.server();
 		session.offNotifications = server.onNotification((method, params) => {
-			if (params.threadId === session.threadId) session.onNotification(method, params);
+			const threadId = typeof params.threadId === "string" ? params.threadId : undefined;
+			if (threadId === session.threadId) session.onNotification(method, params);
+			else if (threadId) session.onOtherThread(threadId, method, params);
 		});
+		for (const subagent of start.subagents ?? []) session.trackChild(subagent.id);
+		void session.describeChildren(start.subagents ?? [], true);
 		session.offExit = server.onExit((reason) => {
 			if (session.transcript.isRunning) session.finishTurn(reason);
+			for (const subagent of session.subagents.running()) session.finishChild(subagent.id, "stopped");
 		});
 		return session;
 	}
@@ -201,14 +238,17 @@ export class CodexSession extends ManagedSession {
 		switch (method) {
 			case "item/commandExecution/requestApproval": {
 				const itemId = String(params.itemId ?? "");
-				const item = this.toolItems.get(itemId);
+				const item = this.toolItem(itemId);
 				const command = String(params.command ?? item?.command ?? "");
 				const result = await this.approveToolCall({
 					toolName: "bash",
 					toolCallId: itemId,
 					input: { command, ...(params.cwd ? { cwd: params.cwd } : {}) },
 					runtimeAsked: {
-						reason: String(params.reason ?? "Codex asks to run this command outside its sandbox"),
+						reason: this.fromChild(
+							params,
+							String(params.reason ?? "Codex asks to run this command outside its sandbox"),
+						),
 						summary: command,
 					},
 				});
@@ -216,14 +256,17 @@ export class CodexSession extends ManagedSession {
 			}
 			case "item/fileChange/requestApproval": {
 				const itemId = String(params.itemId ?? "");
-				const item = this.toolItems.get(itemId);
+				const item = this.toolItem(itemId);
 				const call = item ? toolCallFor(item) : undefined;
 				const path = String(call?.arguments.path ?? params.grantRoot ?? "");
 				const result = await this.approveToolCall({
 					toolName: call?.name ?? "edit",
 					toolCallId: itemId,
 					input: { path, ...(params.grantRoot ? { grantRoot: params.grantRoot } : {}) },
-					runtimeAsked: { reason: String(params.reason ?? "Codex asks to change files"), summary: path },
+					runtimeAsked: {
+						reason: this.fromChild(params, String(params.reason ?? "Codex asks to change files")),
+						summary: path,
+					},
 				});
 				return { decision: result.allowed ? (result.scope === "session" ? "acceptForSession" : "accept") : "decline" };
 			}
@@ -234,7 +277,7 @@ export class CodexSession extends ManagedSession {
 					toolCallId: String(params.itemId ?? randomUUID()),
 					input: permissions,
 					runtimeAsked: {
-						reason: String(params.reason ?? "Codex asks for more permissions"),
+						reason: this.fromChild(params, String(params.reason ?? "Codex asks for more permissions")),
 						summary: JSON.stringify(permissions).slice(0, 200),
 						severity: "high",
 					},
@@ -280,6 +323,7 @@ export class CodexSession extends ManagedSession {
 			case "turn/started": {
 				const turn = (params.turn ?? {}) as Json;
 				this.turnId = String(turn.id ?? "");
+				this.rootTurns.add(this.turnId);
 				this.ensureRunning();
 				return;
 			}
@@ -424,6 +468,7 @@ export class CodexSession extends ManagedSession {
 				}
 				return;
 			default: {
+				this.onAgentItem(item);
 				const call = toolCallFor(item);
 				if (!call) return;
 				this.ensureRunning();
@@ -467,6 +512,7 @@ export class CodexSession extends ManagedSession {
 			case "userMessage":
 				return;
 			default: {
+				this.onAgentItem(item);
 				const call = toolCallFor(item);
 				if (!call) return;
 				if (!this.toolItems.has(id)) {
@@ -481,6 +527,288 @@ export class CodexSession extends ManagedSession {
 				t.toolResult(id, toolResultFor(item, output), call.name);
 			}
 		}
+	}
+
+	// ---------------------------------------------------------------- sub-agents
+
+	private toolItem(itemId: string): Json | undefined {
+		const own = this.toolItems.get(itemId);
+		if (own) return own;
+		for (const child of this.children.values()) {
+			const item = child.toolItems.get(itemId);
+			if (item) return item;
+		}
+		return undefined;
+	}
+
+	/** Name the sub-agent in a request reason when a sub-agent thread asked. */
+	private fromChild(params: Json, reason: string): string {
+		const threadId = typeof params.threadId === "string" ? params.threadId : undefined;
+		if (!threadId || threadId === this.threadId) return reason;
+		const name = this.subagents.get(threadId)?.name ?? "Subagent";
+		return `[${name}] ${reason}`;
+	}
+
+	/** Follow a sub-agent thread: route its notifications and requests to this session. */
+	private trackChild(threadId: string): ChildThread {
+		let child = this.children.get(threadId);
+		if (!child) {
+			child = { threadId, toolItems: new Map(), finished: new Set() };
+			child.unadopt = this.host.adopt(threadId, this);
+			this.children.set(threadId, child);
+		}
+		return child;
+	}
+
+	/** Start following a sub-agent this session's agent (or one of its sub-agents) started. */
+	private adoptChild(threadId: string, patch: SubagentPatch): void {
+		const known = this.children.has(threadId);
+		this.trackChild(threadId);
+		const existing = this.subagents.get(threadId);
+		this.subagents.update(
+			threadId,
+			{
+				...patch,
+				...(existing ? {} : { status: "running" as const, startedAt: Date.now() }),
+			},
+			{ immediate: true },
+		);
+		this.subagents.conversation(threadId);
+		if (!known) void this.describeChildren([this.subagents.get(threadId) as SubagentInfo]);
+	}
+
+	/**
+	 * Fill in sub-agent names from `thread/read`; for sub-agents of a stored thread (`stored`) also
+	 * whether they still run, and their steps and report.
+	 */
+	private async describeChildren(subagents: SubagentInfo[], stored = false): Promise<void> {
+		for (const subagent of subagents.slice(0, 32)) {
+			try {
+				const response = await this.host
+					.server()
+					.request<{ thread?: Json }>("thread/read", { threadId: subagent.id, includeTurns: false });
+				const thread = response.thread ?? {};
+				const nickname = typeof thread.agentNickname === "string" ? thread.agentNickname : undefined;
+				const role = typeof thread.agentRole === "string" ? thread.agentRole : undefined;
+				const description = [nickname, role].filter(Boolean).join(" · ");
+				const model = typeof thread.model === "string" ? thread.model : undefined;
+				const level = effortToLevel(thread.reasoningEffort);
+				const current = this.subagents.get(subagent.id);
+				if (!current) continue;
+				const status = (thread.status as Json | undefined)?.type;
+				const stats =
+					stored && current.status !== "running" && current.steps === 0 ? await this.storedStats(subagent.id) : {};
+				this.subagents.update(
+					subagent.id,
+					{
+						...stats,
+						...(current.name === "Subagent" && (role || nickname) ? { name: role ?? nickname } : {}),
+						...(description && !current.description ? { description } : {}),
+						...(model && !current.model ? { model } : {}),
+						...(level && !current.thinkingLevel ? { thinkingLevel: level } : {}),
+						...(stored && status === "active" && current.status !== "running" ? { status: "running" as const } : {}),
+					},
+					{ immediate: true },
+				);
+			} catch (error) {
+				this.host.log(`reading Codex sub-agent ${subagent.id} failed: ${errorMessage(error)}`);
+			}
+		}
+	}
+
+	/** Steps and report of a stored sub-agent, from its thread's turns. */
+	private async storedStats(threadId: string): Promise<SubagentPatch> {
+		const items = (await this.host.turns(threadId)).flatMap((turn) =>
+			Array.isArray(turn.items) ? (turn.items as Json[]) : [],
+		);
+		const steps = items.filter((item) => toolCallFor(item) !== undefined).length;
+		const report = items.filter((item) => item.type === "agentMessage" && typeof item.text === "string").at(-1);
+		const result = this.subagents.get(threadId)?.status === "completed" ? clip(String(report?.text ?? "")) : undefined;
+		return { steps, ...(result && !this.subagents.get(threadId)?.result ? { result } : {}) };
+	}
+
+	/** Sub-agent items of this thread or of a sub-agent thread (`parentId`). */
+	private onAgentItem(item: Json, parentId?: string): void {
+		if (item.type === "subAgentActivity") {
+			const threadId = typeof item.agentThreadId === "string" ? item.agentThreadId : undefined;
+			if (!threadId) return;
+			switch (item.kind) {
+				case "started": {
+					const model = typeof item.model === "string" ? item.model : undefined;
+					const level = effortToLevel(item.reasoningEffort);
+					const name = agentName(typeof item.agentPath === "string" ? item.agentPath : undefined);
+					this.adoptChild(threadId, {
+						toolCallId: String(item.id ?? ""),
+						...(parentId ? { parentId } : {}),
+						...(name ? { name } : {}),
+						...(model ? { model } : {}),
+						...(level ? { thinkingLevel: level } : {}),
+					});
+					return;
+				}
+				case "completed":
+					this.finishChild(threadId, "completed");
+					return;
+				case "interrupted":
+					this.finishChild(threadId, "stopped");
+					return;
+				default:
+					return;
+			}
+		}
+		if (item.type !== "collabAgentToolCall") return;
+		const receivers = Array.isArray(item.receiverThreadIds) ? (item.receiverThreadIds as string[]) : [];
+		if (item.tool === "spawnAgent") {
+			const task = clip(typeof item.prompt === "string" ? item.prompt : undefined);
+			const model = typeof item.model === "string" ? item.model : undefined;
+			const level = effortToLevel(item.reasoningEffort);
+			for (const threadId of receivers) {
+				this.adoptChild(threadId, {
+					toolCallId: String(item.id ?? ""),
+					...(parentId ? { parentId } : {}),
+					...(task ? { task } : {}),
+					...(model ? { model } : {}),
+					...(level ? { thinkingLevel: level } : {}),
+				});
+			}
+		}
+		const states = (item.agentsStates ?? {}) as Record<string, Json | undefined>;
+		for (const [threadId, state] of Object.entries(states)) {
+			const status = collabStatus(state?.status);
+			if (!status || !this.subagents.has(threadId)) continue;
+			const message = clip(typeof state?.message === "string" ? state.message : undefined);
+			this.finishChild(threadId, status, message);
+		}
+	}
+
+	private finishChild(threadId: string, status: "completed" | "failed" | "stopped", message?: string): void {
+		if (this.subagents.get(threadId)?.status !== "running") return;
+		const child = this.children.get(threadId);
+		const result = status === "completed" ? clip(message ?? child?.lastText) : undefined;
+		const error = status === "failed" ? clip(message ?? child?.error) : undefined;
+		this.subagents.finish(threadId, status, {
+			stoppable: false,
+			...(result ? { result } : {}),
+			...(error ? { error } : {}),
+		});
+	}
+
+	/** A notification of another thread: one of this session's sub-agents, or not ours. */
+	private onOtherThread(threadId: string, method: string, params: Json): void {
+		let child = this.children.get(threadId);
+		if (!child) {
+			// Sub-agent turns carry the id of the parent turn that started them.
+			const turn = (params.turn ?? {}) as Json;
+			if (method !== "turn/started" || typeof turn.rootTurnId !== "string" || !this.rootTurns.has(turn.rootTurnId))
+				return;
+			this.adoptChild(threadId, {});
+			child = this.children.get(threadId);
+			if (!child) return;
+		}
+		this.lastActivity = Date.now();
+		this.onChildNotification(child, method, params);
+	}
+
+	private onChildNotification(child: ChildThread, method: string, params: Json): void {
+		const id = child.threadId;
+		if (!this.subagents.has(id)) this.adoptChild(id, {});
+		const conversation = this.subagents.conversation(id);
+		switch (method) {
+			case "turn/started": {
+				const turn = (params.turn ?? {}) as Json;
+				child.turnId = String(turn.id ?? "");
+				delete child.error;
+				conversation.startRun();
+				this.subagents.update(id, { status: "running", stoppable: true }, { immediate: true });
+				return;
+			}
+			case "item/started": {
+				const item = (params.item ?? {}) as Json;
+				this.onAgentItem(item, id);
+				const call = toolCallFor(item);
+				if (!call) return;
+				child.toolItems.set(String(item.id ?? ""), item);
+				conversation.toolCall(call);
+				conversation.endAssistant();
+				return;
+			}
+			case "item/completed": {
+				const item = (params.item ?? {}) as Json;
+				const itemId = String(item.id ?? "");
+				switch (item.type) {
+					case "agentMessage": {
+						const text = String(item.text ?? "");
+						if (text) {
+							conversation.text(text);
+							child.lastText = text;
+						}
+						return;
+					}
+					case "reasoning": {
+						const text = reasoningText(item);
+						if (text) conversation.thinkingEnd(conversation.thinkingStart(), text);
+						return;
+					}
+					case "userMessage": {
+						conversation.endAssistant();
+						conversation.addUser(userInputContent(item.content));
+						return;
+					}
+					default: {
+						this.onAgentItem(item, id);
+						const call = toolCallFor(item);
+						if (!call || child.finished.has(itemId)) return;
+						if (!child.toolItems.has(itemId)) {
+							conversation.toolCall(call);
+							conversation.endAssistant();
+						}
+						child.toolItems.delete(itemId);
+						child.finished.add(itemId);
+						conversation.endAssistant();
+						conversation.toolResult(itemId, toolResultFor(item), call.name);
+						return;
+					}
+				}
+			}
+			case "thread/tokenUsage/updated": {
+				const total = ((params.tokenUsage ?? {}) as Json).total as Json | undefined;
+				const tokens = Number(total?.totalTokens);
+				if (Number.isFinite(tokens)) this.subagents.update(id, { tokens });
+				return;
+			}
+			case "error": {
+				const error = (params.error ?? {}) as Json;
+				if (params.willRetry !== true) child.error = String(error.message ?? "Codex reported an error");
+				return;
+			}
+			case "turn/completed": {
+				const turn = (params.turn ?? {}) as Json;
+				conversation.endAssistant();
+				child.turnId = undefined;
+				// Ending the turn closes its unfinished tool calls.
+				for (const itemId of child.toolItems.keys()) child.finished.add(itemId);
+				child.toolItems.clear();
+				if (turn.status === "failed") {
+					const error = (turn.error as Json | null | undefined)?.message;
+					this.finishChild(id, "failed", String(error ?? child.error ?? "The sub-agent's turn failed"));
+				} else if (turn.status === "interrupted") this.finishChild(id, "stopped");
+				else this.finishChild(id, "completed");
+				return;
+			}
+			default:
+				return;
+		}
+	}
+
+	protected override subagentHooks(): SubagentRuntimeHooks {
+		return {
+			stop: async (subagent) => {
+				const turnId = this.children.get(subagent.id)?.turnId;
+				if (!turnId) throw new PierProtocolError("CONFLICT", "The sub-agent is not running a turn");
+				await this.host.server().request("turn/interrupt", { threadId: subagent.id, turnId });
+			},
+			load: async (subagent) => convertTurns(await this.host.turns(subagent.id)),
+		};
 	}
 
 	private finishTurn(failure?: string): void {
@@ -809,6 +1137,8 @@ export class CodexSession extends ManagedSession {
 		this.offNotifications?.();
 		this.offExit?.();
 		this.unregister?.();
+		for (const child of this.children.values()) child.unadopt?.();
+		this.children.clear();
 		const waiters = this.compactWaiters;
 		this.compactWaiters = [];
 		for (const resolve of waiters) resolve();

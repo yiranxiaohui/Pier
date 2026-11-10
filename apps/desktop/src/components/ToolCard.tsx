@@ -13,8 +13,11 @@ import {
 	IconFilePlus,
 	IconList,
 	IconLoader,
+	IconMessage,
+	IconNetwork,
 	IconSearch,
 	IconShieldAlert,
+	IconStop,
 	IconTerminal,
 	IconWrench,
 	IconX,
@@ -39,6 +42,19 @@ const TOOL_LABEL: Record<string, string> = {
 	grep: "搜索",
 	find: "查找",
 	ls: "列目录",
+	// Subagent tools (Claude Code, Codex, pi-subagents).
+	Agent: "Subagent",
+	Task: "Subagent",
+	subagent: "Subagent",
+	spawn_agent: "派出 Subagent",
+	wait_agent: "等待 Subagent",
+	send_input: "发送给 Subagent",
+	send_message: "发送给 Subagent",
+	followup_task: "追加 Subagent 任务",
+	resume_agent: "恢复 Subagent",
+	close_agent: "关闭 Subagent",
+	interrupt_agent: "中断 Subagent",
+	list_agents: "列出 Subagent",
 };
 
 const TOOL_ICON: Record<string, typeof IconTerminal> = {
@@ -50,6 +66,18 @@ const TOOL_ICON: Record<string, typeof IconTerminal> = {
 	grep: IconSearch,
 	find: IconSearch,
 	ls: IconList,
+	Agent: IconNetwork,
+	Task: IconNetwork,
+	subagent: IconNetwork,
+	spawn_agent: IconNetwork,
+	wait_agent: IconClock,
+	send_input: IconMessage,
+	send_message: IconMessage,
+	followup_task: IconMessage,
+	resume_agent: IconNetwork,
+	close_agent: IconX,
+	interrupt_agent: IconStop,
+	list_agents: IconList,
 };
 
 function StatusIcon({ status, awaiting }: { status: ToolBlock["status"]; awaiting: boolean }) {

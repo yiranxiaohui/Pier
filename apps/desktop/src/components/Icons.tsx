@@ -388,6 +388,21 @@ export const IconMic = make(
 		<path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
 	</>,
 );
+export const IconNetwork = make(
+	<>
+		<rect x="16" y="16" width="6" height="6" rx="1" />
+		<rect x="2" y="16" width="6" height="6" rx="1" />
+		<rect x="9" y="2" width="6" height="6" rx="1" />
+		<path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8" />
+	</>,
+);
+export const IconTarget = make(
+	<>
+		<circle cx="12" cy="12" r="10" />
+		<circle cx="12" cy="12" r="6" />
+		<circle cx="12" cy="12" r="2" />
+	</>,
+);
 
 /**
  * The script “Pier” wordmark, traced from the brand lettering. It is filled with the text color,

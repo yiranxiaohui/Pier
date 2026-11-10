@@ -21,6 +21,7 @@ import {
 	type SessionRunState,
 	type SessionSnapshot,
 	type SessionSummary,
+	type SubagentInfo,
 	type ThinkingLevel,
 	ThinkingLevelSchema,
 	type UiRequest,
@@ -323,6 +324,8 @@ class Cli {
 	private contextUsed: number | undefined;
 	private readonly stream: MessageStream;
 	private readonly tools = new Map<string, RunningTool>();
+	/** Last status shown for each subagent (1.54), to report starts and ends once. */
+	private readonly subagentStatus = new Map<string, SubagentInfo["status"]>();
 	/** Prompts sent from here, so their echo from the host is not shown twice. */
 	private readonly sent: string[] = [];
 	private suggestions: Array<readonly [string, string]> = [];
@@ -900,6 +903,21 @@ class Cli {
 			case "ui.notify":
 				this.notice(noticeLevel(event.level), String(event.message));
 				break;
+			case "subagent.update": {
+				const subagent = event.subagent as SubagentInfo;
+				if (this.subagentStatus.get(subagent.id) === subagent.status) break;
+				this.subagentStatus.set(subagent.id, subagent.status);
+				const model = [subagent.model, subagent.thinkingLevel].filter(Boolean).join(" ");
+				const ran =
+					subagent.startedAt && subagent.endedAt ? ` · ${formatDuration(subagent.endedAt - subagent.startedAt)}` : "";
+				const text =
+					subagent.status === "running"
+						? `↳ Subagent ${subagent.name} started${model ? ` (${model})` : ""}`
+						: `↳ Subagent ${subagent.name} ${subagent.status} · ${subagent.steps} steps${ran}`;
+				this.emit(this.stream.finish());
+				this.say(sanitize(text), subagent.status === "failed" ? c.red : c.gray);
+				break;
+			}
 			case "extension.error":
 				this.notice("error", `Extension error in ${String(event.extensionPath)}: ${String(event.error)}`);
 				break;
@@ -946,6 +964,8 @@ class Cli {
 		this.thinkingLevel = snapshot.thinkingLevel;
 		this.contextWindow = snapshot.contextInfo?.contextWindow ?? snapshot.model?.contextWindow;
 		this.pendingUi.clear();
+		this.subagentStatus.clear();
+		for (const subagent of snapshot.subagents ?? []) this.subagentStatus.set(subagent.id, subagent.status);
 		for (const request of snapshot.pendingUi) this.pendingUi.set(request.id, request);
 		this.resetRun();
 		const messages = snapshot.messages as TranscriptMessage[];

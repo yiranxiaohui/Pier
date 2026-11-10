@@ -271,6 +271,21 @@ export class ChatController {
 		return this.client.request("session.forkPoints", { sessionId: this.sessionId });
 	}
 
+	/** A subagent's conversation from message `from` on (1.54). */
+	subagentTranscript(subagentId: string, from = 0) {
+		return this.client.request("session.subagentTranscript", { sessionId: this.sessionId, subagentId, from });
+	}
+
+	/** Stop one running subagent, or all of them without `subagentId` (1.54). */
+	stopSubagent(subagentId?: string): Promise<unknown> {
+		return this.run("停止 Subagent", () =>
+			this.client.request("session.subagentStop", {
+				sessionId: this.sessionId,
+				...(subagentId !== undefined ? { subagentId } : {}),
+			}),
+		);
+	}
+
 	dismissNotice(id: number): void {
 		this.update({ ...this.view, chat: dismissNotice(this.view.chat, id) });
 	}

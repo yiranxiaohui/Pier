@@ -4,7 +4,7 @@ Pier 各项功能的详细说明。安装与快速上手见 [README](../README.m
 
 - [安装与更新](#安装与更新)：[桌面安装包](#桌面安装包) · [自动更新](#自动更新) · [远程更新其他电脑](#远程更新其他电脑) · [Linux 单文件](#linux-单文件) · [平台说明](#平台说明)
 - [手机与其他电脑](#手机与其他电脑)：[手机端](#手机端) · [添加其他电脑](#添加其他电脑) · [设置其他电脑上的 Pier](#设置其他电脑上的-pier) · [中继与 P2P 直连](#中继与-p2p-直连)
-- [Agent](#agent)：[Claude Code 与 Codex](#claude-code-与-codex) · [Skills 与 MCP](#skills-与-mcp) · [一键接入云链API](#一键接入云链api) · [pi 的配置](#pi-的配置)
+- [Agent](#agent)：[Claude Code 与 Codex](#claude-code-与-codex) · [Subagent](#subagent) · [Skills 与 MCP](#skills-与-mcp) · [一键接入云链API](#一键接入云链api) · [pi 的配置](#pi-的配置)
 - [工作台](#工作台)：[文件与预览](#文件与预览) · [主机进程](#主机进程) · [端口与映射](#端口与映射) · [工作区浏览器](#工作区浏览器) · [定时任务](#定时任务) · [语音输入](#语音输入) · [开机自启](#开机自启)
 - [数据与目录](#数据与目录)
 
@@ -168,6 +168,16 @@ CLI 不在 `PATH` 中时，可以用 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH` 指�
 - **Codex**：`~/.codex/config.toml` 与工作区的 `.codex/config.toml`（可以在页面中把工作区设为受信任的项目，Codex 才会读取它）。包括默认模型、思考程度与摘要、服务商（`model_providers`：添加兼容 OpenAI 的中转接口并设为当前）、网页搜索、命令环境、审批与沙箱等。修改时保留文件中的注释与格式。
 
 修改对之后新建（或重新打开）的会话生效。Pier 按工作区审批策略设置的项（Claude Code 的默认权限模式，Codex 的审批策略与沙箱）只影响终端中的 CLI。设置其他电脑时这两页修改那台电脑上的文件，那台电脑需要协议 1.23 或更高。
+
+### Subagent
+
+Agent 把任务委派给 subagent 时，对话中会出现一张 Subagent 卡片：Claude Code 的 `Agent` 工具、Codex 的 sub-agent（`spawn_agent`，需要 Codex 的多 Agent 功能 `multi_agent`，新版 Codex 默认开启）和 pi 的 [pi-subagents](https://github.com/nicobailon/pi-subagents) 扩展都会显示。卡片顶部是主 Agent，下面列出它派出的每个 subagent 的名称、模型与思考程度、状态、运行时长、任务描述、已执行的步骤和正在做的事；连续派出的多个 subagent 合并在一张卡片里。
+
+- **查看对话**：点击某个 subagent，右侧面板会切换到「Subagent」标签，只读显示它的对话（工具调用、输出与最终报告）并实时更新，可以展开查看委派的完整任务。subagent 由主 Agent 驱动，不能直接向它发送消息。切换到其他会话时面板回到「文件」。
+- **停止**：subagent 运行时，卡片和面板中的「停止」只停止这一个，卡片顶部的「停止全部」停止这张卡片中所有正在运行的 subagent；主 Agent 会收到它们被停止的结果并继续工作。要连主 Agent 一起停止，请使用输入框的停止按钮。Claude Code 和 Codex 支持停止，pi-subagents 暂不支持。
+- **历史会话**：重新打开会话时，subagent 卡片和它们的对话从 Claude Code / Codex / pi 保存的会话中恢复；Codex 的 sub-agent 线程不会单独出现在会话列表中。Codex sub-agent 请求审批时，审批对话框的理由前会带上它的名称。
+
+手机端在对应的工具卡片中列出 subagent 的状态与进度。需要 Host 支持协议 1.54，旧版 Host 上仍显示为普通工具卡片。
 
 ### Skills 与 MCP
 

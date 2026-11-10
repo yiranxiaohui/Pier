@@ -381,8 +381,10 @@ export interface AppState {
 	filesPanel: boolean;
 	/** Width of the file panel in pixels. */
 	filesPanelWidth: number;
-	/** What the right-hand panel shows: workspace files or Git source control. */
+	/** What the right-hand panel shows: workspace files, Git source control or a subagent. */
 	rightPanelTab: RightPanelTab;
+	/** The subagent whose conversation the right-hand panel shows (tab `subagent`). */
+	subagentView?: { sessionId: string; subagentId: string } | undefined;
 	/** Bumped per workspace when its files may have changed (an agent run finished). */
 	filesVersion: Record<string, number>;
 	/**
@@ -452,7 +454,7 @@ const SELECTION_KEY = "pier.selection";
 export const NEW_CHAT_DRAFT = "#new-chat";
 const FILES_PANEL_KEY = "pier.filesPanel";
 /** The views of the right-hand panel. */
-export type RightPanelTab = "files" | "git";
+export type RightPanelTab = "files" | "git" | "subagent";
 const SIDEBAR_KEY = "pier.sidebar";
 const WORKSPACE_ORDER_KEY = "pier.workspaceOrder";
 export const SIDEBAR_MIN_WIDTH = 180;
@@ -461,6 +463,8 @@ export const SIDEBAR_DEFAULT_WIDTH = 228;
 export const FILES_PANEL_MIN_WIDTH = 220;
 export const FILES_PANEL_MAX_WIDTH = 560;
 export const FILES_PANEL_DEFAULT_WIDTH = 280;
+/** Opening a subagent's conversation widens the right-hand panel to at least this. */
+const SUBAGENT_PANEL_MIN_WIDTH = 440;
 
 function clampSidebarWidth(width: number): number {
 	if (!Number.isFinite(width)) return SIDEBAR_DEFAULT_WIDTH;
@@ -706,7 +710,8 @@ export class PierStore {
 				JSON.stringify({
 					open: this.state.filesPanel,
 					width: this.state.filesPanelWidth,
-					tab: this.state.rightPanelTab,
+					// A subagent's conversation is not restored after a restart.
+					tab: this.state.rightPanelTab === "git" ? "git" : "files",
 				}),
 			);
 		}
@@ -2205,9 +2210,31 @@ export class PierStore {
 
 	/** Show the right-hand panel on `tab` (files or source control). */
 	showRightPanel(tab: RightPanelTab): void {
+		if (tab === "subagent" && !this.state.subagentView) return;
 		if (tab !== this.state.rightPanelTab || !this.state.filesPanel) {
 			this.set({ rightPanelTab: tab, filesPanel: true });
 		}
+	}
+
+	/** Show a subagent's conversation in the right-hand panel. */
+	openSubagent(sessionId: string, subagentId: string): void {
+		this.set({
+			subagentView: { sessionId, subagentId },
+			rightPanelTab: "subagent",
+			filesPanel: true,
+			// Conversations need more room than the file tree.
+			filesPanelWidth: clampPanelWidth(Math.max(this.state.filesPanelWidth, SUBAGENT_PANEL_MIN_WIDTH)),
+		});
+	}
+
+	/** Stop showing a subagent; `keepPanel` switches the panel back to the files instead of closing it. */
+	closeSubagent(keepPanel = false): void {
+		if (!this.state.subagentView && this.state.rightPanelTab !== "subagent") return;
+		const onSubagent = this.state.rightPanelTab === "subagent";
+		this.set({
+			subagentView: undefined,
+			...(onSubagent ? { rightPanelTab: "files" as const, ...(keepPanel ? {} : { filesPanel: false }) } : {}),
+		});
 	}
 
 	/**

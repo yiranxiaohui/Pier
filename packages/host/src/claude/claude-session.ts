@@ -34,18 +34,26 @@ import {
 	type ImagePart,
 	LiveTranscript,
 	type TextPart,
+	type ToolCallPart,
 	type TranscriptMessage,
 	type Usage,
 	type UserMessage,
 	userContentText,
 } from "../runtimes/live-transcript.ts";
+import { clip, type SubagentPatch, type SubagentRuntimeHooks } from "../runtimes/subagents.ts";
 import {
+	agentCallFields,
 	anthropicUsage,
 	assistantParts,
+	CLAUDE_AGENT_TOOLS,
 	CLAUDE_PROVIDER,
+	convertSubagentTranscript,
 	convertTranscript,
 	normalizeTool,
+	parseAgentResult,
+	promptText,
 	stopReason,
+	storedSubagents,
 	toolCallPart,
 	toolResultInput,
 } from "./convert.ts";
@@ -72,7 +80,8 @@ export const CLAUDE_THINKING_LEVELS: ThinkingLevel[] = ["off", "low", "medium", 
 export type ClaudeSdk = Pick<
 	typeof import("@anthropic-ai/claude-agent-sdk"),
 	"query" | "listSessions" | "getSessionMessages" | "forkSession" | "renameSession"
->;
+> &
+	Partial<Pick<typeof import("@anthropic-ai/claude-agent-sdk"), "listSubagents" | "getSubagentMessages">>;
 
 /** What a Claude Code session needs from its runtime. */
 export interface ClaudeSessionHost {
@@ -167,6 +176,14 @@ export class ClaudeCodeSession extends ManagedSession {
 	private runWaiters: Array<() => void> = [];
 	private lastCompactTokens = 0;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Claude Code task id of each subagent (keyed by its `Agent` tool call id), for `stopTask`. */
+	private readonly agentTasks = new Map<string, string>();
+	/** Subagent (`Agent` tool call id) of each Claude Code task id. */
+	private readonly taskAgents = new Map<string, string>();
+	/** Claude Code agent id of each subagent, for loading its stored transcript. */
+	private readonly agentIds = new Map<string, string>();
+	/** API message id of the assistant message each subagent is building. */
+	private readonly childMessages = new Map<string, string>();
 
 	private constructor(
 		options: ManagedSessionOptions,
@@ -186,7 +203,13 @@ export class ClaudeCodeSession extends ManagedSession {
 				...(this.resolvedModel || this.modelId ? { model: this.resolvedModel ?? this.modelId } : {}),
 			}),
 		);
-		if (start.messages) this.transcript.load(start.messages);
+		this.subagents.provider = CLAUDE_PROVIDER;
+		if (start.messages) {
+			this.transcript.load(start.messages);
+			const agents = storedSubagents(start.messages, true);
+			this.subagents.load(agents.map((a) => a.info));
+			for (const agent of agents) if (agent.agentId) this.agentIds.set(agent.info.id, agent.agentId);
+		}
 	}
 
 	static start(options: ManagedSessionOptions, host: ClaudeSessionHost, start: ClaudeSessionStart): ClaudeCodeSession {
@@ -269,6 +292,7 @@ export class ClaudeCodeSession extends ManagedSession {
 			if (!this.disposed && this.running) {
 				this.finishRun(failure ?? "Claude Code exited before the reply finished.");
 			}
+			this.stopAllSubagents();
 			for (const prompt of this.queued) this.host.log(`dropped queued prompt ${prompt.uuid} (Claude Code exited)`);
 			this.queued = [];
 		}
@@ -285,13 +309,19 @@ export class ClaudeCodeSession extends ManagedSession {
 				this.onStreamEvent(m.event as Json);
 				return;
 			case "assistant":
-				if (m.parent_tool_use_id) return;
+				if (m.parent_tool_use_id) {
+					this.onChildAssistant(String(m.parent_tool_use_id), m);
+					return;
+				}
 				this.consumeQueued(m);
 				this.ensureRunning();
 				this.onAssistant(m);
 				return;
 			case "user":
-				if (m.parent_tool_use_id) return;
+				if (m.parent_tool_use_id) {
+					this.onChildUser(String(m.parent_tool_use_id), m);
+					return;
+				}
 				this.onUser(m);
 				return;
 			case "result":
@@ -495,7 +525,10 @@ export class ClaudeCodeSession extends ManagedSession {
 		if (this.stream === undefined && this.transcript.streaming) this.transcript.endAssistant();
 		for (const block of results) {
 			const id = String(block.tool_use_id ?? "");
-			this.transcript.toolResult(id, toolResultInput(block, results.length === 1 ? m.tool_use_result : undefined));
+			const toolUseResult = results.length === 1 ? m.tool_use_result : undefined;
+			const call = this.findToolCall(id);
+			this.transcript.toolResult(id, toolResultInput(block, toolUseResult));
+			if (call && CLAUDE_AGENT_TOOLS.has(call.name)) this.onAgentResult(id, block, toolUseResult);
 		}
 	}
 
@@ -596,6 +629,18 @@ export class ClaudeCodeSession extends ManagedSession {
 				this.endCompaction();
 				return;
 			}
+			case "task_started":
+				this.onTaskStarted(m);
+				return;
+			case "task_progress":
+				this.onTaskProgress(m);
+				return;
+			case "task_updated":
+				this.onTaskUpdated(m);
+				return;
+			case "task_notification":
+				this.onTaskNotification(m);
+				return;
 			case "api_retry": {
 				this.retrying = true;
 				const error = (m.error ?? {}) as Json;
@@ -612,6 +657,303 @@ export class ClaudeCodeSession extends ManagedSession {
 			default:
 				return;
 		}
+	}
+
+	// ---------------------------------------------------------------- subagents
+
+	/** A tool call of the transcript or of a subagent's conversation, with its owner. */
+	private findToolCall(id: string): (ToolCallPart & { owner?: string }) | undefined {
+		const search = (messages: Array<{ role: string; content?: unknown }>) => {
+			for (let i = messages.length - 1; i >= 0; i--) {
+				const message = messages[i];
+				if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+				for (const part of message.content as ToolCallPart[]) {
+					if (part?.type === "toolCall" && part.id === id) return part;
+				}
+			}
+			return undefined;
+		};
+		const t = this.transcript;
+		const own = search(t.streaming ? [...t.messages, t.streaming] : t.messages);
+		if (own) return own;
+		for (const subagent of this.subagents.list()) {
+			if (!subagent.transcript || subagent.status !== "running") continue;
+			const conversation = this.subagents.conversation(subagent.id);
+			const messages = conversation.streaming
+				? [...conversation.messages, conversation.streaming]
+				: conversation.messages;
+			const call = search(messages);
+			if (call) return { ...call, owner: subagent.id };
+		}
+		return undefined;
+	}
+
+	/** The subagent of an `Agent` tool call, created when first seen. */
+	private agentFor(toolUseId: string): string {
+		if (!this.subagents.has(toolUseId)) {
+			const call = this.findToolCall(toolUseId);
+			const fields = call ? agentCallFields(call.arguments) : { name: "Agent" };
+			const description = clip(fields.description, 500);
+			const task = clip(fields.task);
+			this.subagents.update(toolUseId, {
+				toolCallId: toolUseId,
+				...(call?.owner ? { parentId: call.owner } : {}),
+				name: fields.name,
+				...(description ? { description } : {}),
+				...(task ? { task } : {}),
+				status: "running",
+				startedAt: Date.now(),
+			});
+		}
+		return toolUseId;
+	}
+
+	private agentOfTask(m: Json): string | undefined {
+		const taskId = typeof m.task_id === "string" ? m.task_id : undefined;
+		const byTask = taskId ? this.taskAgents.get(taskId) : undefined;
+		if (byTask) return byTask;
+		const toolUseId = typeof m.tool_use_id === "string" ? m.tool_use_id : undefined;
+		return toolUseId && this.subagents.has(toolUseId) ? toolUseId : undefined;
+	}
+
+	private onTaskStarted(m: Json): void {
+		const toolUseId = typeof m.tool_use_id === "string" ? m.tool_use_id : undefined;
+		const taskId = typeof m.task_id === "string" ? m.task_id : undefined;
+		const isAgent = m.task_type === "local_agent" || (m.task_type === undefined && m.subagent_type !== undefined);
+		if (!toolUseId || !isAgent || m.skip_transcript === true) return;
+		const id = this.agentFor(toolUseId);
+		const description = clip(typeof m.description === "string" ? m.description : undefined, 500);
+		const task = clip(typeof m.prompt === "string" ? m.prompt : undefined);
+		if (taskId) {
+			this.agentTasks.set(id, taskId);
+			this.taskAgents.set(taskId, id);
+		}
+		this.subagents.update(
+			id,
+			{
+				...(typeof m.subagent_type === "string" && m.subagent_type ? { name: m.subagent_type } : {}),
+				...(description ? { description } : {}),
+				...(task ? { task } : {}),
+				status: "running",
+				stoppable: taskId !== undefined,
+			},
+			{ immediate: true },
+		);
+	}
+
+	private onTaskProgress(m: Json): void {
+		const id = this.agentOfTask(m);
+		const info = id ? this.subagents.get(id) : undefined;
+		if (!id || !info) return;
+		const usage = (m.usage ?? {}) as Json;
+		const steps = Number(usage.tool_uses);
+		const tokens = Number(usage.total_tokens);
+		const activity = [m.summary, m.description, m.last_tool_name].find(
+			(v): v is string => typeof v === "string" && v.trim() !== "",
+		);
+		this.subagents.update(id, {
+			...(Number.isFinite(steps) ? { steps: Math.max(info.steps, steps) } : {}),
+			...(Number.isFinite(tokens) ? { tokens } : {}),
+			...(activity ? { activity: clip(activity, 200) } : {}),
+		});
+	}
+
+	private onTaskUpdated(m: Json): void {
+		const id = this.agentOfTask(m);
+		const patch = (m.patch ?? {}) as Json;
+		if (!id) return;
+		const error = typeof patch.error === "string" ? clip(patch.error) : undefined;
+		if (patch.status === "failed") this.finishAgent(id, "failed", error ? { error } : {});
+		else if (patch.status === "killed") this.finishAgent(id, "stopped");
+		else if (patch.status === "completed") this.finishAgent(id, "completed");
+	}
+
+	private onTaskNotification(m: Json): void {
+		const id = this.agentOfTask(m);
+		if (!id) return;
+		const info = this.subagents.get(id);
+		const usage = (m.usage ?? {}) as Json;
+		const summary = typeof m.summary === "string" ? m.summary : undefined;
+		const steps = Number(usage.tool_uses);
+		const tokens = Number(usage.total_tokens);
+		const patch = {
+			...(Number.isFinite(steps) ? { steps: Math.max(info?.steps ?? 0, steps) } : {}),
+			...(Number.isFinite(tokens) ? { tokens } : {}),
+		};
+		if (m.status === "completed")
+			this.finishAgent(id, "completed", { ...patch, ...this.reportPatch(summary) }, summary);
+		else if (m.status === "failed") {
+			const error = clip(summary);
+			this.finishAgent(id, "failed", { ...patch, ...(error ? { error } : {}) });
+		} else this.finishAgent(id, "stopped", patch);
+	}
+
+	private reportPatch(report: string | undefined): { result?: string } {
+		const result = clip(report);
+		return result ? { result } : {};
+	}
+
+	private finishAgent(
+		id: string,
+		status: "completed" | "failed" | "stopped",
+		patch: SubagentPatch = {},
+		report?: string,
+	): void {
+		this.endChildMessage(id);
+		if (report && this.subagents.get(id)?.status === "running") this.appendReport(id, report);
+		const taskId = this.agentTasks.get(id);
+		if (taskId) this.taskAgents.delete(taskId);
+		this.agentTasks.delete(id);
+		this.subagents.finish(id, status, { ...patch, stoppable: false });
+	}
+
+	/** The parent's result of an `Agent` tool call: final for foreground subagents. */
+	private onAgentResult(id: string, block: Json, toolUseResult: unknown): void {
+		const agent = this.agentFor(id);
+		const r = (toolUseResult && typeof toolUseResult === "object" ? toolUseResult : {}) as Json;
+		const text = toolResultInput(block).text;
+		const report = parseAgentResult(text);
+		if (typeof r.agentId === "string") this.agentIds.set(agent, r.agentId);
+		else if (report.agentId) this.agentIds.set(agent, report.agentId);
+		const info = this.subagents.get(agent);
+		const steps = Number(r.totalToolUseCount ?? report.toolUses);
+		const tokens = Number(r.totalTokens ?? report.tokens);
+		const patch = {
+			...(typeof r.resolvedModel === "string" ? { model: r.resolvedModel } : {}),
+			...(Number.isFinite(steps) ? { steps: Math.max(info?.steps ?? 0, steps) } : {}),
+			...(Number.isFinite(tokens) ? { tokens } : {}),
+		};
+		if (info && info.status !== "running") {
+			// Its task notification already ended it.
+			const result = info.status === "completed" && !info.result ? this.reportPatch(report.report) : {};
+			this.subagents.update(agent, { ...patch, ...result });
+		} else if (block.is_error === true) {
+			const error = clip(text);
+			this.finishAgent(agent, "failed", { ...patch, ...(error ? { error } : {}) });
+		} else if (r.status === "completed" || !this.agentTasks.has(agent)) {
+			this.finishAgent(
+				agent,
+				"completed",
+				{ ...patch, ...(info?.result ? {} : this.reportPatch(report.report)) },
+				report.report,
+			);
+		} else {
+			// Running in the background: its task notification ends it.
+			this.subagents.update(agent, patch);
+		}
+	}
+
+	/**
+	 * Claude Code does not stream a subagent's final reply, only its summary: add it to the live
+	 * conversation unless the conversation already ends with a reply.
+	 */
+	private appendReport(id: string, report: string): void {
+		if (!this.subagents.get(id)?.transcript) return;
+		const conversation = this.subagents.conversation(id);
+		const last = conversation.messages.at(-1);
+		if (last?.role === "assistant" && last.content.some((p) => p.type === "text" && p.text.trim())) return;
+		conversation.text(report);
+		conversation.endAssistant();
+	}
+
+	private endChildMessage(id: string): void {
+		this.childMessages.delete(id);
+		if (this.subagents.get(id)?.transcript) this.subagents.conversation(id).endAssistant();
+	}
+
+	/** A message of a subagent's conversation from Claude Code (prompt or tool results). */
+	private onChildUser(parentToolUseId: string, m: Json): void {
+		const id = this.agentFor(parentToolUseId);
+		const conversation = this.subagents.conversation(id);
+		const content = ((m.message ?? {}) as Json).content;
+		if (typeof content === "string") {
+			this.endChildMessage(id);
+			const text = promptText(content);
+			if (text?.trim()) conversation.addUser(text);
+			return;
+		}
+		if (!Array.isArray(content)) return;
+		const blocks = content as Json[];
+		const results = blocks.filter((b) => b?.type === "tool_result");
+		if (results.length) {
+			this.endChildMessage(id);
+			for (const block of results) {
+				conversation.toolResult(
+					String(block.tool_use_id ?? ""),
+					toolResultInput(block, results.length === 1 ? m.tool_use_result : undefined),
+				);
+			}
+			return;
+		}
+		const text = blocks
+			.filter((b) => b?.type === "text")
+			.map((b) => promptText(String(b.text ?? "")) ?? "")
+			.filter((t) => t.trim())
+			.join("\n\n");
+		if (text) {
+			this.endChildMessage(id);
+			conversation.addUser(text);
+		}
+	}
+
+	/** An assistant message (complete content blocks) of a subagent's conversation. */
+	private onChildAssistant(parentToolUseId: string, m: Json): void {
+		const id = this.agentFor(parentToolUseId);
+		const conversation = this.subagents.conversation(id);
+		const message = (m.message ?? {}) as Json;
+		const messageId = typeof message.id === "string" ? message.id : undefined;
+		if (this.childMessages.get(id) !== messageId) {
+			this.endChildMessage(id);
+			if (messageId) this.childMessages.set(id, messageId);
+		}
+		if (typeof message.model === "string" && message.model) this.subagents.update(id, { model: message.model });
+		for (const part of assistantParts(message.content)) {
+			if (part.type === "text") {
+				if (part.text) conversation.text(part.text);
+			} else if (part.type === "thinking") {
+				if (part.thinking || part.redacted) {
+					conversation.thinkingEnd(conversation.thinkingStart(undefined, part.redacted === true), part.thinking);
+				}
+			} else conversation.toolCall(part);
+		}
+		const usage = anthropicUsage(message.usage);
+		if (usage && conversation.streaming) conversation.setUsage(usage);
+		if (message.stop_reason) this.endChildMessage(id);
+	}
+
+	/** Subagents cannot outlive the Claude Code process. */
+	private stopAllSubagents(): void {
+		for (const subagent of this.subagents.running()) this.finishAgent(subagent.id, "stopped");
+	}
+
+	protected override subagentHooks(): SubagentRuntimeHooks {
+		return {
+			stop: async (subagent) => {
+				const taskId = this.agentTasks.get(subagent.id);
+				if (!taskId || !this.query) throw new PierProtocolError("CONFLICT", "The subagent is no longer running");
+				await this.query.stopTask(taskId);
+			},
+			load: (subagent) => this.loadAgentTranscript(subagent.id),
+		};
+	}
+
+	/** The stored conversation of a subagent (Claude Code keeps one file per subagent). */
+	private async loadAgentTranscript(id: string): Promise<TranscriptMessage[] | undefined> {
+		if (!this.persisted) return undefined;
+		const sdk = await this.host.sdk();
+		if (!sdk.getSubagentMessages) return undefined;
+		const dir = this.workspacePath;
+		if (!this.agentIds.has(id) && sdk.listSubagents) {
+			const known = new Set(this.agentIds.values());
+			for (const agentId of await sdk.listSubagents(this.sessionId, { dir })) {
+				if (known.has(agentId)) continue;
+				const [first] = await sdk.getSubagentMessages(this.sessionId, agentId, { dir, limit: 1 });
+				if (first?.parent_tool_use_id) this.agentIds.set(first.parent_tool_use_id, agentId);
+			}
+		}
+		const agentId = this.agentIds.get(id);
+		if (!agentId) return undefined;
+		return convertSubagentTranscript(await sdk.getSubagentMessages(this.sessionId, agentId, { dir }));
 	}
 
 	private endCompaction(failure?: string): void {

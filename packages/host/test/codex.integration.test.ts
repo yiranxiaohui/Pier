@@ -13,6 +13,7 @@ import {
 	resolveSlash,
 	runBuiltin,
 	type SlashActions,
+	subagentList,
 	waitingForModelLabel,
 } from "@pier/chat-state";
 import type { PierClient } from "@pier/client";
@@ -401,6 +402,89 @@ describe("Codex runtime", () => {
 		await client.request("session.abort", { sessionId: session.id });
 		await rec.waitFor((frame) => frame.event.type === "session.status" && frame.event.state === "idle");
 		expect(isWaitingForModel(state(), buildTranscript(state()))).toBe(false);
+	});
+
+	it("follows sub-agent threads: card, live conversation, approvals, stop and history", async () => {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const { rec, state } = await open(session);
+		await client.request("session.prompt", { sessionId: session.id, text: "delegate reading" });
+		await rec.waitForType("agent_settled");
+		await expect.poll(() => subagentList(state())[0]?.description).toBe("Volta");
+		const [subagent] = subagentList(state());
+		expect(subagent).toMatchObject({
+			name: "reader",
+			model: "gpt-test",
+			thinkingLevel: "low",
+			status: "completed",
+			steps: 1,
+			tokens: 42,
+			result: "a.txt says hello",
+			stoppable: false,
+			transcript: true,
+		});
+		if (!subagent?.toolCallId) throw new Error("missing subagent");
+		const items = buildTranscript(state());
+		const blocks = items.flatMap((item) => (item.kind === "assistant" ? item.blocks : []));
+		const spawn = blocks.find((b) => b.kind === "tool" && b.call.name === "spawn_agent");
+		expect(spawn).toMatchObject({ call: { id: subagent.toolCallId }, subagents: [{ id: subagent.id }] });
+		expect(blocks.some((b) => b.kind === "tool" && b.call.name === "wait_agent")).toBe(true);
+		const transcript = await client.request("session.subagentTranscript", {
+			sessionId: session.id,
+			subagentId: subagent.id,
+		});
+		expect(transcript.total).toBe(3);
+		expect(transcript.messages).toMatchObject([
+			{ role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: { command: "cat a.txt" } }] },
+			{ role: "toolResult", content: [{ type: "text", text: "hello\n" }] },
+			{ role: "assistant", content: [{ type: "text", text: "a.txt says hello" }] },
+		]);
+		const later = await client.request("session.subagentTranscript", {
+			sessionId: session.id,
+			subagentId: subagent.id,
+			from: 2,
+		});
+		expect(later).toMatchObject({ from: 2, total: 3, messages: [{ role: "assistant" }] });
+
+		// A sub-agent that asks for approval reaches the session that started it.
+		await client.request("workspace.setPolicy", { workspaceId: workspace.id, policy: "ask" });
+		let from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "delegate-approve" });
+		const asked = await rec.waitForType("ui.request", from);
+		const request = asked.event.request as { id: string; approval?: { reason?: string } };
+		expect(request.approval?.reason).toContain("[reader]");
+		await client.request("ui.respond", {
+			sessionId: session.id,
+			requestId: request.id,
+			response: { decision: "allow_once" },
+		});
+		await rec.waitForType("agent_settled", from);
+		expect(await runtime().server().request("fake/childApproval", {})).toBe("accept");
+
+		// Stopping a running sub-agent interrupts its turn.
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "delegate-hold" });
+		await expect.poll(() => subagentList(state()).find((s) => s.status === "running" && s.stoppable)?.id).toBeDefined();
+		const running = subagentList(state()).find((s) => s.status === "running");
+		expect(await client.request("session.subagentStop", { sessionId: session.id })).toEqual({ stopped: 1 });
+		await rec.waitForType("agent_settled", from);
+		expect(state().subagents[running?.id ?? ""]).toMatchObject({ status: "stopped", stoppable: false });
+		await expect(
+			client.request("session.subagentStop", { sessionId: session.id, subagentId: "missing" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+		// Reopened, the sub-agents come from the stored turns and their own threads.
+		await client.request("session.close", { sessionId: session.id });
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: session.id });
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(snapshot.subagents?.map((s) => s.status)).toEqual(["completed", "completed", "stopped"]);
+		expect(snapshot.subagents?.[0]).toMatchObject({ name: "reader", toolCallId: subagent.toolCallId });
+		const stored = await client.request("session.subagentTranscript", {
+			sessionId: session.id,
+			subagentId: subagent.id,
+		});
+		expect(stored.messages.at(-1)).toMatchObject({ role: "assistant", content: [{ text: "a.txt says hello" }] });
+		const sessions = (await client.request("session.list", { workspaceId: workspace.id })).sessions;
+		expect(sessions.filter((s) => s.runtime === "codex").map((s) => s.id)).toEqual([session.id]);
 	});
 
 	it("aborts a running turn", async () => {

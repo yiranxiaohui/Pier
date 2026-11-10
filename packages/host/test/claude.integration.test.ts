@@ -322,4 +322,186 @@ describe("Claude Code runtime", () => {
 		expect(users.map((u) => (u.kind === "user" ? u.text : ""))).toEqual(["first", "second"]);
 		expect(state().queue).toEqual({ steering: [], followUp: [] });
 	});
+
+	it("follows Agent subagents: live conversation, stop and stored transcripts", async () => {
+		const agentCall = (id: string, prompt: string) => ({
+			type: "assistant",
+			message: {
+				id: `msg_${id}`,
+				model: "claude-test",
+				content: [
+					{
+						type: "tool_use",
+						id,
+						name: "Agent",
+						input: { description: "Read a.txt", subagent_type: "Explore", prompt },
+					},
+				],
+				stop_reason: "tool_use",
+			},
+		});
+		fake.responder = async function* (ctx) {
+			const hold = ctx.text === "hold";
+			const toolUseId = hold ? "toolu_hold" : "toolu_agent";
+			const taskId = hold ? "task_hold" : "task_1";
+			const prompt = "Read a.txt and report";
+			yield agentCall(toolUseId, prompt);
+			yield {
+				type: "system",
+				subtype: "task_started",
+				task_id: taskId,
+				tool_use_id: toolUseId,
+				description: "Read a.txt",
+				subagent_type: "Explore",
+				task_type: "local_agent",
+				prompt,
+			};
+			yield { type: "user", parent_tool_use_id: toolUseId, message: { role: "user", content: prompt } };
+			yield {
+				type: "system",
+				subtype: "task_progress",
+				task_id: taskId,
+				tool_use_id: toolUseId,
+				description: "Reading a.txt",
+				usage: { total_tokens: 100, tool_uses: 1, duration_ms: 5 },
+				last_tool_name: "Read",
+			};
+			yield {
+				type: "assistant",
+				parent_tool_use_id: toolUseId,
+				message: {
+					id: `msg_child_${taskId}`,
+					model: "claude-child",
+					content: [{ type: "tool_use", id: `toolu_read_${taskId}`, name: "Read", input: { file_path: "a.txt" } }],
+				},
+			};
+			yield {
+				type: "user",
+				parent_tool_use_id: toolUseId,
+				message: {
+					role: "user",
+					content: [{ type: "tool_result", tool_use_id: `toolu_read_${taskId}`, content: "1\thello" }],
+				},
+			};
+			if (hold) {
+				while (!fake.stoppedTasks.includes(taskId)) await new Promise((r) => setTimeout(r, 5));
+				yield {
+					type: "system",
+					subtype: "task_notification",
+					task_id: taskId,
+					tool_use_id: toolUseId,
+					status: "stopped",
+					summary: "",
+				};
+				yield {
+					type: "user",
+					message: {
+						role: "user",
+						content: [{ type: "tool_result", tool_use_id: toolUseId, content: [{ type: "text", text: "Stopped" }] }],
+					},
+					tool_use_result: { status: "stopped" },
+				};
+			} else {
+				yield {
+					type: "assistant",
+					parent_tool_use_id: toolUseId,
+					message: {
+						id: `msg_child_report_${taskId}`,
+						model: "claude-child",
+						content: [{ type: "text", text: "a.txt says hello" }],
+						stop_reason: "end_turn",
+					},
+				};
+				yield {
+					type: "system",
+					subtype: "task_notification",
+					task_id: taskId,
+					tool_use_id: toolUseId,
+					status: "completed",
+					summary: "a.txt says hello",
+					usage: { total_tokens: 120, tool_uses: 1, duration_ms: 9 },
+				};
+				const report = [
+					"  <tools-used-before-summary>Read</tools-used-before-summary>",
+					"[Subagent hand-back] The text below is the final report. The report follows:",
+					"  a.txt says hello",
+					`agentId: ${taskId} (use SendMessage with to: '${taskId}' to continue this agent)`,
+					"<usage>subagent_tokens: 120",
+					"tool_uses: 1",
+					"duration_ms: 9</usage>",
+				].join("\n");
+				yield {
+					type: "user",
+					message: {
+						role: "user",
+						content: [{ type: "tool_result", tool_use_id: toolUseId, content: [{ type: "text", text: report }] }],
+					},
+					tool_use_result: {
+						status: "completed",
+						agentId: taskId,
+						resolvedModel: "claude-child",
+						totalTokens: 120,
+						totalToolUseCount: 1,
+					},
+				};
+			}
+			yield* streamText(`msg_done_${taskId}`, "Done");
+		};
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		await client.request("session.prompt", { sessionId: session.id, text: "delegate" });
+		await rec.waitForType("agent_settled");
+		expect(state().subagents.toolu_agent).toMatchObject({
+			toolCallId: "toolu_agent",
+			name: "Explore",
+			description: "Read a.txt",
+			task: "Read a.txt and report",
+			model: "claude-child",
+			status: "completed",
+			steps: 1,
+			tokens: 120,
+			result: "a.txt says hello",
+			stoppable: false,
+			transcript: true,
+		});
+		const blocks = buildTranscript(state()).flatMap((item) => (item.kind === "assistant" ? item.blocks : []));
+		expect(blocks.find((b) => b.kind === "tool" && b.call.name === "Agent")).toMatchObject({
+			status: "done",
+			subagents: [{ id: "toolu_agent" }],
+		});
+		const live = await client.request("session.subagentTranscript", {
+			sessionId: session.id,
+			subagentId: "toolu_agent",
+		});
+		const conversation = [
+			{ role: "user", content: "Read a.txt and report" },
+			{ role: "assistant", content: [{ type: "toolCall", name: "read", arguments: { path: "a.txt" } }] },
+			{ role: "toolResult", content: [{ type: "text", text: "1\thello" }] },
+			{ role: "assistant", provider: "claude-code", content: [{ type: "text", text: "a.txt says hello" }] },
+		];
+		expect(live.messages).toMatchObject(conversation);
+
+		const from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "hold" });
+		await expect.poll(() => state().subagents.toolu_hold?.stoppable).toBe(true);
+		expect(await client.request("session.subagentStop", { sessionId: session.id, subagentId: "toolu_hold" })).toEqual({
+			stopped: 1,
+		});
+		await rec.waitForType("agent_settled", from);
+		expect(fake.stoppedTasks).toEqual(["task_hold"]);
+		expect(state().subagents.toolu_hold).toMatchObject({ status: "stopped", stoppable: false });
+
+		await client.request("session.close", { sessionId: session.id });
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: session.id });
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(snapshot.subagents).toMatchObject([
+			{ id: "toolu_agent", name: "Explore", status: "completed", steps: 1, tokens: 120, result: "a.txt says hello" },
+			{ id: "toolu_hold", status: "completed" },
+		]);
+		const stored = await client.request("session.subagentTranscript", {
+			sessionId: session.id,
+			subagentId: "toolu_agent",
+		});
+		expect(stored.messages).toMatchObject(conversation);
+	});
 });

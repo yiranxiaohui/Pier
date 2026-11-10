@@ -15,6 +15,7 @@ import type {
 	SessionRunState,
 	SessionSnapshot,
 	SessionSummary,
+	SubagentInfo,
 	UiRequest,
 	UiResolution,
 	UiResponse,
@@ -70,6 +71,8 @@ export type PierSessionEvent =
 	| { type: "session.closed"; reason: "idle" | "closed" | "deleted" | "host_shutdown" }
 	| { type: "session.model"; model?: ModelInfo; contextInfo?: SessionContextInfo; thinkingLevel: string }
 	| { type: "session.fast"; enabled: boolean }
+	/** A subagent started or changed (1.54); carries its whole current state. */
+	| { type: "subagent.update"; subagent: SubagentInfo }
 	| { type: "ui.request"; request: UiRequest }
 	| {
 			type: "ui.resolved";

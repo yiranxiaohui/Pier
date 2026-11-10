@@ -18,7 +18,10 @@
  * `--account-site <url>` points the personal center at another NewAPI site (e.g. a local one)
  * instead of 云链API. `--demo-updates` pretends the host runs in a desktop app whose updater
  * finds v9.9.9 and fakes installing it (`update.*`, for the remote update UI).
- * `--agents` also offers the Claude Code and Codex CLIs installed here (real sessions, real tokens).
+ * `--agents` also offers the Claude Code and Codex CLIs installed here (real sessions, real tokens);
+ * `--fake-codex` instead offers a scripted Codex (the test fixture, no tokens) whose prompts with
+ * "delegate" start sub-agents ("delegate slow team" paces two of them, "delegate-hold" runs one
+ * until it is stopped).
  * `--demo-terminals` lets clients open terminals (`terminal.*`, for the remote terminal UI):
  * a real `bash` through `script(1)` on Linux (no resizing), a line-echo shell elsewhere. State
  * lives in a temporary directory that is removed on exit.
@@ -29,7 +32,8 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { type AppUpdateStatus, PROTOCOL_VERSION } from "@pier/protocol";
 import { PIER_HOST_VERSION } from "../src/host.ts";
@@ -282,10 +286,25 @@ const resources = sampleResources();
 const remoteAddress = flag("--remote-address");
 const relayUrl = flag("--relay");
 const accountSite = flag("--account-site");
+const fakeCodexDir = process.argv.includes("--fake-codex")
+	? mkdtempSync(join(tmpdir(), "pier-fake-codex-"))
+	: undefined;
 const t = await startTestHost({
 	...(accountSite ? { accountSite } : {}),
 	// `--agents`: also offer the Claude Code and Codex CLIs installed on this computer.
 	...(process.argv.includes("--agents") ? { agents: {} } : {}),
+	...(fakeCodexDir
+		? {
+				agents: {
+					claudeCode: false,
+					codex: {
+						executable: process.execPath,
+						args: [join(dirname(fileURLToPath(import.meta.url)), "../test/fixtures/fake-codex-app-server.mjs")],
+						env: { ...process.env, FAKE_CODEX_DIR: fakeCodexDir },
+					},
+				},
+			}
+		: {}),
 	...(demoUpdates || demoTerminals ? { shell: new DemoShell(demoUpdates, demoTerminals) } : {}),
 	tokensPerSecond: Number(process.env.FAUX_TPS ?? 400),
 	log: (message) => process.stderr.write(`[faux-host] ${message}\n`),
@@ -347,6 +366,7 @@ const stop = async () => {
 	stopping = true;
 	await t.close();
 	rmSync(resources, { recursive: true, force: true });
+	if (fakeCodexDir) rmSync(fakeCodexDir, { recursive: true, force: true });
 	process.exit(0);
 };
 process.on("SIGINT", () => void stop());

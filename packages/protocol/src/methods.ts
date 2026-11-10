@@ -71,6 +71,7 @@ import {
 	type SessionSnapshot,
 	type SessionSummary,
 	StreamingBehaviorSchema,
+	type SubagentInfo,
 	type TerminalInfo,
 	type ThinkingLevel,
 	ThinkingLevelSchema,
@@ -515,6 +516,17 @@ export const MethodParamsSchemas = {
 	"session.followUp": z.object({ ...SessionRef, text: Text, images: Images }),
 	"session.abort": z.object(SessionRef),
 	"session.compact": z.object({ ...SessionRef, instructions: z.string().max(10_000).optional() }),
+	/**
+	 * A subagent's conversation (1.54): its messages from index `from` (default 0) on, plus the
+	 * message it is streaming. Subagents without `transcript: true` → `UNSUPPORTED`.
+	 */
+	"session.subagentTranscript": z.object({
+		...SessionRef,
+		subagentId: Id,
+		from: z.number().int().nonnegative().max(1_000_000).optional(),
+	}),
+	/** Stop a running subagent, or every running one without `subagentId` (1.54). */
+	"session.subagentStop": z.object({ ...SessionRef, subagentId: Id.optional() }),
 
 	/**
 	 * `workspaceId` without `sessionId` (1.19): also report the model and thinking level a new
@@ -1050,6 +1062,20 @@ export interface MethodResults {
 	"session.followUp": { queue: QueueState };
 	"session.abort": { aborted: true };
 	"session.compact": { summary: string; tokensBefore: number };
+	/**
+	 * `messages` are pi `AgentMessage` values starting at index `from` of the subagent's
+	 * conversation, which has `total` finalized messages; `from > total` means the conversation
+	 * was replaced and the client should fetch it again from 0.
+	 */
+	"session.subagentTranscript": {
+		subagent: SubagentInfo;
+		messages: unknown[];
+		from: number;
+		total: number;
+		streamingMessage?: unknown;
+	};
+	/** Number of subagents asked to stop. */
+	"session.subagentStop": { stopped: number };
 	/**
 	 * `current` / `thinkingLevel`: the session's, or with only `workspaceId` (1.19) what a new
 	 * session there starts with. `thinkingLevel` is new in 1.19.

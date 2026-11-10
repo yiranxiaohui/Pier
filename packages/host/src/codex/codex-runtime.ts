@@ -14,7 +14,7 @@ import { AgentInstaller } from "../runtimes/installation.ts";
 import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
 import { CodexAppServer } from "./app-server.ts";
 import { CODEX_CAPABILITIES, CodexSession, type CodexSessionHost } from "./codex-session.ts";
-import { codexPolicy, convertTurns, toModelInfo } from "./convert.ts";
+import { codexPolicy, convertTurns, storedSubagents, toModelInfo } from "./convert.ts";
 
 export interface CodexRuntimeOptions {
 	installationHome?: string;
@@ -55,6 +55,8 @@ export class CodexRuntime implements AgentRuntime {
 	private appServer: CodexAppServer | undefined;
 	private appServerFor: string | undefined;
 	private readonly sessions = new Map<string, CodexSession>();
+	/** Sessions that follow sub-agent threads, by sub-agent thread id. */
+	private readonly adopted = new Map<string, CodexSession>();
 	private models: { list: ModelInfo[]; at: number } | undefined;
 	private modelsPromise: Promise<ModelInfo[]> | undefined;
 	private versionPromise: Promise<string | undefined> | undefined;
@@ -102,7 +104,8 @@ export class CodexRuntime implements AgentRuntime {
 			log: this.log,
 		});
 		server.setRequestHandler(async (method, params) => {
-			const session = this.sessions.get(String(params.threadId ?? params.conversationId ?? ""));
+			const threadId = String(params.threadId ?? params.conversationId ?? "");
+			const session = this.sessions.get(threadId) ?? this.adopted.get(threadId);
 			if (!session) throw new Error(`No open Pier session for ${method}`);
 			return session.handleServerRequest(method, params);
 		});
@@ -160,6 +163,13 @@ export class CodexRuntime implements AgentRuntime {
 					if (this.sessions.get(session.id) === session) this.sessions.delete(session.id);
 				};
 			},
+			adopt: (threadId, session) => {
+				this.adopted.set(threadId, session);
+				return () => {
+					if (this.adopted.get(threadId) === session) this.adopted.delete(threadId);
+				};
+			},
+			turns: (threadId) => this.readTurns(threadId),
 			log: this.log,
 		};
 	}
@@ -272,6 +282,7 @@ export class CodexRuntime implements AgentRuntime {
 			effort: (response.reasoningEffort as string | null | undefined) ?? null,
 			serviceTier: response.serviceTier as string | null | undefined,
 			messages: convertTurns(turns),
+			subagents: storedSubagents(turns),
 		});
 	}
 
@@ -310,6 +321,7 @@ export class CodexRuntime implements AgentRuntime {
 			effort: (response.reasoningEffort as string | null | undefined) ?? null,
 			serviceTier: response.serviceTier as string | null | undefined,
 			messages: convertTurns(turns),
+			subagents: storedSubagents(turns),
 		});
 		return position === "before" ? { session, selectedText: point.text } : { session };
 	}

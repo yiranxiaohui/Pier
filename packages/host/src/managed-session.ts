@@ -24,6 +24,7 @@ import {
 import { evaluateToolCall } from "./approval/policy.ts";
 import { DEFAULT_EVENT_LOG_CAPACITY, EventLog } from "./event-log.ts";
 import { truncateInput } from "./pi/approval-extension.ts";
+import { type SubagentRuntimeHooks, SubagentTracker, type SubagentTranscript } from "./runtimes/subagents.ts";
 import { SessionLock } from "./session-lock.ts";
 import { UiBridge } from "./ui-bridge.ts";
 
@@ -118,10 +119,16 @@ export abstract class ManagedSession {
 	protected lock: SessionLock | undefined;
 	private runState: SessionRunState = "idle";
 	protected disposed = false;
+	/** Subagents the session's agent started (1.54). */
+	protected readonly subagents: SubagentTracker;
 	lastActivity = Date.now();
 
 	protected constructor(protected readonly options: ManagedSessionOptions) {
 		this.log = new EventLog(options.eventLogCapacity ?? DEFAULT_EVENT_LOG_CAPACITY);
+		this.subagents = new SubagentTracker(
+			(event) => this.emit(event),
+			() => this.subagentHooks(),
+		);
 		this.bridge = new UiBridge({
 			sessionId: () => this.id,
 			emit: (event) => {
@@ -302,6 +309,7 @@ export abstract class ManagedSession {
 			...(this.bridge.title ? { title: this.bridge.title } : {}),
 			...(c.errorMessage ? { errorMessage: c.errorMessage } : {}),
 			capabilities: this.capabilities,
+			...(this.subagents.size ? { subagents: this.subagents.list() } : {}),
 		};
 	}
 
@@ -418,6 +426,23 @@ export abstract class ManagedSession {
 		return this.bridge.respond(requestId, response, by);
 	}
 
+	/** How the runtime loads and stops its subagents. */
+	protected subagentHooks(): SubagentRuntimeHooks {
+		return {};
+	}
+
+	/** A subagent's conversation from message `from` on (`session.subagentTranscript`, 1.54). */
+	subagentTranscript(id: string, from = 0): Promise<SubagentTranscript> {
+		this.lastActivity = Date.now();
+		return this.subagents.transcript(id, from);
+	}
+
+	/** Stop one running subagent, or all of them (`session.subagentStop`, 1.54). */
+	stopSubagents(id?: string): Promise<number> {
+		this.lastActivity = Date.now();
+		return this.subagents.stop(id);
+	}
+
 	/** Release the runtime's resources (processes, SDK sessions). */
 	protected abstract disposeRuntime(): Promise<void>;
 
@@ -426,6 +451,7 @@ export abstract class ManagedSession {
 		this.bridge.cancelAll();
 		this.emit({ type: "session.closed", reason });
 		this.disposed = true;
+		this.subagents.dispose();
 		this.subscribers.clear();
 		try {
 			await this.disposeRuntime();

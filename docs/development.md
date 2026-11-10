@@ -69,7 +69,7 @@ bun run faux-host                             # 输出 url 与 token，状态放
 bun run --cwd apps/desktop dev:web            # http://localhost:1420/?url=<url>&token=<token>
 ```
 
-发送包含“演示”的消息会运行一段脚本化任务（bash、write、edit 与一次需要审批的命令）。在地址后加 `&terminal=demo` 可以用一个模拟的回显 shell 调试终端面板（浏览器模式下没有真实终端）。
+发送包含“演示”的消息会运行一段脚本化任务（bash、write、edit 与一次需要审批的命令）。加 `--fake-codex` 时还提供一个脚本化的 Codex（测试用的假 `codex app-server`，不消耗额度）：发送包含 `delegate` 的消息会派出 sub-agent，`delegate slow team` 放慢步骤并派出两个，`delegate-hold` 一直运行到被停止，用来调试 Subagent 卡片与右侧的对话面板。在地址后加 `&terminal=demo` 可以用一个模拟的回显 shell 调试终端面板（浏览器模式下没有真实终端）。
 
 ## 手机端
 
