@@ -1,7 +1,7 @@
 import type { ChatController } from "@pier/chat-state";
 import { type ChatState, sessionUsage, userText } from "@pier/chat-state";
 import type { SessionContextInfo, SessionSummary } from "@pier/protocol";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { formatCost, formatPercent, formatTokens, RUN_STATE_LABEL, sessionTitle } from "../lib/format.ts";
 import { LOCAL_NODE, useAppState, useChatView, useStore } from "../lib/store.tsx";
 import { BrowserButton } from "./BrowserPanel.tsx";
@@ -21,7 +21,7 @@ import { PendingRequests } from "./PendingRequests.tsx";
 import { SessionMenu } from "./SessionControls.tsx";
 import { SidebarToggle } from "./Sidebar.tsx";
 import { TerminalToggle } from "./TerminalPanel.tsx";
-import { Transcript } from "./Transcript.tsx";
+import { type EditMessage, Transcript } from "./Transcript.tsx";
 
 function firstUserText(chat: ChatState): string {
 	const first = chat.messages.find((m) => m.role === "user");
@@ -277,6 +277,10 @@ export function SessionView({ session }: { session: SessionSummary }) {
 	const node = useAppState((s) => s.workspaceNodes[session.workspaceId] ?? LOCAL_NODE);
 	const nodeOnline = useAppState((s) => s.nodes[node]?.connection === "open");
 	useAppState((s) => s.peers);
+	const editMessage = useCallback<EditMessage>(
+		(item, fromEnd, text) => store.resendEdited(session, item, fromEnd, text),
+		[store, session],
+	);
 
 	if (!controller || !view) {
 		return (
@@ -290,6 +294,8 @@ export function SessionView({ session }: { session: SessionSummary }) {
 		);
 	}
 	const { chat, error } = view;
+	// Editing forks the session; offered while it is idle, so the fork has a settled history.
+	const canEdit = chat.capabilities?.fork !== false && (chat.runState === "idle" || chat.runState === "inactive");
 	return (
 		<div className="session-view">
 			<header className="session-header">
@@ -312,7 +318,12 @@ export function SessionView({ session }: { session: SessionSummary }) {
 				</div>
 			</header>
 			{error ? <div className="banner error">无法打开会话：{error}</div> : null}
-			<Transcript chat={chat} workspaceId={session.workspaceId} scope={scope} />
+			<Transcript
+				chat={chat}
+				workspaceId={session.workspaceId}
+				scope={scope}
+				onEdit={canEdit ? editMessage : undefined}
+			/>
 			<div className="session-bottom">
 				<Banners chat={chat} />
 				<Notices chat={chat} controller={controller} />

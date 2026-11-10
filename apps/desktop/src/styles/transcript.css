@@ -42,6 +42,92 @@
 	word-break: break-word;
 }
 
+/* Copy and edit under the bubble's right edge while the pointer is on it, as ChatGPT places them.
+   The top padding bridges the gap, so the pointer keeps the bubble hovered on its way down. */
+.message.user {
+	position: relative;
+}
+
+.user-actions {
+	position: absolute;
+	top: 100%;
+	right: 0;
+	display: flex;
+	gap: 2px;
+	padding-top: 3px;
+	opacity: 0;
+	transition: opacity 0.15s;
+}
+
+.message.user:hover .user-actions,
+.user-actions:focus-within {
+	opacity: 1;
+}
+
+/* A sent message being edited (ChatGPT's editor): the column's full width, Cancel and Send at the
+   bottom right, the focus ring around the whole box rather than the field. */
+.message.user-edit {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 14px 14px 12px 18px;
+	background: var(--bubble);
+	border: 1px solid var(--border);
+	border-radius: 22px;
+	font-size: 16px;
+	line-height: 1.5;
+	transition:
+		border-color 0.15s var(--ease),
+		box-shadow 0.15s var(--ease);
+}
+
+.message.user-edit:focus-within {
+	border-color: var(--accent-ring);
+	box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.user-edit textarea,
+.user-edit textarea:focus {
+	width: 100%;
+	max-height: 320px;
+	padding: 0;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text);
+	resize: none;
+	overflow-y: auto;
+}
+
+.user-edit-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.user-edit-actions button {
+	height: 34px;
+	padding: 0 16px;
+	border-radius: 999px;
+	font-size: 13.5px;
+}
+
+/* Send in the theme's inverse, like ChatGPT's black button: black on light, near white on dark. */
+button.user-edit-send {
+	border-color: transparent;
+	background: var(--text);
+	color: var(--bg);
+}
+
+button.user-edit-send:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--text) 82%, var(--bg));
+}
+
+button.user-edit-cancel {
+	background: var(--bg);
+}
+
 .message-images {
 	display: flex;
 	flex-wrap: wrap;

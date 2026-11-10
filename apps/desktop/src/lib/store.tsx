@@ -2938,6 +2938,40 @@ export class PierStore {
 		return true;
 	}
 
+	/**
+	 * Send an edited copy of an earlier message: fork the session just before it, which keeps what
+	 * was said until then, and send the new text with the message's images in the fork. The original
+	 * session stays as it was. `fromEnd` counts the user messages after it in the transcript.
+	 */
+	async resendEdited(
+		session: SessionSummary,
+		original: { text: string; images: ReadonlyArray<{ data: string; mimeType: string }> },
+		fromEnd: number,
+		text: string,
+	): Promise<boolean> {
+		const forked = await this.callWith(this.clientFor(session.workspaceId), "编辑消息", async (c) => {
+			const { points } = await c.request("session.forkPoints", { sessionId: session.id });
+			// The transcript has no entry ids. The fork points are the same user messages in order (older
+			// ones may only be there after a compaction), so count from the end, and check the text.
+			const same = (point: { text: string } | undefined) => point?.text.trim() === original.text.trim();
+			const counted = points[points.length - 1 - fromEnd];
+			const point = same(counted) ? counted : points.findLast(same);
+			if (!point) throw new Error("找不到这条消息在会话里的位置");
+			return c.request("session.fork", { sessionId: session.id, entryId: point.entryId, position: "before" });
+		});
+		if (!forked) return false;
+		const images = original.images.map((image, i) => ({
+			data: image.data,
+			mimeType: image.mimeType,
+			name: `image-${i + 1}`,
+		}));
+		this.saveDraft(forked.session.id, { text, images });
+		this.autoSend.add(forked.session.id);
+		this.upsertSession(forked.session);
+		this.selectSession(forked.session);
+		return true;
+	}
+
 	// ---- drafts ------------------------------------------------------------------------
 
 	draft(sessionId: string): Draft {
