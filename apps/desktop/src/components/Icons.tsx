@@ -188,6 +188,16 @@ export const IconShieldAlert = make(
 export const IconZap = make(
 	<path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" />,
 );
+// database-zap
+export const IconDatabaseZap = make(
+	<>
+		<ellipse cx="12" cy="5" rx="9" ry="3" />
+		<path d="M3 5V19A9 3 0 0 0 15 21.84" />
+		<path d="M21 5V8" />
+		<path d="M21 12L18 17H22L19 22" />
+		<path d="M3 12A9 3 0 0 0 14.59 14.87" />
+	</>,
+);
 // sparkles
 export const IconSparkles = make(
 	<>
