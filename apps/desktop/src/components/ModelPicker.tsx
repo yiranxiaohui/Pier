@@ -158,6 +158,14 @@ function ThinkingPanel({
 	);
 }
 
+/**
+ * The model's name on the composer chip. Claude Code calls its default model "Default (recommended)";
+ * the note helps while choosing, so the list keeps it, but on the chip it only takes room.
+ */
+function chipName(model: ModelInfo): string {
+	return (model.name || model.id).replace(/\s*\(recommended\)$/i, "");
+}
+
 interface ModelMenuProps {
 	/** The computer whose models these are (for "manage models"). */
 	node: string;
@@ -290,9 +298,7 @@ function ModelMenu({
 				onClick={toggle}
 				title={onFast ? "切换模型、思考程度与 Fast 模式" : "切换模型与思考程度"}
 			>
-				<span className="composer-model-name">
-					{model ? model.name || model.id : loading ? "加载模型…" : "选择模型"}
-				</span>
+				<span className="composer-model-name">{model ? chipName(model) : loading ? "加载模型…" : "选择模型"}</span>
 				{model && canThink ? (
 					<span key={level} className="composer-model-thinking">
 						{thinkingLabel(level)}
