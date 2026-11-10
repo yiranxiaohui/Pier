@@ -10,7 +10,16 @@ import {
 import type { UiRequest } from "@pier/protocol";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { clockTime, formatTokens } from "../lib/format.ts";
-import { IconArrowDown, IconBrain, IconChevronRight, IconLayers, IconSparkles, IconTerminal } from "./Icons.tsx";
+import {
+	IconArrowDown,
+	IconBrain,
+	IconChevronRight,
+	IconClock,
+	IconLayers,
+	IconPencil,
+	IconSparkles,
+	IconTerminal,
+} from "./Icons.tsx";
 import { ImageLightbox } from "./ImageLightbox.tsx";
 import { CopyButton, Markdown, MarkdownFiles } from "./Markdown.tsx";
 import { delegates, SubagentCard, type SubagentScope, SubagentScopeContext } from "./SubagentCard.tsx";
@@ -139,9 +148,24 @@ const AssistantMessageView = memo(
 				{!streaming && text ? (
 					<div className="message-footer">
 						<CopyButton text={text} iconOnly label="复制回复" />
-						{message.model ? <span>{message.model}</span> : null}
-						{message.usage?.output ? <span>{formatTokens(message.usage.output)} tokens</span> : null}
-						{message.timestamp ? <span>{clockTime(message.timestamp)}</span> : null}
+						{message.model ? (
+							<span title={`模型：${message.model}`}>
+								<IconSparkles size={12} />
+								{message.model}
+							</span>
+						) : null}
+						{message.usage?.output ? (
+							<span title={`这条回复输出了 ${message.usage.output.toLocaleString()} tokens`}>
+								<IconArrowDown size={12} />
+								{formatTokens(message.usage.output)} tokens
+							</span>
+						) : null}
+						{message.timestamp ? (
+							<span title={new Date(message.timestamp).toLocaleString()}>
+								<IconClock size={12} />
+								{clockTime(message.timestamp)}
+							</span>
+						) : null}
 					</div>
 				) : null}
 			</div>
@@ -166,28 +190,131 @@ function MessageImage({ src }: { src: string }) {
 	);
 }
 
+type UserItem = Extract<TranscriptItem, { kind: "user" }>;
+
+/** Sends an edited copy of a user message; `fromEnd` counts the user messages after it. */
+export type EditMessage = (item: UserItem, fromEnd: number, text: string) => Promise<boolean>;
+
+/** The editor a sent message turns into, as in ChatGPT: Enter sends, Shift+Enter breaks the line, Esc cancels. */
+function MessageEditor({
+	initial,
+	onCancel,
+	onSend,
+}: {
+	initial: string;
+	onCancel(): void;
+	onSend(text: string): Promise<boolean>;
+}) {
+	const [text, setText] = useState(initial);
+	const [sending, setSending] = useState(false);
+	const field = useRef<HTMLTextAreaElement>(null);
+
+	// Start with the caret after the text.
+	useEffect(() => {
+		const el = field.current;
+		el?.focus();
+		el?.setSelectionRange(el.value.length, el.value.length);
+	}, []);
+	// Grow with the text, up to the max-height in CSS.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: measure again whenever the text changes.
+	useLayoutEffect(() => {
+		const el = field.current;
+		if (!el) return;
+		el.style.height = "auto";
+		el.style.height = `${el.scrollHeight}px`;
+	}, [text]);
+
+	const send = async () => {
+		if (!text.trim() || sending) return;
+		setSending(true);
+		// On success the fork opens in place of this session, so there is nothing to reset.
+		if (!(await onSend(text.trim()))) setSending(false);
+	};
+
+	return (
+		<div className="message user-edit">
+			<textarea
+				ref={field}
+				rows={1}
+				value={text}
+				disabled={sending}
+				aria-label="编辑消息"
+				onChange={(event) => setText(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") onCancel();
+					else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+						event.preventDefault();
+						void send();
+					}
+				}}
+			/>
+			<div className="user-edit-actions">
+				<button type="button" className="user-edit-cancel" disabled={sending} onClick={onCancel}>
+					取消
+				</button>
+				<button
+					type="button"
+					className="user-edit-send"
+					disabled={sending || !text.trim()}
+					title="从这条消息分叉出新会话并发送，原会话保持不变"
+					onClick={() => void send()}
+				>
+					{sending ? "发送中…" : "发送"}
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function UserMessage({ item, fromEnd, onEdit }: { item: UserItem; fromEnd: number; onEdit?: EditMessage }) {
+	const [editing, setEditing] = useState(false);
+	if (editing && onEdit) {
+		return (
+			<MessageEditor
+				initial={item.text}
+				onCancel={() => setEditing(false)}
+				onSend={(text) => onEdit(item, fromEnd, text)}
+			/>
+		);
+	}
+	return (
+		<div className="message user">
+			{item.images.length ? (
+				<div className="message-images">
+					{item.images.map((image, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: positional attachments.
+						<MessageImage key={i} src={`data:${image.mimeType};base64,${image.data}`} />
+					))}
+				</div>
+			) : null}
+			{item.text ? <div className="user-text">{item.text}</div> : null}
+			{/* Under the bubble on hover, as ChatGPT has them. */}
+			<div className="user-actions">
+				{item.text ? <CopyButton text={item.text} iconOnly label="复制消息" /> : null}
+				{onEdit ? (
+					<button type="button" className="ghost icon" title="编辑消息" onClick={() => setEditing(true)}>
+						<IconPencil size={14} />
+					</button>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
 const ItemView = memo(function ItemView({
 	item,
 	approvals,
+	fromEnd,
+	onEdit,
 }: {
 	item: TranscriptItem;
 	approvals: Map<string, UiRequest>;
+	fromEnd: number;
+	onEdit?: EditMessage | undefined;
 }) {
 	switch (item.kind) {
 		case "user":
-			return (
-				<div className="message user">
-					{item.images.length ? (
-						<div className="message-images">
-							{item.images.map((image, i) => (
-								// biome-ignore lint/suspicious/noArrayIndexKey: positional attachments.
-								<MessageImage key={i} src={`data:${image.mimeType};base64,${image.data}`} />
-							))}
-						</div>
-					) : null}
-					{item.text ? <div className="user-text">{item.text}</div> : null}
-				</div>
-			);
+			return <UserMessage item={item} fromEnd={fromEnd} {...(onEdit ? { onEdit } : {})} />;
 		case "assistant":
 			return <AssistantMessageView item={item} approvals={approvals} />;
 		case "bash":
@@ -260,6 +387,7 @@ export function Transcript({
 	workspaceId,
 	scope,
 	emptyText,
+	onEdit,
 }: {
 	chat: ChatState;
 	workspaceId: string;
@@ -267,8 +395,16 @@ export function Transcript({
 	scope?: SubagentScope;
 	/** Shown instead of the new-chat placeholder when there are no messages. */
 	emptyText?: string;
+	/** Present when the user's messages can be edited and sent again. */
+	onEdit?: EditMessage | undefined;
 }) {
 	const items = useMemo(() => buildTranscript(chat), [chat]);
+	// How many user messages follow each one, which places it among the session's fork points.
+	const userFromEnd = useMemo(() => {
+		const counts = new Map<string, number>();
+		for (const item of items.toReversed()) if (item.kind === "user") counts.set(item.key, counts.size);
+		return counts;
+	}, [items]);
 	const approvals = useMemo(() => {
 		const map = new Map<string, UiRequest>();
 		for (const request of chat.pendingUi) {
@@ -321,7 +457,13 @@ export function Transcript({
 							</div>
 						) : null}
 						{shown.map((item) => (
-							<ItemView key={item.key} item={item} approvals={approvals} />
+							<ItemView
+								key={item.key}
+								item={item}
+								approvals={approvals}
+								fromEnd={userFromEnd.get(item.key) ?? 0}
+								onEdit={onEdit}
+							/>
 						))}
 						{waitingForModel ? (
 							<div className="model-activity" role="status">

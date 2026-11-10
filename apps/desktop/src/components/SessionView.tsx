@@ -1,18 +1,27 @@
 import type { ChatController } from "@pier/chat-state";
 import { type ChatState, sessionUsage, userText } from "@pier/chat-state";
 import type { SessionContextInfo, SessionSummary } from "@pier/protocol";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { formatCost, formatPercent, formatTokens, RUN_STATE_LABEL, sessionTitle } from "../lib/format.ts";
 import { LOCAL_NODE, useAppState, useChatView, useStore } from "../lib/store.tsx";
 import { BrowserButton } from "./BrowserPanel.tsx";
 import { Composer } from "./Composer.tsx";
 import { FilesPanelToggle } from "./FilesPanel.tsx";
-import { IconAlert, IconFolder, IconInfo, IconLoader, IconX } from "./Icons.tsx";
+import {
+	IconAlert,
+	IconArrowDown,
+	IconArrowUp,
+	IconDatabaseZap,
+	IconFolder,
+	IconInfo,
+	IconLoader,
+	IconX,
+} from "./Icons.tsx";
 import { PendingRequests } from "./PendingRequests.tsx";
 import { SessionMenu } from "./SessionControls.tsx";
 import { SidebarToggle } from "./Sidebar.tsx";
 import { TerminalToggle } from "./TerminalPanel.tsx";
-import { Transcript } from "./Transcript.tsx";
+import { type EditMessage, Transcript } from "./Transcript.tsx";
 
 function firstUserText(chat: ChatState): string {
 	const first = chat.messages.find((m) => m.role === "user");
@@ -163,8 +172,12 @@ function Queue({ chat }: { chat: ChatState }) {
 	);
 }
 
-function contextUsageTitle(info: SessionContextInfo | undefined, contextWindow: number | undefined): string {
-	const lines = ["最近一次请求的上下文大小"];
+function contextUsageTitle(
+	info: SessionContextInfo | undefined,
+	contextWindow: number | undefined,
+	percent: number | undefined,
+): string {
+	const lines = [`最近一次请求的上下文大小${percent !== undefined ? `，已用 ${percent}%` : ""}`];
 	if (contextWindow) lines.push(`窗口上限：${formatTokens(contextWindow)}`);
 	if (!info) {
 		lines.push("自动压缩：运行时未报告阈值");
@@ -178,6 +191,26 @@ function contextUsageTitle(info: SessionContextInfo | undefined, contextWindow: 
 	if (info?.reserveTokens !== undefined) lines.push(`回复预留：${formatTokens(info.reserveTokens)}`);
 	if (info?.keepRecentTokens !== undefined) lines.push(`压缩后保留最近内容：${formatTokens(info.keepRecentTokens)}`);
 	return lines.join("\n");
+}
+
+/** How full the context window is: a ring that fills clockwise from the top, amber past half, red past 80%. */
+function ContextRing({ percent }: { percent: number }) {
+	const circumference = 2 * Math.PI * 5;
+	const level = percent >= 80 ? " high" : percent >= 50 ? " mid" : "";
+	return (
+		<svg className={`context-ring${level}`} width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
+			<circle cx="7" cy="7" r="5" />
+			{percent > 0 ? (
+				<circle
+					cx="7"
+					cy="7"
+					r="5"
+					strokeDasharray={`${(Math.min(100, percent) / 100) * circumference} ${circumference}`}
+					transform="rotate(-90 7 7)"
+				/>
+			) : null}
+		</svg>
+	);
 }
 
 function StatusBar({ chat }: { chat: ChatState }) {
@@ -199,28 +232,34 @@ function StatusBar({ chat }: { chat: ChatState }) {
 			<span className="spacer" />
 			<span className="status-usage">
 				{usage.lastContext || contextWindow ? (
-					<span className="context-usage" title={contextUsageTitle(chat.contextInfo, contextWindow)}>
-						{percent !== undefined ? (
-							<span className={`context-meter${percent >= 80 ? " high" : percent >= 50 ? " mid" : ""}`}>
-								<span style={{ width: `${Math.min(100, Math.max(2, percent))}%` }} />
-							</span>
-						) : null}
-						上下文 {usage.lastContext ? formatTokens(usage.lastContext) : "—"}
+					<span title={contextUsageTitle(chat.contextInfo, contextWindow, percent)}>
+						{percent !== undefined ? <ContextRing percent={percent} /> : null}
+						{usage.lastContext ? formatTokens(usage.lastContext) : "—"}
 						{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
-						{percent !== undefined ? `（${percent}%）` : ""}
 					</span>
 				) : null}
 				{usage.input || usage.output ? (
-					<span title="本会话累计">
-						↑{formatTokens(usage.input)} ↓{formatTokens(usage.output)}
-						{usage.cost ? ` · ${formatCost(usage.cost)}` : ""}
+					<span
+						className="usage-tokens"
+						title={`本会话累计：输入 ${formatTokens(usage.input)}，输出 ${formatTokens(usage.output)}${usage.cost ? `，费用 ${formatCost(usage.cost)}` : ""}`}
+					>
+						<span>
+							<IconArrowUp size={11} />
+							{formatTokens(usage.input)}
+						</span>
+						<span>
+							<IconArrowDown size={11} />
+							{formatTokens(usage.output)}
+						</span>
+						{usage.cost ? <span>{formatCost(usage.cost)}</span> : null}
 					</span>
 				) : null}
 				{usage.cacheHitRate !== undefined ? (
 					<span
-						title={`本会话累计：缓存读取 ${formatTokens(usage.cacheRead)}，缓存写入 ${formatTokens(usage.cacheWrite)}，输入合计 ${formatTokens(usage.input)}`}
+						title={`缓存命中率\n本会话累计：缓存读取 ${formatTokens(usage.cacheRead)}，缓存写入 ${formatTokens(usage.cacheWrite)}，输入合计 ${formatTokens(usage.input)}`}
 					>
-						缓存命中 {formatPercent(usage.cacheHitRate)}
+						<IconDatabaseZap size={11} />
+						{formatPercent(usage.cacheHitRate)}
 					</span>
 				) : null}
 			</span>
@@ -238,6 +277,10 @@ export function SessionView({ session }: { session: SessionSummary }) {
 	const node = useAppState((s) => s.workspaceNodes[session.workspaceId] ?? LOCAL_NODE);
 	const nodeOnline = useAppState((s) => s.nodes[node]?.connection === "open");
 	useAppState((s) => s.peers);
+	const editMessage = useCallback<EditMessage>(
+		(item, fromEnd, text) => store.resendEdited(session, item, fromEnd, text),
+		[store, session],
+	);
 
 	if (!controller || !view) {
 		return (
@@ -251,6 +294,8 @@ export function SessionView({ session }: { session: SessionSummary }) {
 		);
 	}
 	const { chat, error } = view;
+	// Editing forks the session; offered while it is idle, so the fork has a settled history.
+	const canEdit = chat.capabilities?.fork !== false && (chat.runState === "idle" || chat.runState === "inactive");
 	return (
 		<div className="session-view">
 			<header className="session-header">
@@ -273,7 +318,12 @@ export function SessionView({ session }: { session: SessionSummary }) {
 				</div>
 			</header>
 			{error ? <div className="banner error">无法打开会话：{error}</div> : null}
-			<Transcript chat={chat} workspaceId={session.workspaceId} scope={scope} />
+			<Transcript
+				chat={chat}
+				workspaceId={session.workspaceId}
+				scope={scope}
+				onEdit={canEdit ? editMessage : undefined}
+			/>
 			<div className="session-bottom">
 				<Banners chat={chat} />
 				<Notices chat={chat} controller={controller} />

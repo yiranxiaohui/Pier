@@ -2,7 +2,12 @@ import { type ReactNode, type SVGProps, useId } from "react";
 
 type IconProps = Omit<SVGProps<SVGSVGElement>, "children"> & { size?: number };
 
-/** Minimal stroke icon set (Lucide-style geometry) so the UI does not rely on text glyphs. */
+/**
+ * Stroke icons so the UI does not rely on text glyphs. Each one is a Lucide icon (https://lucide.dev,
+ * v1.70.0), named in the comment above it, copied as SVG so the app needs no icon package; draw new
+ * ones from the same set. Lucide: ISC License, (c) Lucide Icons and Contributors; the icons it derives
+ * from Feather: MIT License, (c) Cole Bemis. Full notices in Icons.LICENSE.txt.
+ */
 function make(paths: ReactNode) {
 	return function Icon({ size = 16, className, ...rest }: IconProps) {
 		return (
@@ -12,7 +17,7 @@ function make(paths: ReactNode) {
 				viewBox="0 0 24 24"
 				fill="none"
 				stroke="currentColor"
-				strokeWidth={1.9}
+				strokeWidth={2}
 				strokeLinecap="round"
 				strokeLinejoin="round"
 				aria-hidden="true"
@@ -25,16 +30,57 @@ function make(paths: ReactNode) {
 	};
 }
 
-export const IconPlus = make(<path d="M12 5v14M5 12h14" />);
-export const IconX = make(<path d="M18 6 6 18M6 6l12 12" />);
+// plus
+export const IconPlus = make(
+	<>
+		<path d="M5 12h14" />
+		<path d="M12 5v14" />
+	</>,
+);
+// x
+export const IconX = make(
+	<>
+		<path d="M18 6 6 18" />
+		<path d="m6 6 12 12" />
+	</>,
+);
+// check
 export const IconCheck = make(<path d="M20 6 9 17l-5-5" />);
+// chevron-right
 export const IconChevronRight = make(<path d="m9 18 6-6-6-6" />);
+// chevron-down
 export const IconChevronDown = make(<path d="m6 9 6 6 6-6" />);
+// chevron-up
 export const IconChevronUp = make(<path d="m18 15-6-6-6 6" />);
-export const IconArrowUp = make(<path d="M12 19V5M5 12l7-7 7 7" />);
-export const IconArrowLeft = make(<path d="M19 12H5M12 19l-7-7 7-7" />);
-export const IconArrowDown = make(<path d="M12 5v14M19 12l-7 7-7-7" />);
-export const IconRefresh = make(<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5" />);
+// arrow-up
+export const IconArrowUp = make(
+	<>
+		<path d="m5 12 7-7 7 7" />
+		<path d="M12 19V5" />
+	</>,
+);
+// arrow-left
+export const IconArrowLeft = make(
+	<>
+		<path d="m12 19-7-7 7-7" />
+		<path d="M19 12H5" />
+	</>,
+);
+// arrow-down
+export const IconArrowDown = make(
+	<>
+		<path d="M12 5v14" />
+		<path d="m19 12-7 7-7-7" />
+	</>,
+);
+// rotate-cw
+export const IconRefresh = make(
+	<>
+		<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+		<path d="M21 3v5h-5" />
+	</>,
+);
+// ellipsis
 export const IconMore = make(
 	<>
 		<circle cx="12" cy="12" r="1" />
@@ -42,100 +88,163 @@ export const IconMore = make(
 		<circle cx="5" cy="12" r="1" />
 	</>,
 );
+// settings
 export const IconSettings = make(
 	<>
-		<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+		<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
 		<circle cx="12" cy="12" r="3" />
 	</>,
 );
+// folder
 export const IconFolder = make(
 	<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />,
 );
+// folder-plus
 export const IconFolderPlus = make(
 	<>
-		<path d="M12 10v6M9 13h6" />
+		<path d="M12 10v6" />
+		<path d="M9 13h6" />
 		<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
 	</>,
 );
-export const IconMessage = make(<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />);
+// message-circle
+export const IconMessage = make(
+	<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" />,
+);
+// message-circle-plus
 export const IconMessagePlus = make(
 	<>
-		<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-		<path d="M8 12h8M12 8v8" />
+		<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" />
+		<path d="M8 12h8" />
+		<path d="M12 8v8" />
 	</>,
 );
-export const IconTerminal = make(<path d="m4 17 6-6-6-6M12 19h8" />);
+// terminal
+export const IconTerminal = make(
+	<>
+		<path d="M12 19h8" />
+		<path d="m4 17 6-6-6-6" />
+	</>,
+);
+// file
 export const IconFile = make(
 	<>
-		<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-		<path d="M14 2v4a2 2 0 0 0 2 2h4" />
+		<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+		<path d="M14 2v5a1 1 0 0 0 1 1h5" />
 	</>,
 );
+// file-pen
 export const IconFilePen = make(
 	<>
-		<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5" />
-		<path d="M14 2v4a2 2 0 0 0 2 2h4" />
-		<path d="M13.38 12.62a2.12 2.12 0 1 1 3 3L11 21l-4 1 1-4Z" />
+		<path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34" />
+		<path d="M14 2v5a1 1 0 0 0 1 1h5" />
+		<path d="M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z" />
 	</>,
 );
+// file-plus
 export const IconFilePlus = make(
 	<>
-		<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-		<path d="M14 2v4a2 2 0 0 0 2 2h4M9 15h6M12 12v6" />
+		<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+		<path d="M14 2v5a1 1 0 0 0 1 1h5" />
+		<path d="M9 15h6" />
+		<path d="M12 18v-6" />
 	</>,
 );
+// search
 export const IconSearch = make(
 	<>
+		<path d="m21 21-4.34-4.34" />
 		<circle cx="11" cy="11" r="8" />
-		<path d="m21 21-4.3-4.3" />
 	</>,
 );
-export const IconList = make(<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />);
-export const IconWrench = make(
-	<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />,
+// list
+export const IconList = make(
+	<>
+		<path d="M3 5h.01" />
+		<path d="M3 12h.01" />
+		<path d="M3 19h.01" />
+		<path d="M8 5h13" />
+		<path d="M8 12h13" />
+		<path d="M8 19h13" />
+	</>,
 );
+// wrench
+export const IconWrench = make(
+	<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />,
+);
+// shield
 export const IconShield = make(
 	<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />,
 );
+// shield-exclamation-point
 export const IconShieldAlert = make(
 	<>
 		<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-		<path d="M12 8v4M12 16h.01" />
+		<path d="M12 8v4" />
+		<path d="M12 16h.01" />
 	</>,
 );
+// zap
 export const IconZap = make(
-	<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />,
+	<path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" />,
 );
+// database-zap
+export const IconDatabaseZap = make(
+	<>
+		<ellipse cx="12" cy="5" rx="9" ry="3" />
+		<path d="M3 5V19A9 3 0 0 0 15 21.84" />
+		<path d="M21 5V8" />
+		<path d="M21 12L18 17H22L19 22" />
+		<path d="M3 12A9 3 0 0 0 14.59 14.87" />
+	</>,
+);
+// sparkles
 export const IconSparkles = make(
 	<>
-		<path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.14 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z" />
-		<path d="M20 3v4M22 5h-4" />
+		<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+		<path d="M20 2v4" />
+		<path d="M22 4h-4" />
+		<circle cx="4" cy="20" r="2" />
 	</>,
 );
+// brain
 export const IconBrain = make(
 	<>
-		<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
-		<path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
-		<path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+		<path d="M12 18V5" />
+		<path d="M15 13a4.17 4.17 0 01-3-4 4.17 4.17 0 01-3 4" />
+		<path d="M17.707 6.294A3 3 0 1012 5a3 3 0 10-5.707 1.294" />
+		<path d="M17.996 5.125a4 4 0 012.526 5.77" />
+		<path d="M18 18a4 4 0 002-7.465" />
+		<path d="M19.967 17.482a4 4 0 11-7.967.517 4 4 0 11-7.967-.517" />
+		<path d="M6 18a4 4 0 01-2-7.465" />
+		<path d="M6.004 5.125a4 4 0 00-2.526 5.77" />
 	</>,
 );
+// copy
 export const IconCopy = make(
 	<>
 		<rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
 		<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
 	</>,
 );
+// scissors
 export const IconCut = make(
 	<>
 		<circle cx="6" cy="6" r="3" />
+		<path d="M8.12 8.12 12 12" />
+		<path d="M20 4 8.12 15.88" />
 		<circle cx="6" cy="18" r="3" />
-		<path d="m8.12 8.12 12 12M8.12 15.88 20 4M14 14l6 6" />
+		<path d="M14.8 14.8 20 20" />
 	</>,
 );
+// clipboard-paste
 export const IconPaste = make(
 	<>
+		<path d="M11 14h10" />
+		<path d="M16 4h2a2 2 0 0 1 2 2v1.344" />
+		<path d="m17 18 4-4-4-4" />
+		<path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113" />
 		<rect x="8" y="2" width="8" height="4" rx="1" />
-		<path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2M9 12h6M9 16h6" />
 	</>,
 );
 export const IconStop = make(<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />);
@@ -147,134 +256,217 @@ export const IconGithub = make(
 		d="M12 0.296997C5.37 0.296997 0 5.67 0 12.297C0 17.6 3.438 22.097 8.205 23.682C8.805 23.795 9.025 23.424 9.025 23.105C9.025 22.82 9.015 22.065 9.01 21.065C5.672 21.789 4.968 19.455 4.968 19.455C4.422 18.07 3.633 17.7 3.633 17.7C2.546 16.956 3.717 16.971 3.717 16.971C4.922 17.055 5.555 18.207 5.555 18.207C6.625 20.042 8.364 19.512 9.05 19.205C9.158 18.429 9.467 17.9 9.81 17.6C7.145 17.3 4.344 16.268 4.344 11.67C4.344 10.36 4.809 9.29 5.579 8.45C5.444 8.147 5.039 6.927 5.684 5.274C5.684 5.274 6.689 4.952 8.984 6.504C9.944 6.237 10.964 6.105 11.984 6.099C13.004 6.105 14.024 6.237 14.984 6.504C17.264 4.952 18.269 5.274 18.269 5.274C18.914 6.927 18.509 8.147 18.389 8.45C19.154 9.29 19.619 10.36 19.619 11.67C19.619 16.28 16.814 17.295 14.144 17.59C14.564 17.95 14.954 18.686 14.954 19.81C14.954 21.416 14.939 22.706 14.939 23.096C14.939 23.411 15.149 23.786 15.764 23.666C20.565 22.092 24 17.592 24 12.297C24 5.67 18.627 0.296997 12 0.296997Z"
 	/>,
 );
+// clock
 export const IconClock = make(
 	<>
 		<circle cx="12" cy="12" r="10" />
 		<path d="M12 6v6l4 2" />
 	</>,
 );
+// triangle-exclamation-point
 export const IconAlert = make(
 	<>
 		<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
-		<path d="M12 9v4M12 17h.01" />
+		<path d="M12 9v4" />
+		<path d="M12 17h.01" />
 	</>,
 );
+// info
 export const IconInfo = make(
 	<>
 		<circle cx="12" cy="12" r="10" />
-		<path d="M12 16v-4M12 8h.01" />
+		<path d="M12 16v-4" />
+		<path d="M12 8h.01" />
 	</>,
 );
-export const IconPower = make(<path d="M12 2v10M18.4 6.6a9 9 0 1 1-12.77.04" />);
-export const IconLogs = make(<path d="M13 12h8M13 18h8M13 6h8M3 12h1M3 18h1M3 6h1M8 12h1M8 18h1M8 6h1" />);
+// power
+export const IconPower = make(
+	<>
+		<path d="M12 2v10" />
+		<path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+	</>,
+);
+// logs
+export const IconLogs = make(
+	<>
+		<path d="M3 5h1" />
+		<path d="M3 12h1" />
+		<path d="M3 19h1" />
+		<path d="M8 5h1" />
+		<path d="M8 12h1" />
+		<path d="M8 19h1" />
+		<path d="M13 5h8" />
+		<path d="M13 12h8" />
+		<path d="M13 19h8" />
+	</>,
+);
+// git-branch
 export const IconGitBranch = make(
 	<>
-		<path d="M6 3v12" />
+		<path d="M15 6a9 9 0 0 0-9 9V3" />
 		<circle cx="18" cy="6" r="3" />
 		<circle cx="6" cy="18" r="3" />
-		<path d="M18 9a9 9 0 0 1-9 9" />
 	</>,
 );
+// minimize
 export const IconMinimize = make(
-	<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3" />,
+	<>
+		<path d="M8 3v3a2 2 0 0 1-2 2H3" />
+		<path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+		<path d="M3 16h3a2 2 0 0 1 2 2v3" />
+		<path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+	</>,
 );
+// layers
 export const IconLayers = make(
 	<>
-		<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
-		<path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65M22 12.65l-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
+		<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+		<path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+		<path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
 	</>,
 );
+// puzzle
 export const IconPuzzle = make(
-	<path d="M19.44 7.85c-.05.32.06.65.29.88l1.57 1.57c.47.47.7 1.09.7 1.7s-.23 1.24-.7 1.71l-1.61 1.6a.98.98 0 0 1-.84.28c-.47-.07-.8-.48-.97-.92a2.5 2.5 0 1 0-3.21 3.21c.44.17.85.5.92.97a.98.98 0 0 1-.28.84l-1.6 1.61a2.4 2.4 0 0 1-1.71.7 2.4 2.4 0 0 1-1.7-.7l-1.57-1.57a1.03 1.03 0 0 0-.88-.29c-.49.07-.84.5-1.02.97a2.5 2.5 0 1 1-3.24-3.24c.47-.18.9-.53.97-1.02a1.03 1.03 0 0 0-.29-.88l-1.57-1.57A2.4 2.4 0 0 1 2 12c0-.62.24-1.23.7-1.7l1.53-1.53c.24-.24.58-.35.92-.3.51.08.88.53 1.07 1.01a2.5 2.5 0 1 0 3.26-3.26c-.48-.2-.93-.56-1.01-1.07-.05-.34.06-.68.3-.92L10.3 2.7A2.4 2.4 0 0 1 12 2c.62 0 1.23.24 1.7.7l1.57 1.57c.23.23.56.34.88.29.49-.07.84-.5 1.02-.97a2.5 2.5 0 1 1 3.24 3.24c-.47.18-.9.53-.97 1.02Z" />,
+	<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />,
 );
+// image
 export const IconImage = make(
 	<>
 		<rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
 		<circle cx="9" cy="9" r="2" />
-		<path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21" />
+		<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
 	</>,
 );
+// smartphone
 export const IconSmartphone = make(
 	<>
 		<rect width="14" height="20" x="5" y="2" rx="2" ry="2" />
 		<path d="M12 18h.01" />
 	</>,
 );
+// monitor
 export const IconMonitor = make(
 	<>
 		<rect width="20" height="14" x="2" y="3" rx="2" />
-		<path d="M8 21h8M12 17v4" />
+		<line x1="8" x2="16" y1="21" y2="21" />
+		<line x1="12" x2="12" y1="17" y2="21" />
 	</>,
 );
+// pencil
 export const IconPencil = make(
 	<>
-		<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z" />
+		<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
 		<path d="m15 5 4 4" />
 	</>,
 );
+// square-pen
 export const IconSquarePen = make(
 	<>
 		<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-		<path d="M18.38 2.62a1 1 0 0 1 3 3l-9.01 9.02a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z" />
+		<path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
 	</>,
 );
-export const IconLoader = make(<path d="M21 12a9 9 0 1 1-6.22-8.56" />);
+// loader-circle
+export const IconLoader = make(<path d="M21 12a9 9 0 1 1-6.219-8.56" />);
+// key-round
 export const IconKey = make(
 	<>
-		<path d="M2.59 18.41A2 2 0 0 0 2 19.83V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.17a2 2 0 0 0 1.42-.59l.81-.81a6.5 6.5 0 1 0-4.24-4.24z" />
+		<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
 		<circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
 	</>,
 );
+// external-link
 export const IconExternal = make(
-	<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />,
+	<>
+		<path d="M15 3h6v6" />
+		<path d="M10 14 21 3" />
+		<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+	</>,
 );
+// trash
 export const IconTrash = make(
-	<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
+	<>
+		<path d="M10 11v6" />
+		<path d="M14 11v6" />
+		<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+		<path d="M3 6h18" />
+		<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+	</>,
 );
+// archive
 export const IconArchive = make(
 	<>
-		<rect x="2" y="3" width="20" height="5" rx="1" />
-		<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4" />
+		<rect width="20" height="5" x="2" y="3" rx="1" />
+		<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+		<path d="M10 12h4" />
 	</>,
 );
+// archive-arrow-up
 export const IconArchiveRestore = make(
 	<>
-		<rect x="2" y="3" width="20" height="5" rx="1" />
-		<path d="M4 8v11a2 2 0 0 0 2 2h2M20 8v11a2 2 0 0 1-2 2h-2M9 15l3-3 3 3M12 12v9" />
+		<rect width="20" height="5" x="2" y="3" rx="1" />
+		<path d="M4 8v11a2 2 0 0 0 2 2h2" />
+		<path d="M20 8v11a2 2 0 0 1-2 2h-2" />
+		<path d="m9 15 3-3 3 3" />
+		<path d="M12 12v9" />
 	</>,
 );
+// brush-cleaning
 export const IconBroom = make(
 	<>
-		<path d="m16 22-1-4M8 22l1-4" />
+		<path d="m16 22-1-4" />
 		<path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1" />
-		<path d="M5 14h14l1.97 6.77A1 1 0 0 1 20 22H4a1 1 0 0 1-.97-1.23z" />
+		<path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233z" />
+		<path d="m8 22 1-4" />
 	</>,
 );
-export const IconDownload = make(<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />);
-export const IconUpload = make(<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />);
+// download
+export const IconDownload = make(
+	<>
+		<path d="M12 15V3" />
+		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+		<path d="m7 10 5 5 5-5" />
+	</>,
+);
+// upload
+export const IconUpload = make(
+	<>
+		<path d="M12 3v12" />
+		<path d="m17 8-5-5-5 5" />
+		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+	</>,
+);
+// panel-right
 export const IconPanelRight = make(
 	<>
-		<rect x="3" y="3" width="18" height="18" rx="2" />
+		<rect width="18" height="18" x="3" y="3" rx="2" />
 		<path d="M15 3v18" />
 	</>,
 );
+// panel-left
 export const IconPanelLeft = make(
 	<>
-		<rect x="3" y="3" width="18" height="18" rx="2" />
+		<rect width="18" height="18" x="3" y="3" rx="2" />
 		<path d="M9 3v18" />
 	</>,
 );
+// folder-open
 export const IconFolderOpen = make(
 	<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />,
 );
+// house
 export const IconHome = make(
 	<>
 		<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
-		<path d="M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+		<path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
 	</>,
 );
+// link
 export const IconLink = make(
-	<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
+	<>
+		<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+		<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+	</>,
 );
 
 /**
@@ -314,80 +506,108 @@ export function Logo({ size = 28 }: { size?: number }) {
 		</svg>
 	);
 }
+// user-round
 export const IconUser = make(
 	<>
-		<circle cx="12" cy="8" r="4" />
-		<path d="M4 21a8 8 0 0 1 16 0" />
+		<circle cx="12" cy="8" r="5" />
+		<path d="M20 21a8 8 0 0 0-16 0" />
 	</>,
 );
-export const IconActivity = make(<path d="M22 12h-4l-3 9L9 3l-3 9H2" />);
+// activity
+export const IconActivity = make(
+	<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />,
+);
+// wallet
 export const IconWallet = make(
 	<>
 		<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" />
 		<path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />
 	</>,
 );
+// server
 export const IconServer = make(
 	<>
 		<rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
 		<rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
-		<path d="M6 6h.01M6 18h.01" />
+		<line x1="6" x2="6.01" y1="6" y2="6" />
+		<line x1="6" x2="6.01" y1="18" y2="18" />
 	</>,
 );
+// sliders-horizontal
 export const IconSliders = make(
 	<>
-		<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3" />
-		<path d="M14 2v4M8 10v4M16 18v4" />
+		<path d="M10 5H3" />
+		<path d="M12 19H3" />
+		<path d="M14 3v4" />
+		<path d="M16 17v4" />
+		<path d="M21 12h-9" />
+		<path d="M21 19h-5" />
+		<path d="M21 5h-7" />
+		<path d="M8 10v4" />
+		<path d="M8 12H3" />
 	</>,
 );
+// undo-2
 export const IconUndo = make(
 	<>
-		<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-		<path d="M3 3v5h5" />
+		<path d="M9 14 4 9l5-5" />
+		<path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
 	</>,
 );
+// braces
 export const IconBraces = make(
 	<>
 		<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" />
 		<path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
 	</>,
 );
+// bot
 export const IconBot = make(
 	<>
 		<path d="M12 8V4H8" />
-		<rect x="4" y="8" width="16" height="12" rx="2" />
-		<path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+		<rect width="16" height="12" x="4" y="8" rx="2" />
+		<path d="M2 14h2" />
+		<path d="M20 14h2" />
+		<path d="M15 13v2" />
+		<path d="M9 13v2" />
 	</>,
 );
+// eye
 export const IconEye = make(
 	<>
-		<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0" />
+		<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" />
 		<circle cx="12" cy="12" r="3" />
 	</>,
 );
+// eye-off
 export const IconEyeOff = make(
 	<>
-		<path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c4.3 0 8.17 2.6 9.94 6.65a1 1 0 0 1 0 .7 10.8 10.8 0 0 1-1.44 2.49" />
-		<path d="M14.08 14.16a3 3 0 0 1-4.24-4.24" />
-		<path d="M17.48 17.5A10.75 10.75 0 0 1 2.06 12.35a1 1 0 0 1 0-.7 10.8 10.8 0 0 1 4.45-5.14" />
+		<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+		<path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+		<path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
 		<path d="m2 2 20 20" />
 	</>,
 );
+// minus
 export const IconMinus = make(<path d="M5 12h14" />);
 
-export const IconGlobe = make(
+// compass
+export const IconBrowser = make(
 	<>
 		<circle cx="12" cy="12" r="10" />
-		<path d="M2 12h20M12 2a18 18 0 0 1 0 20 18 18 0 0 1 0-20" />
+		<path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" />
 	</>,
 );
 
+// mic
 export const IconMic = make(
 	<>
-		<rect x="9" y="2" width="6" height="12" rx="3" />
-		<path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
+		<path d="M12 19v3" />
+		<path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+		<rect x="9" y="2" width="6" height="13" rx="3" />
 	</>,
 );
+// network
 export const IconNetwork = make(
 	<>
 		<rect x="16" y="16" width="6" height="6" rx="1" />
@@ -396,6 +616,7 @@ export const IconNetwork = make(
 		<path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3M12 12V8" />
 	</>,
 );
+// target
 export const IconTarget = make(
 	<>
 		<circle cx="12" cy="12" r="10" />

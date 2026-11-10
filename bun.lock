@@ -17,6 +17,7 @@
       "version": "0.2.63",
       "dependencies": {
         "@decimalturn/toml-patch": "3.3.0",
+        "@fontsource-variable/noto-sans-sc": "^5.3.1",
         "@pier/chat-state": "workspace:*",
         "@pier/client": "workspace:*",
         "@pier/protocol": "workspace:*",
@@ -540,6 +541,8 @@
     "@fidm/asn1": ["@fidm/asn1@1.0.4", "", {}, "sha512-esd1jyNvRb2HVaQGq2Gg8Z0kbQPXzV9Tq5Z14KNIov6KfFD6PTaRIO8UpcsYiTNzOqJpmyzWgVTrUwFV3UF4TQ=="],
 
     "@fidm/x509": ["@fidm/x509@1.2.1", "", { "dependencies": { "@fidm/asn1": "^1.0.4", "tweetnacl": "^1.0.1" } }, "sha512-nwc2iesjyc9hkuzcrMCBXQRn653XuAUKorfWM8PZyJawiy1QzLj4vahwzaI25+pfpwOLvMzbJ0uKpWLDNmo16w=="],
+
+    "@fontsource-variable/noto-sans-sc": ["@fontsource-variable/noto-sans-sc@5.3.1", "", {}, "sha512-UB96JJ17HyD5ehEU7Em0hDdh7fvTMB4B4Hzmq5c4QaNwwSLqTrdM2S+coySeBqCkXwh0DxqXT0b0wMrmzorFpQ=="],
 
     "@google/genai": ["@google/genai@2.21.0", "", { "dependencies": { "google-auth-library": "10.9.1", "p-retry": "4.6.2", "protobufjs": "7.6.6", "ws": "8.22.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-+PDtco2/Z0ONdzCGekCoCT+O1VJS9xJQNN4XzQpXG/t3El/SWWMkCWlFRO1KmivOHPa4Q0VjUYu1HBKCZ/v33Q=="],
 

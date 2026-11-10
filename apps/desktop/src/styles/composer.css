@@ -538,26 +538,27 @@
 	flex: 1;
 }
 
-/* Usage stats sit on the right, separated by thin rules. */
+/* Usage stats sit on the right, each a small icon and its figure; the details are in their tooltips. */
 .status-usage {
 	display: inline-flex;
 	align-items: center;
-	gap: 10px;
+	gap: 16px;
 	min-width: 0;
 	overflow: hidden;
 }
 
-.status-usage > span {
+.status-usage span {
 	display: inline-flex;
 	align-items: center;
+	gap: 4px;
 }
 
-.status-usage > span + span::before {
-	content: "";
-	width: 1px;
-	height: 10px;
-	margin-right: 10px;
-	background: var(--border-strong);
+.status-usage .usage-tokens {
+	gap: 8px;
+}
+
+.status-usage .usage-tokens > span {
+	gap: 2px;
 }
 
 .run-state {
@@ -590,34 +591,25 @@
 	animation: pulse 1.2s ease-in-out infinite;
 }
 
-.context-usage {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
+/* The track, then the share used drawn over it. */
+.context-ring {
+	flex: none;
+	fill: none;
+	stroke-width: 2.4;
+	stroke: var(--border-strong);
 }
 
-.context-meter {
-	position: relative;
-	width: 44px;
-	height: 4px;
-	border-radius: 999px;
-	background: var(--bg-active);
-	overflow: hidden;
+.context-ring circle + circle {
+	stroke: var(--accent);
+	stroke-linecap: round;
 }
 
-.context-meter > span {
-	position: absolute;
-	inset: 0 auto 0 0;
-	border-radius: inherit;
-	background: var(--accent);
+.context-ring.mid circle + circle {
+	stroke: var(--warning);
 }
 
-.context-meter.mid > span {
-	background: var(--warning);
-}
-
-.context-meter.high > span {
-	background: var(--danger);
+.context-ring.high circle + circle {
+	stroke: var(--danger);
 }
 
 .ext-status {

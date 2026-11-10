@@ -65,7 +65,7 @@ button.navigation-button.selected:hover:not(:disabled) {
 	color: color-mix(in srgb, var(--accent-text) 65%, var(--text));
 }
 
-/* A heavier stroke than the icons' default 1.9 marks the selection without a background. */
+/* A heavier stroke than the icons' default 2 marks the selection without a background. */
 button.navigation-button.selected svg {
 	stroke-width: 2.4;
 }

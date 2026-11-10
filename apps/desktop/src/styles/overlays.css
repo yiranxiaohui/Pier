@@ -556,3 +556,37 @@
 	border: 1px solid var(--border);
 	border-radius: 6px;
 }
+
+/*
+ * The tooltip every `title` shows as (lib/tooltips.ts): a small pill in the theme's text color on
+ * its background color, so black on the light theme and near white on the dark one, above all else.
+ */
+.tooltip {
+	position: fixed;
+	top: 0;
+	left: 0;
+	z-index: 100;
+	max-width: 320px;
+	padding: 5px 9px;
+	border-radius: 8px;
+	background: var(--text);
+	color: var(--bg);
+	box-shadow: var(--shadow-md);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1.45;
+	white-space: pre-line;
+	overflow-wrap: anywhere;
+	pointer-events: none;
+	opacity: 0;
+	visibility: hidden;
+	transition:
+		opacity 0.1s var(--ease),
+		visibility 0s linear 0.1s;
+}
+
+.tooltip.open {
+	opacity: 1;
+	visibility: visible;
+	transition: opacity 0.1s var(--ease);
+}

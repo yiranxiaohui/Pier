@@ -1,3 +1,4 @@
+import "@fontsource-variable/noto-sans-sc/wght.css";
 import "highlight.js/styles/github-dark.css";
 import "./styles.css";
 import { StrictMode, useEffect } from "react";
@@ -8,8 +9,10 @@ import { bridge } from "./lib/bridge.ts";
 import { installTerminalResolver } from "./lib/remote-terminals.ts";
 import { PierStore, StoreContext } from "./lib/store.tsx";
 import { installTheme } from "./lib/theme.ts";
+import { installTooltips } from "./lib/tooltips.ts";
 
 installTheme();
+installTooltips();
 
 if (/Linux/.test(navigator.userAgent) && !/Android/.test(navigator.userAgent)) {
 	document.documentElement.classList.add("linux");
