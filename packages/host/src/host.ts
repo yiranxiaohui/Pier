@@ -83,7 +83,7 @@ import { SkillManager } from "./runtimes/skills.ts";
 import { ScheduledTasks } from "./scheduled-tasks.ts";
 import { SessionArchiveStore } from "./session-archive.ts";
 import { SessionPool } from "./session-pool.ts";
-import type { AppShell, AppUpdater, ShellMethod } from "./shell.ts";
+import type { AppShell, AppUpdater, ShellMethod, TerminalProvider } from "./shell.ts";
 import { SpeechService } from "./speech.ts";
 import { standaloneExecutable } from "./standalone/self.ts";
 import { HostTerminals } from "./terminals.ts";
@@ -152,6 +152,11 @@ export interface PierHostOptions {
 	shell?: AppShell;
 	/** Native updater for an installed standalone service. */
 	updater?: AppUpdater;
+	/**
+	 * Terminals the host runs itself without the desktop app (`pty-terminals.ts`); the app's
+	 * `shell` runs its own instead.
+	 */
+	terminals?: TerminalProvider;
 	/**
 	 * Agent runtimes besides pi (1.22). Each is on by default and available when its CLI is
 	 * installed; `false` turns one off.
@@ -688,7 +693,7 @@ export class PierHost implements RequestHandler {
 			() => this.remote.browserIceServers(),
 			options.remoteBrowser,
 		);
-		this.terminals = new HostTerminals(this.shell, { log });
+		this.terminals = new HostTerminals(this.shell ?? options.terminals, { log });
 		this.uploads = new WorkspaceUploads({ log });
 		this.offUpdaterStatus = this.updater?.onUpdateStatus((status) => this.broadcast({ type: "update.status", status }));
 		this.handlers = this.createHandlers();

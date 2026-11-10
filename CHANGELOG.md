@@ -2,6 +2,10 @@
 
 Pier 的所有重要变更都记录在这里。版本号规则：日常发版只递增最后一位（0.2.1、0.2.2……），`x.y.0` 留给大版本；1.0 之前，大版本可能包含不兼容的变更。
 
+## 未发布
+
+- **服务器上的远程终端**：没有桌面端的 Pier（Linux / macOS 上用一键脚本安装的后台服务、`pier run`，以及 `pier` CLI 启动的临时 Host）现在也能为已配对的电脑和手机启动终端，桌面端打开这台电脑上的工作区时顶栏重新出现「打开终端」按钮。终端使用用户的登录 shell，从工作区目录（或主目录）启动，`TERM=xterm-256color`；Pier 自己的令牌等变量不会带进 shell。网络较慢时用 XON / XOFF 暂停大量输出，全屏程序不受影响。只需要更新服务器上的 Pier，桌面端和手机端无需更新；Windows 上的后台服务暂不支持。
+
 ## v0.2.63 — 2026-11-10
 
 - **Subagent 可视化**：Claude Code 的 `Agent` 工具、Codex 的 sub-agent（`spawn_agent`）和 pi 的 `pi-subagents` 扩展派出 subagent 时，对话中显示 Subagent 卡片：主 Agent 与它委派的每个 subagent 的名称、模型与思考程度、状态、用时、任务描述、步骤数和当前动作，连续派出的合并在一张卡片里。点击 subagent 在右侧面板的「Subagent」标签只读查看它的对话并实时更新；运行中可以单独「停止」或「停止全部」，主 Agent 继续工作（Claude Code 与 Codex 支持，pi-subagents 暂不支持）。重新打开会话时从三种 Agent 各自保存的会话恢复卡片和对话。手机端在工具卡片中列出 subagent 状态，`pier` CLI 提示 subagent 的开始与结束。需要更新会话所在电脑的 Host（协议 1.54），旧版 Host 上仍显示为普通工具卡片。

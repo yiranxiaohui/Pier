@@ -104,7 +104,7 @@ sidecar 的 stdio 协议（每行一个 JSON 对象，stdout 上 `pier.ready` �
 
 ### 终端（1.18）
 
-Host 在桌面端中运行时，可以在它所在的电脑上用桌面端的伪终端启动用户的 shell（Unix 上为 `$SHELL` 登录 shell，Windows 上为 PowerShell），让已配对的电脑远程打开终端。桌面端在 Host 就绪时声明支持终端，此后 `HostInfo.terminals` 为 `true`；独立运行的 `pier-host`、旧版桌面端没有终端，`terminal.open` 返回 `UNSUPPORTED`。这些方法对已配对设备开放（配对即完全信任，远程终端与在那台电脑上登录等价），远程调用 `terminal.open` 写入审计日志（含目录，不记录输入内容）。
+Host 可以在它所在的电脑上启动用户的 shell（Unix 上为 `$SHELL` 登录 shell，Windows 上为 PowerShell），让已配对的电脑远程打开终端。在桌面端中运行时使用桌面端的伪终端，桌面端在 Host 就绪时声明支持终端；没有桌面端时（服务器上的 `pier run` / systemd 服务、`pier` CLI 启动的临时 Host），Linux / macOS 上的 Pier 可执行文件（0.2.64 起）用自带的 Bun 伪终端自己启动 shell，不经过 stdio 协议。两种情况下 `HostInfo.terminals` 都为 `true`；Windows 上没有桌面端的 Host、在 Node 下运行的开发版 Host 和旧版本没有终端，`terminal.open` 返回 `UNSUPPORTED`。没有桌面端时的流量控制使用终端自身的 XON / XOFF：连接积压时向终端输入 XOFF、消化后输入 XON，正在输出的程序随之暂停；前台程序关闭了 `IXON`（例如全屏程序）时不发送，以免被当作按键。这些方法对已配对设备开放（配对即完全信任，远程终端与在那台电脑上登录等价），远程调用 `terminal.open` 写入审计日志（含目录，不记录输入内容）。
 
 终端属于打开它的连接：输出和结束只发给这个连接，其他连接既看不到也不能操作（`NOT_FOUND`）；连接断开、Host 停止或桌面端退出时终端随之挂断，重连后不会恢复。每个连接最多 16 个、每个 Host 最多 64 个终端，超出时 `CONFLICT`。
 

@@ -604,7 +604,8 @@ export interface HostInfo {
 	agentDir: string;
 	/**
 	 * The host can run shells for its clients (`terminal.*`, 1.18): it runs inside a desktop app
-	 * that provides pseudo-terminals. Absent on older hosts and headless ones.
+	 * that provides pseudo-terminals, or (since Pier 0.2.64) runs without one on Linux / macOS
+	 * and starts them itself. Absent on older hosts and on headless ones on Windows.
 	 */
 	terminals?: boolean;
 }

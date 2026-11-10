@@ -404,7 +404,7 @@ export class TerminalManager {
 		if (!tab || !backend) {
 			instance.term.write(
 				tab?.workspaceId
-					? "\x1b[33m这个工作区所在的电脑不支持终端（它的 Pier 可能需要升级，或者暂时无法连接）。\x1b[0m\r\n"
+					? "\x1b[33m这个工作区所在的电脑不支持终端（它的 Pier 可能需要升级，Windows 上需要运行桌面版，或者暂时无法连接）。\x1b[0m\r\n"
 					: "\x1b[33m仅桌面应用支持终端。\x1b[0m\r\n",
 			);
 			instance.term.write("\x1b[2m按回车键关闭\x1b[0m");

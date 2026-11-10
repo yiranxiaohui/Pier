@@ -1,6 +1,7 @@
 /**
- * Terminals for clients (`terminal.*`, 1.18): shells in the desktop app's pseudo-terminals,
- * each owned by the connection that opened it.
+ * Terminals for clients (`terminal.*`, 1.18): shells in the desktop app's pseudo-terminals, or
+ * in the host's own when it runs without the app (`pty-terminals.ts`), each owned by the
+ * connection that opened it.
  *
  * A terminal's output and end go only to its connection, and it is hung up when that
  * connection closes. Output the shell produces before the `terminal.open` response is sent is
@@ -14,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { type EventFrame, type PierHostEvent, PierProtocolError, type TerminalInfo } from "@pier/protocol";
 import type { Connection } from "./connection.ts";
-import type { AppShell, ShellTerminal } from "./shell.ts";
+import type { ShellTerminal, TerminalProvider } from "./shell.ts";
 
 /** Open terminals one connection may have. */
 export const MAX_TERMINALS_PER_CONNECTION = 16;
@@ -58,7 +59,7 @@ export class HostTerminals {
 	private readonly pollMs: number;
 
 	constructor(
-		private readonly shell: AppShell | undefined,
+		private readonly provider: TerminalProvider | undefined,
 		options: HostTerminalsOptions = {},
 	) {
 		this.log = options.log ?? (() => {});
@@ -69,7 +70,7 @@ export class HostTerminals {
 
 	/** Whether clients can open terminals here. */
 	get supported(): boolean {
-		return !this.closed && this.shell?.terminals === true && this.shell.openTerminal !== undefined;
+		return !this.closed && this.provider?.terminals === true && this.provider.openTerminal !== undefined;
 	}
 
 	get count(): number {
@@ -81,11 +82,11 @@ export class HostTerminals {
 	 * it delivers what the shell printed meanwhile.
 	 */
 	async open(connection: Connection, params: OpenTerminalParams): Promise<{ info: TerminalInfo; start: () => void }> {
-		const shell = this.shell;
-		if (!this.supported || !shell?.openTerminal) {
+		const provider = this.provider;
+		if (!this.supported || !provider?.openTerminal) {
 			throw new PierProtocolError(
 				"UNSUPPORTED",
-				"This computer cannot open terminals: Pier runs without its desktop app here, or the app is too old",
+				"This computer cannot open terminals: Pier runs there without its desktop app where it cannot start pseudo-terminals itself (Windows), or Pier is too old",
 			);
 		}
 		if (params.cwd !== undefined && !isAbsolute(params.cwd)) {
@@ -108,7 +109,7 @@ export class HostTerminals {
 		this.terminals.set(terminalId, record);
 		let terminal: ShellTerminal;
 		try {
-			terminal = await shell.openTerminal(
+			terminal = await provider.openTerminal(
 				{ ...(params.cwd ? { cwd: params.cwd } : {}), cols: params.cols, rows: params.rows },
 				{
 					output: (data) => this.deliver(terminalId, record, { type: "terminal.output", terminalId, data }),

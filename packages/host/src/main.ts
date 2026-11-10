@@ -17,6 +17,7 @@ import { applyLoginShellPath } from "./login-shell-path.ts";
 import { defaultPierDir, runtimeFilePath } from "./paths.ts";
 import { installCodemodeWasmRedirect } from "./pi/codemode-wasm.ts";
 import { checkImageSupport, installPhotonWasmRedirect } from "./pi/photon-wasm.ts";
+import { createPtyTerminals } from "./pty-terminals.ts";
 import { checkP2PSupport } from "./remote/p2p.ts";
 import { StdioShell } from "./shell.ts";
 import { createStandaloneUpdater } from "./standalone/updater.ts";
@@ -125,6 +126,10 @@ async function main(): Promise<void> {
 	const shell = values["watch-stdin"]
 		? new StdioShell(process.stdin, process.stdout, { log, terminals: values["shell-terminals"] === true })
 		: undefined;
+	// Without the app, the host runs terminals itself where it can (the Pier executable on Linux
+	// and macOS).
+	const terminals = shell ? undefined : createPtyTerminals(PIER_HOST_VERSION);
+	if (terminals) log("terminals: the host runs them in its own pseudo-terminals");
 	// An app started from the Dock / a launcher lacks the terminal's PATH; ask the login shell
 	// while the host starts, so pi finds npm / pnpm / bun / git as it would in a terminal.
 	const loginPath =
@@ -134,6 +139,7 @@ async function main(): Promise<void> {
 	const host = await PierHost.create({
 		pierDir,
 		...(shell ? { shell } : { updater: createStandaloneUpdater(pierDir) }),
+		...(terminals ? { terminals } : {}),
 		localToken: token,
 		env: values["agent-dir"] ? { agentDir: values["agent-dir"] } : {},
 		log,
