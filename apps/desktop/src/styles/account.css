@@ -130,33 +130,96 @@ img.account-logo {
 	margin-top: 12px;
 }
 
+/* Stat cards: a round icon, the title and a badge, the figure, and a bar for shares of the quota.
+   --stat-tone colors the icon, badge and bar: the accent, or on the balance card the band of the
+   navigation rail's tank (--quota, from [data-quota]). */
 .account-stat {
+	--stat-tone: var(--accent);
+	--stat-ink: var(--accent-contrast);
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	padding: 14px 16px;
+	gap: 14px;
+	padding: 16px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-lg);
-	background: var(--bg-elevated);
+	background: var(--bg);
+	box-shadow:
+		0 10px 15px -3px rgba(0, 0, 0, 0.1),
+		0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
-.account-stat.primary {
-	position: relative;
-	border-color: var(--accent-ring);
-	background: var(--accent-soft);
+.account-stat.balance[data-quota] {
+	--stat-tone: var(--quota);
+	--stat-ink: #fff;
 }
 
-.account-stat.primary > button {
-	position: absolute;
-	top: 50%;
-	right: 14px;
-	transform: translateY(-50%);
+/* As tall as the balance card's 充值 button, so the figures of all three cards line up. */
+.account-stat-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 30px;
+}
+
+.account-stat-head > button {
+	height: 30px;
+	margin-left: auto;
+	padding-block: 0;
+}
+
+.account-stat-icon {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 999px;
+	background: var(--stat-tone);
+	color: var(--stat-ink);
+}
+
+.account-stat-title {
+	font-size: 14px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.account-stat-badge {
+	flex: none;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: color-mix(in oklab, var(--stat-tone) 14%, transparent);
+	color: color-mix(in oklab, var(--stat-tone) 70%, var(--text));
+	font-size: 12px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
 }
 
 .account-stat-value {
-	font-size: 20px;
-	font-weight: 600;
+	font-size: 26px;
+	font-weight: 700;
+	line-height: 1.15;
+	letter-spacing: -0.01em;
 	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+
+/* Pushed to the bottom, so the bars of neighboring cards line up. */
+.account-stat-bar {
+	height: 8px;
+	margin-top: auto;
+	overflow: hidden;
+	border-radius: 999px;
+	background: var(--bg-active);
+}
+
+.account-stat-fill {
+	height: 100%;
+	border-radius: inherit;
+	background: var(--stat-tone);
+	transition: width 0.4s var(--ease);
 }
 
 .account-group + .account-group {

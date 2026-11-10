@@ -134,20 +134,21 @@ button.navigation-button.has-update {
 
 /* ---- 云链API balance as a water tank -------------------------------------------------- */
 
-/* Color bands, from full to nearly empty: --quota colors the water and the number. */
-.navigation-rail[data-quota="full"] {
+/* Color bands, from full to nearly empty: --quota colors the water and the number here, and the
+   balance card in the personal center. */
+[data-quota="full"] {
 	--quota: #10b981;
 }
 
-.navigation-rail[data-quota="half"] {
+[data-quota="half"] {
 	--quota: #f59e0b;
 }
 
-.navigation-rail[data-quota="low"] {
+[data-quota="low"] {
 	--quota: #f97316;
 }
 
-.navigation-rail[data-quota="empty"] {
+[data-quota="empty"] {
 	--quota: #ef4444;
 }
 

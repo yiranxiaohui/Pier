@@ -11,6 +11,7 @@ import type {
 	ProviderInfo,
 } from "@pier/protocol";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { accountQuota } from "../lib/account-quota.ts";
 import {
 	accountTokenSelectionKey,
 	readAccountTokenChoice,
@@ -37,6 +38,7 @@ import { hostSpeaksMinor } from "../lib/settings-target.ts";
 import { useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
 import { findYunlianGroupProvider, formatQuota, relayProvider, YUNLIAN_NAME, yunlianGroupId } from "../lib/yunlian.ts";
 import {
+	IconActivity,
 	IconAlert,
 	IconCheck,
 	IconChevronDown,
@@ -47,6 +49,8 @@ import {
 	IconPower,
 	IconRefresh,
 	IconTrash,
+	IconWallet,
+	IconZap,
 } from "./Icons.tsx";
 import { Select } from "./Select.tsx";
 import { SettingRow, SettingsCard, SettingsGroup } from "./SettingsUi.tsx";
@@ -1230,6 +1234,15 @@ function useAddedGroups(node: string, site: string) {
 	return [list, update] as const;
 }
 
+/** A stat card's share as a bar; decorative, since the card's badge states the percentage. */
+function StatBar({ percent }: { percent: number }) {
+	return (
+		<div className="account-stat-bar" aria-hidden="true">
+			<div className="account-stat-fill" style={{ width: `${percent}%` }} />
+		</div>
+	);
+}
+
 function Dashboard({
 	overview,
 	loading,
@@ -1275,6 +1288,9 @@ function Dashboard({
 	};
 	const quota = (value: number) => formatQuota(value, site.quota);
 	const name = user.displayName && user.displayName !== user.username ? user.displayName : user.username;
+	// Shares of balance + consumption, as in the navigation rail's tank; none before any quota.
+	const balance = accountQuota(overview);
+	const hasQuota = Math.max(0, user.quota) + Math.max(0, user.usedQuota) > 0;
 
 	return (
 		<>
@@ -1329,20 +1345,44 @@ function Dashboard({
 					</SettingRow>
 				</SettingsCard>
 				<div className="account-stats">
-					<div className="account-stat primary">
-						<div className="muted small">当前余额</div>
+					<div className="account-stat balance" data-quota={balance.level}>
+						<div className="account-stat-head">
+							<span className="account-stat-icon">
+								<IconWallet size={15} />
+							</span>
+							<span className="account-stat-title">当前余额</span>
+							{hasQuota ? <span className="account-stat-badge">剩余 {balance.percent}%</span> : null}
+							<button type="button" className="primary" onClick={() => store.openExternal(`${site.url}/wallet`)}>
+								<IconExternal size={13} />
+								充值
+							</button>
+						</div>
 						<div className="account-stat-value">{quota(user.quota)}</div>
-						<button type="button" className="primary" onClick={() => store.openExternal(`${site.url}/wallet`)}>
-							<IconExternal size={13} />
-							充值
-						</button>
+						{hasQuota ? <StatBar percent={balance.percent} /> : null}
 					</div>
 					<div className="account-stat">
-						<div className="muted small">历史消耗</div>
+						<div className="account-stat-head">
+							<span className="account-stat-icon">
+								<IconActivity size={15} />
+							</span>
+							<span className="account-stat-title">历史消耗</span>
+							{hasQuota ? <span className="account-stat-badge">已用 {100 - balance.percent}%</span> : null}
+						</div>
 						<div className="account-stat-value">{quota(user.usedQuota)}</div>
+						{hasQuota ? <StatBar percent={100 - balance.percent} /> : null}
 					</div>
 					<div className="account-stat">
-						<div className="muted small">请求次数</div>
+						<div className="account-stat-head">
+							<span className="account-stat-icon">
+								<IconZap size={15} />
+							</span>
+							<span className="account-stat-title">请求次数</span>
+							{user.requestCount > 0 ? (
+								<span className="account-stat-badge" title="历史消耗 ÷ 请求次数">
+									均 {quota(user.usedQuota / user.requestCount)}/次
+								</span>
+							) : null}
+						</div>
 						<div className="account-stat-value">{user.requestCount.toLocaleString("zh-CN")}</div>
 					</div>
 				</div>
