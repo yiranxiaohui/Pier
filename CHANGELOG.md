@@ -2,6 +2,10 @@
 
 Pier 的所有重要变更都记录在这里。版本号规则：日常发版只递增最后一位（0.2.1、0.2.2……），`x.y.0` 留给大版本；1.0 之前，大版本可能包含不兼容的变更。
 
+## 未发布
+
+- **CLI 列表直接用方向键选择**：在终端中运行 `pier` 时，`/agents`、`/sessions`、`/models`、`/ws`、`/fork` 不再只打印编号列表，而是打开可用 ↑/↓ 移动、输入文字筛选的列表：`/agents` 按 Enter 用选中的 Agent 新建会话（未安装的 Agent 灰显并提示原因），`/sessions` 打开会话，`/models` 切换模型，`/ws` 切换工作区，`/fork` 从选中的消息之前分叉（光标停在最近一条消息上）；按 Esc 则照旧打印编号列表。Agent 发来选择题时，`/answer` 不带参数同样可用方向键选择答案。输出重定向到管道或文件时仍打印编号列表，`/new -a <n>`、`/open <n>`、`/model <n>`、`/fork <n>` 等直接带编号的写法照常可用。
+
 ## v0.2.63 — 2026-11-10
 
 - **Subagent 可视化**：Claude Code 的 `Agent` 工具、Codex 的 sub-agent（`spawn_agent`）和 pi 的 `pi-subagents` 扩展派出 subagent 时，对话中显示 Subagent 卡片：主 Agent 与它委派的每个 subagent 的名称、模型与思考程度、状态、用时、任务描述、步骤数和当前动作，连续派出的合并在一张卡片里。点击 subagent 在右侧面板的「Subagent」标签只读查看它的对话并实时更新；运行中可以单独「停止」或「停止全部」，主 Agent 继续工作（Claude Code 与 Codex 支持，pi-subagents 暂不支持）。重新打开会话时从三种 Agent 各自保存的会话恢复卡片和对话。手机端在工具卡片中列出 subagent 状态，`pier` CLI 提示 subagent 的开始与结束。需要更新会话所在电脑的 Host（协议 1.54），旧版 Host 上仍显示为普通工具卡片。
