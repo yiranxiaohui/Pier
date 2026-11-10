@@ -50,7 +50,7 @@ import {
 import { RemoteTerminal } from "./terminal.ts";
 import { peerConnectionFactory } from "./webrtc.ts";
 
-export const APP_VERSION = "0.2.63";
+export const APP_VERSION = "0.2.64";
 
 /** Live session subscriptions kept for quick back-and-forth navigation. */
 const MAX_LIVE_CHATS = 4;
