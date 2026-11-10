@@ -65,11 +65,40 @@
 	border-color: transparent;
 }
 
+/* Grows open and shrinks shut (0fr ↔ 1fr) as agents start and finish. */
 .running-agents {
 	flex: none;
-	margin: 0 10px 8px;
-	padding-bottom: 6px;
-	border-bottom: 1px solid var(--border);
+	display: grid;
+	grid-template-rows: 0fr;
+	margin: 0 10px;
+	opacity: 0;
+	transition:
+		grid-template-rows 0.24s var(--ease),
+		opacity 0.24s var(--ease);
+}
+
+.running-agents.open {
+	grid-template-rows: 1fr;
+	opacity: 1;
+}
+
+.running-agents-body {
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* Inside, so the clipping body does not cut the focus ring off. */
+.running-agents-body :focus-visible {
+	outline-offset: -2px;
+}
+
+/* The divider and gap below live inside the clipped body, so they collapse too. */
+.running-agents-body::after {
+	content: "";
+	display: block;
+	height: 1px;
+	margin: 6px 0 8px;
+	background: var(--border);
 }
 
 .running-agents-toggle {
@@ -111,11 +140,6 @@
 	font-size: 11px;
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
-}
-
-.running-count.idle {
-	background: var(--bg-active);
-	color: var(--text-faint);
 }
 
 .workspace-running-count {

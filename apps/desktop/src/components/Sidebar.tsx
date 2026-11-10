@@ -217,26 +217,32 @@ function RunningAgents() {
 			return activity.active ? [{ session, workspace, node, pending: activity.pending }] : [];
 		});
 	});
+	// Shown only while something runs (workspace rows carry their own running counts). It eases
+	// open and shut; shutting keeps the last agents listed, so the height falls in one smooth step.
+	const last = useRef(agents);
+	if (agents.length) last.current = agents;
+	const open = agents.length > 0;
+	const shown = open ? agents : last.current;
 	if (!workspaces.length) return null;
 	return (
-		<section className="running-agents" aria-label="运行中的 Agent">
-			<button
-				type="button"
-				className={`running-agents-toggle${expanded ? " open" : ""}`}
-				onClick={() => setExpanded(!expanded)}
-				aria-expanded={expanded}
-				aria-controls="running-agent-list"
-			>
-				<IconChevronRight size={13} className="running-agents-chevron" />
-				<span className="running-agents-label">运行中的 Agent</span>
-				<span className={`running-count${agents.length ? "" : " idle"}`}>
-					{agents.length ? <span className="badge-dot running" aria-hidden="true" /> : null}
-					{agents.length}
-				</span>
-			</button>
-			<div id="running-agent-list" className="running-agent-list" hidden={!expanded}>
-				{agents.length ? (
-					agents.map(({ session, workspace, node, pending }) => {
+		<section className={`running-agents${open ? " open" : ""}`} aria-label="运行中的 Agent" inert={!open}>
+			<div className="running-agents-body">
+				<button
+					type="button"
+					className={`running-agents-toggle${expanded ? " open" : ""}`}
+					onClick={() => setExpanded(!expanded)}
+					aria-expanded={expanded}
+					aria-controls="running-agent-list"
+				>
+					<IconChevronRight size={13} className="running-agents-chevron" />
+					<span className="running-agents-label">运行中的 Agent</span>
+					<span className="running-count">
+						<span className="badge-dot running" aria-hidden="true" />
+						{shown.length}
+					</span>
+				</button>
+				<div id="running-agent-list" className="running-agent-list" hidden={!expanded}>
+					{shown.map(({ session, workspace, node, pending }) => {
 						const runtime = session.runtime ?? DEFAULT_AGENT_RUNTIME;
 						const location = node === LOCAL_NODE ? workspace.name : `${workspace.name} · ${store.nodeName(node)}`;
 						return (
@@ -259,10 +265,8 @@ function RunningAgents() {
 								</span>
 							</button>
 						);
-					})
-				) : (
-					<div className="session-empty">暂无运行中的 Agent</div>
-				)}
+					})}
+				</div>
 			</div>
 		</section>
 	);
