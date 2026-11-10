@@ -424,11 +424,35 @@ button.line-switch-track:hover:not(:disabled) {
 	font-weight: 600;
 }
 
+/* The cards query their own width, since the room they get depends on the window and on the
+   settings sidebar both. */
+.account-stats-frame {
+	container: account-stats / inline-size;
+	margin-top: 12px;
+}
+
 .account-stats {
 	display: grid;
 	grid-template-columns: 1.4fr 1fr 1fr;
 	gap: 12px;
-	margin-top: 12px;
+}
+
+/* The cards' headings stay on one line, so three in a row need about 740px; narrower, the balance
+   takes a row of its own above the other two, and on the narrowest each card has its own row. */
+@container account-stats (max-width: 780px) {
+	.account-stats {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.account-stat.balance {
+		grid-column: 1 / -1;
+	}
+}
+
+@container account-stats (max-width: 440px) {
+	.account-stats {
+		grid-template-columns: minmax(0, 1fr);
+	}
 }
 
 /* Stat cards: a round icon, the title and a badge, the figure, and a bar for shares of the quota.

@@ -1344,46 +1344,49 @@ function Dashboard({
 						</button>
 					</SettingRow>
 				</SettingsCard>
-				<div className="account-stats">
-					<div className="account-stat balance" data-quota={balance.level}>
-						<div className="account-stat-head">
-							<span className="account-stat-icon">
-								<IconWallet size={15} />
-							</span>
-							<span className="account-stat-title">当前余额</span>
-							{hasQuota ? <span className="account-stat-badge">剩余 {balance.percent}%</span> : null}
-							<button type="button" className="primary" onClick={() => store.openExternal(`${site.url}/wallet`)}>
-								<IconExternal size={13} />
-								充值
-							</button>
-						</div>
-						<div className="account-stat-value">{quota(user.quota)}</div>
-						{hasQuota ? <StatBar percent={balance.percent} /> : null}
-					</div>
-					<div className="account-stat">
-						<div className="account-stat-head">
-							<span className="account-stat-icon">
-								<IconActivity size={15} />
-							</span>
-							<span className="account-stat-title">历史消耗</span>
-							{hasQuota ? <span className="account-stat-badge">已用 {100 - balance.percent}%</span> : null}
-						</div>
-						<div className="account-stat-value">{quota(user.usedQuota)}</div>
-						{hasQuota ? <StatBar percent={100 - balance.percent} /> : null}
-					</div>
-					<div className="account-stat">
-						<div className="account-stat-head">
-							<span className="account-stat-icon">
-								<IconZap size={15} />
-							</span>
-							<span className="account-stat-title">请求次数</span>
-							{user.requestCount > 0 ? (
-								<span className="account-stat-badge" title="历史消耗 ÷ 请求次数">
-									均 {quota(user.usedQuota / user.requestCount)}/次
+				{/* The frame is the cards' query container: they stack when the settings page is narrow. */}
+				<div className="account-stats-frame">
+					<div className="account-stats">
+						<div className="account-stat balance" data-quota={balance.level}>
+							<div className="account-stat-head">
+								<span className="account-stat-icon">
+									<IconWallet size={15} />
 								</span>
-							) : null}
+								<span className="account-stat-title">当前余额</span>
+								{hasQuota ? <span className="account-stat-badge">剩余 {balance.percent}%</span> : null}
+								<button type="button" className="primary" onClick={() => store.openExternal(`${site.url}/wallet`)}>
+									<IconExternal size={13} />
+									充值
+								</button>
+							</div>
+							<div className="account-stat-value">{quota(user.quota)}</div>
+							{hasQuota ? <StatBar percent={balance.percent} /> : null}
 						</div>
-						<div className="account-stat-value">{user.requestCount.toLocaleString("zh-CN")}</div>
+						<div className="account-stat">
+							<div className="account-stat-head">
+								<span className="account-stat-icon">
+									<IconActivity size={15} />
+								</span>
+								<span className="account-stat-title">历史消耗</span>
+								{hasQuota ? <span className="account-stat-badge">已用 {100 - balance.percent}%</span> : null}
+							</div>
+							<div className="account-stat-value">{quota(user.usedQuota)}</div>
+							{hasQuota ? <StatBar percent={100 - balance.percent} /> : null}
+						</div>
+						<div className="account-stat">
+							<div className="account-stat-head">
+								<span className="account-stat-icon">
+									<IconZap size={15} />
+								</span>
+								<span className="account-stat-title">请求次数</span>
+								{user.requestCount > 0 ? (
+									<span className="account-stat-badge" title="历史消耗 ÷ 请求次数">
+										均 {quota(user.usedQuota / user.requestCount)}/次
+									</span>
+								) : null}
+							</div>
+							<div className="account-stat-value">{user.requestCount.toLocaleString("zh-CN")}</div>
+						</div>
 					</div>
 				</div>
 			</SettingsGroup>
