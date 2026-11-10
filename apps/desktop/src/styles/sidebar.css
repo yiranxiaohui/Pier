@@ -254,13 +254,20 @@
 
 .workspace-actions {
 	position: absolute;
-	top: 4px;
+	top: 50%;
 	right: 3px;
+	transform: translateY(-50%);
 	display: flex;
-	border-radius: 6px;
-	background: var(--bg-app);
+	align-items: center;
+	gap: 2px;
 	opacity: 0;
 	pointer-events: none;
+}
+
+/* Room for the action buttons; the policy tag gives way while they show (below). */
+.workspace-row:hover,
+.workspace-row:has(.workspace-actions :focus-visible) {
+	padding-right: 82px;
 }
 
 .workspace-actions .ghost.icon {
@@ -348,8 +355,13 @@
 	color: var(--warning);
 }
 
+.workspace-row:hover .policy-tag,
+.workspace-row:has(.workspace-actions :focus-visible) .policy-tag {
+	display: none;
+}
+
 .session-list {
-	margin: 2px 0 6px 17px;
+	margin: 6px 0 6px 17px;
 	padding-left: 8px;
 	border-left: 1px solid var(--border);
 }
@@ -377,7 +389,7 @@
 	justify-content: flex-start;
 	gap: 8px;
 	width: 100%;
-	margin: 1px 0;
+	margin: 4px 0;
 	border: none;
 	background: transparent;
 	text-align: left;
@@ -450,9 +462,13 @@
 
 /* Room for the action buttons over the end of the title. */
 .session-item:hover .session-row,
-.session-item:has(:focus-visible) .session-row,
-.session-item.confirming .session-row {
+.session-item:has(:focus-visible) .session-row {
 	padding-right: 56px;
+}
+
+/* 中止并删除 is wider than the two icon buttons; this comes later, so it wins while hovered too. */
+.session-item.confirming .session-row {
+	padding-right: 80px;
 }
 
 .session-action:hover:not(:disabled) {

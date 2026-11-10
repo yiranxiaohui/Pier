@@ -34,6 +34,8 @@ import { Modal } from "./Modal.tsx";
 import { platformName } from "./RemotePanel.tsx";
 import { SessionCleanupDialog } from "./SessionCleanup.tsx";
 
+/** Sessions a workspace lists before 显示全部. */
+const SESSION_PREVIEW = 6;
 const SESSION_PAGE = 30;
 
 export const SIDEBAR_SHORTCUT = "Ctrl/⌘+B";
@@ -390,12 +392,15 @@ function WorkspaceGroup({
 	const selectedWorkspaceId = useAppState((s) => s.selectedWorkspaceId);
 	const newChat = useAppState((s) => !!s.newChat);
 	const canArchive = useCanArchiveSessions(workspace.id);
-	const [limit, setLimit] = useState(SESSION_PAGE);
+	const [showAll, setShowAll] = useState(false);
 	const [archivedLimit, setArchivedLimit] = useState(SESSION_PAGE);
 	const [showArchived, setShowArchived] = useState(false);
 	const [cleanup, setCleanup] = useState(false);
 	const selected = selectedWorkspaceId === workspace.id && !selectedSessionId && !newChat;
 	const current = sessions?.filter((s) => !s.archived);
+	// The first few sessions show; an open session further down stays listed too.
+	const selectedIndex = current?.findIndex((s) => s.id === selectedSessionId) ?? -1;
+	const shown = showAll ? Number.POSITIVE_INFINITY : Math.max(SESSION_PREVIEW, selectedIndex + 1);
 	const archived = sessions?.filter((s) => s.archived) ?? [];
 	// An archived session that is open keeps the archive expanded, so it stays visible.
 	const archivedOpen = showArchived || archived.some((s) => s.id === selectedSessionId);
@@ -485,7 +490,7 @@ function WorkspaceGroup({
 					) : null}
 					{sessions && !sessions.length ? <div className="session-empty">还没有会话</div> : null}
 					{sessions?.length && !current?.length ? <div className="session-empty">没有未归档的会话</div> : null}
-					{current?.slice(0, limit).map((session) => (
+					{current?.slice(0, shown).map((session) => (
 						<SessionItem
 							key={session.id}
 							session={session}
@@ -493,9 +498,14 @@ function WorkspaceGroup({
 							canArchive={canArchive}
 						/>
 					))}
-					{current && current.length > limit ? (
-						<button type="button" className="session-more" onClick={() => setLimit(limit + SESSION_PAGE)}>
-							显示更多（还有 {current.length - limit} 个）
+					{current && current.length > shown ? (
+						<button type="button" className="session-more" onClick={() => setShowAll(true)}>
+							显示全部（还有 {current.length - shown} 个）
+						</button>
+					) : null}
+					{showAll && current && current.length > SESSION_PREVIEW ? (
+						<button type="button" className="session-more" onClick={() => setShowAll(false)}>
+							收起
 						</button>
 					) : null}
 					{archived.length ? (
