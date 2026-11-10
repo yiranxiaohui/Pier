@@ -7,11 +7,13 @@
 	padding-top: 8px;
 }
 
+/* Centred on the rail's logo, 38px down (navigation.css: 22px padding, 32px logo): 8px sidebar
+   padding + 17px + half the 26px wordmark. */
 .brand {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	padding: 12px 18px;
+	padding: 17px 18px 12px;
 }
 
 /* The script wordmark, in the text color. */

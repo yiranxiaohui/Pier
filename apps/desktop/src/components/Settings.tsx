@@ -18,7 +18,6 @@ import { IconClaudeCode, IconCodex, IconPi } from "./AgentIcons.tsx";
 import { ExtensionsSettings } from "./ExtensionsPanel.tsx";
 import { HostBanner, LogsSettings, useHostStatus } from "./HostPanels.tsx";
 import {
-	IconArrowLeft,
 	IconBot,
 	IconCheck,
 	IconChevronDown,
@@ -870,7 +869,6 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 	const hasPeers = useHasPeers();
 	const [query, setQuery] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
-	const version = useAppState((s) => s.update.currentVersion);
 	const { online } = useHostStatus();
 	const target = useSettingsTarget();
 	const sync = useAppState((s) => s.settingsSync);
@@ -934,12 +932,6 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 	return (
 		<div className="app settings-screen">
 			<aside className="sidebar settings-nav">
-				<div className="settings-nav-top">
-					<button type="button" className="ghost settings-back" onClick={() => store.closeSettings()}>
-						<IconArrowLeft size={15} />
-						返回应用
-					</button>
-				</div>
 				<div className="settings-nav-heading">
 					<span className="settings-nav-eyebrow">PIER / PREFERENCES</span>
 					<h1 className="settings-nav-title">设置</h1>
@@ -989,12 +981,6 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 						</div>
 					) : null}
 				</nav>
-				<div className="settings-nav-footer">
-					<span>
-						Pier <span className="mono">v{version}</span>
-					</span>
-					<kbd title="返回应用">Esc</kbd>
-				</div>
 			</aside>
 			<main className="main settings-main">
 				<div className="settings-topbar">
