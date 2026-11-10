@@ -4,30 +4,32 @@
 :root {
 	color-scheme: dark;
 
-	/* surfaces */
-	--bg-app: #101419;
-	--bg-nav: #0e1217;
-	--feature-bg: #183b36;
-	--hero-wash: rgba(58, 139, 125, 0.08);
-	--bg: #171c23;
-	--bg-elevated: #1e252d;
-	--bg-raised: #252e38;
-	--bg-input: #1e252d;
-	--bg-code: #0a0b0e;
-	--bg-hover: rgba(255, 255, 255, 0.045);
-	--bg-active: rgba(255, 255, 255, 0.08);
-	--bubble: #252f3b;
+	/* surfaces: a near-neutral graphite with only a trace of cool, so the teal accent is the one
+	   colour on screen. The chrome (rail, sidebar, status bar) sits darkest and each layer above
+	   it steps up evenly: panel, then cards and inputs, then menus. */
+	--bg-app: #0c0d10;
+	--bg-nav: #0a0b0d;
+	--feature-bg: #15322e;
+	--hero-wash: rgba(58, 139, 125, 0.07);
+	--bg: #16171b;
+	--bg-elevated: #1e1f24;
+	--bg-raised: #26272d;
+	--bg-input: #1c1d22;
+	--bg-code: #0d0e11;
+	--bg-hover: rgba(255, 255, 255, 0.05);
+	--bg-active: rgba(255, 255, 255, 0.085);
+	--bubble: #26282e;
 
 	/* lines */
-	--border: rgba(255, 255, 255, 0.065);
-	--border-strong: rgba(255, 255, 255, 0.11);
+	--border: rgba(255, 255, 255, 0.07);
+	--border-strong: rgba(255, 255, 255, 0.115);
 	/* 1px top highlight that gives raised surfaces a lit edge */
-	--highlight: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+	--highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
 	/* text */
-	--text: #edf2f5;
-	--text-muted: #a6b0bc;
-	--text-faint: #8a99a8;
+	--text: #ececef;
+	--text-muted: #a5a8b0;
+	--text-faint: #8d919b;
 
 	/* brand & semantic */
 	/* The bright teal of this theme's accent, kept by the few surfaces that show it in both themes
@@ -68,10 +70,10 @@
 	--radius-lg: 16px;
 	--radius-xl: 18px;
 	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-	--shadow-md: 0 10px 30px -6px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
-	--shadow-composer: 0 10px 32px -14px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.18);
-	--shadow-lg: 0 28px 72px -12px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.3);
-	--panel-shadow: 0 0 0 1px var(--border), 0 12px 32px -24px rgba(0, 0, 0, 0.4);
+	--shadow-md: 0 10px 30px -6px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.28);
+	--shadow-composer: 0 12px 32px -14px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.2);
+	--shadow-lg: 0 28px 72px -12px rgba(0, 0, 0, 0.65), 0 4px 12px rgba(0, 0, 0, 0.32);
+	--panel-shadow: 0 0 0 1px var(--border), 0 12px 32px -24px rgba(0, 0, 0, 0.5);
 	--ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
 	--content-width: 820px;

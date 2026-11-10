@@ -907,10 +907,10 @@ button.switch.on .switch-thumb {
 }
 
 .settings-theme-preview.dark {
-	--preview-bg: #171c23;
-	--preview-nav: #252e38;
-	--preview-card: #303b48;
-	--preview-line: #58697d;
+	--preview-bg: #16171b;
+	--preview-nav: #26272d;
+	--preview-card: #313238;
+	--preview-line: #5c5f69;
 }
 
 .settings-theme-sidebar {
@@ -1244,10 +1244,10 @@ button.switch.on .switch-thumb {
 
 @media (prefers-color-scheme: dark) {
 	.settings-theme-preview.system {
-		--preview-bg: #171c23;
-		--preview-nav: #252e38;
-		--preview-card: #303b48;
-		--preview-line: #58697d;
+		--preview-bg: #16171b;
+		--preview-nav: #26272d;
+		--preview-card: #313238;
+		--preview-line: #5c5f69;
 	}
 }
 

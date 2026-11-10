@@ -49,6 +49,8 @@
 	--metal-shine: color-mix(in oklab, var(--metal) 55%, white);
 	--metal-glint: color-mix(in oklab, var(--metal) 40%, white);
 	--metal-ink: color-mix(in oklab, var(--metal) 16%, black);
+	/* The tinted shadow the bar casts at rest. */
+	--metal-cast: color-mix(in oklab, var(--metal-deep) 40%, transparent);
 	--metal-gradient: linear-gradient(
 		160deg,
 		var(--metal-deep),
@@ -71,7 +73,7 @@
 	font-weight: 600;
 	box-shadow:
 		0 3px 6px rgba(0, 0, 0, 0.16),
-		0 3px 6px color-mix(in oklab, var(--metal-deep) 40%, transparent),
+		0 3px 6px var(--metal-cast),
 		inset 0 -2px 5px 1px var(--metal-deep),
 		inset 0 -1px 1px 3px var(--metal-glint);
 	transition:
@@ -84,6 +86,15 @@
 .new-session-button .icon-svg {
 	color: inherit;
 	filter: drop-shadow(0 1px 1px var(--metal-glint));
+}
+
+/* On the dark theme's graphite the near-white shine and rim glare like a lit outline and the tinted
+   shadow reads as a glow, so there the shine and rim are cast softer and the shadow plain. The base
+   tone stays put: a deeper metal would cost the lettering its contrast. */
+:root:not([data-theme="light"]) .new-session-button {
+	--metal-shine: color-mix(in oklab, var(--metal) 74%, white);
+	--metal-glint: color-mix(in oklab, var(--metal) 68%, white);
+	--metal-cast: rgba(0, 0, 0, 0.28);
 }
 
 /* `background` again: the shared button hover replaces it with a flat colour. */
@@ -101,7 +112,7 @@
 .new-session-button:active:not(:disabled) {
 	box-shadow:
 		0 3px 6px rgba(0, 0, 0, 0.16),
-		0 3px 6px color-mix(in oklab, var(--metal-deep) 40%, transparent),
+		0 3px 6px var(--metal-cast),
 		inset 0 -2px 5px 1px var(--metal-mid),
 		inset 0 -1px 1px 3px var(--metal-glint);
 }
