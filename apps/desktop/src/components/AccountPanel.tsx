@@ -1495,6 +1495,84 @@ function Dashboard({
 
 // ---- line ------------------------------------------------------------------------------
 
+const FRIES = ["f1", "f2", "f3", "f4", "f5", "f6", "f7"];
+const BOX_FACES = ["front", "back", "right", "left", "bottom"];
+
+/**
+ * Two lines as a burger-and-fries switch: the knob carries a flat doodle burger for the first line
+ * (domestic, as the host lists them) and a turning 3D box of fries for the second (international),
+ * and springs across when switched. The names either side pick their line too.
+ */
+function LineSwitch({
+	first,
+	second,
+	current,
+	busy,
+	onChange,
+}: {
+	first: AccountLine;
+	second: AccountLine;
+	current: AccountLine;
+	busy: boolean;
+	onChange: (line: AccountLine) => void;
+}) {
+	const on = current.id === second.id;
+	const pick = (l: AccountLine) => {
+		if (l.id !== current.id) onChange(l);
+	};
+	const name = (l: AccountLine, active: boolean) => (
+		<button
+			type="button"
+			className={`line-switch-name${active ? " active" : ""}`}
+			tabIndex={-1}
+			title={new URL(l.url).host}
+			disabled={busy}
+			onClick={() => pick(l)}
+		>
+			{l.name}
+		</button>
+	);
+	return (
+		<div className={`line-switch${on ? " on" : ""}`}>
+			{name(first, !on)}
+			<button
+				type="button"
+				role="switch"
+				aria-checked={on}
+				aria-label={second.name}
+				className="line-switch-track"
+				title={`${current.name}（${new URL(current.url).host}），点击切换`}
+				disabled={busy}
+				onClick={() => pick(on ? first : second)}
+			>
+				<span className="line-switch-knob">
+					<span className="line-food" aria-hidden="true">
+						<span className="line-food-burger">
+							<span className="bun-top">
+								<span className="seeds" />
+							</span>
+							<span className="lettuce" />
+							<span className="patty" />
+							<span className="bun-bottom" />
+						</span>
+						<span className="line-food-fries">
+							<span className="fry-box">
+								{FRIES.map((fry) => (
+									<span key={fry} className={`fry ${fry}`} />
+								))}
+								{BOX_FACES.map((face) => (
+									<span key={face} className={`box-face ${face}`} />
+								))}
+							</span>
+						</span>
+					</span>
+				</span>
+			</button>
+			{name(second, on)}
+		</div>
+	);
+}
+
 /**
  * The line the host reaches 云链API through (protocol 1.29): the domestic and the international
  * address of the same site. Shown only when the host offers more than one.
@@ -1514,6 +1592,7 @@ function LineSettings({
 }) {
 	const target = useSettingsTarget();
 	const current = lines.find((l) => l.id === line) ?? lines[0];
+	const [first, second] = lines;
 	if (lines.length < 2 || !current) return null;
 	return (
 		<SettingsGroup>
@@ -1535,23 +1614,27 @@ function LineSettings({
 						</>
 					}
 				>
-					<div className="segmented" title="线路">
-						{lines.map((l) => (
-							<button
-								type="button"
-								key={l.id}
-								aria-pressed={l.id === current.id}
-								className={l.id === current.id ? "active" : undefined}
-								title={new URL(l.url).host}
-								disabled={busy}
-								onClick={() => {
-									if (l.id !== current.id) onChange(l);
-								}}
-							>
-								{l.name}
-							</button>
-						))}
-					</div>
+					{first && second && lines.length === 2 ? (
+						<LineSwitch first={first} second={second} current={current} busy={busy} onChange={onChange} />
+					) : (
+						<div className="segmented" title="线路">
+							{lines.map((l) => (
+								<button
+									type="button"
+									key={l.id}
+									aria-pressed={l.id === current.id}
+									className={l.id === current.id ? "active" : undefined}
+									title={new URL(l.url).host}
+									disabled={busy}
+									onClick={() => {
+										if (l.id !== current.id) onChange(l);
+									}}
+								>
+									{l.name}
+								</button>
+							))}
+						</div>
+					)}
 				</SettingRow>
 			</SettingsCard>
 		</SettingsGroup>
