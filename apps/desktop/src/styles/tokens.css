@@ -30,7 +30,10 @@
 	--text-faint: #8a99a8;
 
 	/* brand & semantic */
-	--accent: #42c8b4;
+	/* The bright teal of this theme's accent, kept by the few surfaces that show it in both themes
+	   (the new-session button's metal); the light theme does not override it. */
+	--accent-bright: #42c8b4;
+	--accent: var(--accent-bright);
 	--accent-contrast: #102b26;
 	--accent-strong: #65d5c3;
 	--accent-text: #5fd6cb;
