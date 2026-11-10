@@ -69,9 +69,20 @@ describe("ssh pairing helper (pier cli --ssh-pair)", () => {
 	});
 });
 
+/**
+ * An ed25519 key pair for the test server. About 1 in 250 keys from ssh2's generator is malformed
+ * (ssh2 and OpenSSH both refuse to load it), which made `new Server` throw, so generate another.
+ */
+function generateHostKey(): { private: string; public: string } {
+	for (;;) {
+		const key = utils.generateKeyPairSync("ed25519");
+		if (!(utils.parseKey(key.private) instanceof Error)) return key;
+	}
+}
+
 /** An SSH server whose sessions run `sh -c` in a sandbox home (`alice` / `secret`). */
 async function startSshServer(home: string) {
-	const hostKey = utils.generateKeyPairSync("ed25519");
+	const hostKey = generateHostKey();
 	// Commands still running when a test ends (e.g. after a cancel) keep `home` as their working
 	// directory, and Windows refuses to delete it until they exit, so close() waits for them.
 	const children = new Set<Promise<void>>();
