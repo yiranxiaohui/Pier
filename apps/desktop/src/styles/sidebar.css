@@ -11,13 +11,14 @@
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	padding: 12px 18px 24px;
+	padding: 12px 18px;
 }
 
+/* The script wordmark, in the text color. */
 .brand-name {
-	font-weight: 700;
-	font-size: 19px;
-	letter-spacing: -0.025em;
+	display: block;
+	flex: none;
+	color: var(--text);
 }
 
 .sidebar-collapse {
@@ -899,18 +900,6 @@ button.sidebar-update-action {
 .session-agent.agent-codex {
 	color: #3b82f6;
 	background: color-mix(in srgb, #3b82f6 14%, transparent);
-}
-
-.sidebar-brand-text {
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-}
-
-.brand-caption {
-	color: var(--text-faint);
-	font-size: 10px;
-	letter-spacing: 0.06em;
 }
 
 .session-row-agent {

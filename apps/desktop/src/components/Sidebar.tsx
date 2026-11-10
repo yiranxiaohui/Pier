@@ -29,6 +29,7 @@ import {
 	IconSettings,
 	IconSquarePen,
 	IconTrash,
+	PierWordmark,
 } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
 import { platformName } from "./RemotePanel.tsx";
@@ -676,10 +677,7 @@ export function Sidebar({ open = true }: { open?: boolean }) {
 	return (
 		<aside id="workspace-sidebar" className="sidebar">
 			<div className="brand">
-				<div className="sidebar-brand-text">
-					<span className="brand-name">Pier</span>
-					<span className="brand-caption">Agent 工作台</span>
-				</div>
+				<PierWordmark height={26} className="brand-name" />
 				<button
 					type="button"
 					className="ghost icon sidebar-collapse"
