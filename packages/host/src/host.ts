@@ -102,7 +102,7 @@ import {
 import { transferWorkspacePath } from "./workspace-path-transfers.ts";
 import { WorkspaceUploads } from "./workspace-uploads.ts";
 
-export const PIER_HOST_VERSION = "0.2.63";
+export const PIER_HOST_VERSION = "0.2.64";
 
 /**
  * How the single-file Pier running without its desktop (`pier run` or the installed service)
