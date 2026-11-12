@@ -462,46 +462,37 @@
 	position: relative;
 }
 
-/* The selected session lights up its stretch of the tree line. */
-.session-item:has(.session-row.selected)::before {
-	content: "";
-	position: absolute;
-	top: 7px;
-	bottom: 7px;
-	left: -9px;
-	width: 2px;
-	border-radius: 2px;
-	background: var(--accent);
-	box-shadow: 0 0 8px var(--brand-glow);
-}
-
+/* One line per session: the title, then the time at the end. */
 .session-row {
 	display: flex;
 	align-items: center;
 	justify-content: flex-start;
 	gap: 8px;
 	width: 100%;
-	margin: 4px 0;
+	height: 34px;
+	margin: 2px 0;
 	border: none;
 	background: transparent;
 	text-align: left;
-	padding: 10px 8px;
-	border-radius: 9px;
-	color: var(--text-muted);
+	padding: 0 8px 0 12px;
+	border-radius: 8px;
+	color: var(--text);
 	font-weight: 400;
 }
 
-.session-row:hover:not(:disabled),
-.session-item:hover .session-row:not(.selected) {
-	background: var(--bg-hover);
-	color: var(--text);
+/* No surface on hover (the shared button hover adds one): the actions taking the time's place
+   show it. */
+.session-row:hover:not(:disabled) {
+	background: transparent;
 }
 
-.session-row.selected {
-	background: var(--bg);
-	box-shadow: var(--shadow-sm);
-	color: var(--text);
-	font-weight: 500;
+/* Marked like the selected settings page (settings.css: button.settings-nav-item.selected). */
+.session-row.selected,
+.session-row.selected:hover:not(:disabled) {
+	background: var(--accent-soft);
+	box-shadow: inset 3px 0 0 var(--accent);
+	color: var(--accent-text);
+	font-weight: 600;
 }
 
 .session-row-title {
@@ -512,10 +503,15 @@
 	text-overflow: ellipsis;
 }
 
+/* As wide as the archive and delete buttons at least, which take its place on hover. */
 .session-row-time {
+	flex: none;
+	min-width: 46px;
 	font-size: 11px;
 	font-weight: 400;
+	text-align: right;
 	color: var(--text-faint);
+	transition: opacity 0.12s var(--ease);
 }
 
 .session-actions {
@@ -552,13 +548,13 @@
 	pointer-events: auto;
 }
 
-/* Room for the action buttons over the end of the title. */
-.session-item:hover .session-row,
-.session-item:has(:focus-visible) .session-row {
-	padding-right: 56px;
+.session-item:hover .session-row-time,
+.session-item:has(:focus-visible) .session-row-time,
+.session-item.confirming .session-row-time {
+	opacity: 0;
 }
 
-/* 中止并删除 is wider than the two icon buttons; this comes later, so it wins while hovered too. */
+/* 中止并删除 is wider than the time's slot: room for it over the end of the title. */
 .session-item.confirming .session-row {
 	padding-right: 80px;
 }
@@ -617,11 +613,12 @@
 	margin-left: 8px;
 }
 
+/* In line with the session titles. */
 .session-empty,
 .session-more {
 	font-size: 12px;
 	color: var(--text-faint);
-	padding: 5px 8px;
+	padding: 5px 12px;
 }
 
 .session-more {
@@ -922,29 +919,12 @@ button.sidebar-update-action {
 }
 
 .session-row-agent {
+	display: inline-flex;
 	flex: none;
-	align-self: flex-start;
-	padding-top: 3px;
-	color: var(--text-muted);
-}
-
-.session-row-text {
-	display: flex;
-	flex: 1;
-	flex-direction: column;
-	min-width: 0;
-	gap: 5px;
-}
-
-.session-row-detail {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 6px;
-	font-size: 10px;
 	color: var(--text-faint);
 }
 
-.session-row-detail .session-row-time {
-	font-size: 10px;
+/* In one color like the other icons: the marks' own colors would outshout the titles. */
+.session-row-agent .agent-icon path {
+	fill: currentColor;
 }
