@@ -317,19 +317,21 @@ function SessionItem({
 				type="button"
 				className={`session-row${selected ? " selected" : ""}`}
 				onClick={() => store.selectSession(session)}
-				title={sessionTitle(session, { full: true })}
 			>
-				<span className="session-row-agent">
-					<AgentIcon runtime={runtime} size={14} />
-				</span>
-				<span className="session-row-text">
-					<span className="session-row-title">{sessionTitle(session)}</span>
-					<span className="session-row-detail">
-						<span>{agentRuntimeLabel(runtime)}</span>
-						<span className="session-row-time">{relativeTime(session.modifiedAt)}</span>
+				<span className="session-row-title">{sessionTitle(session)}</span>
+				{/* Only an agent other than the default one is marked: on every row the mark would say nothing. */}
+				{runtime === DEFAULT_AGENT_RUNTIME ? null : (
+					<span
+						className="session-row-agent"
+						role="img"
+						aria-label={agentRuntimeLabel(runtime)}
+						title={agentRuntimeLabel(runtime)}
+					>
+						<AgentIcon runtime={runtime} size={13} />
 					</span>
-				</span>
+				)}
 				<SessionBadge session={session} />
+				<span className="session-row-time">{relativeTime(session.modifiedAt)}</span>
 			</button>
 			<span className="session-actions">
 				{canArchive && !confirm ? (
@@ -428,6 +430,7 @@ function WorkspaceGroup({
 	const selectedIndex = current?.findIndex((s) => s.id === selectedSessionId) ?? -1;
 	const list = sessionWindow(current?.length ?? 0, limit, selectedIndex);
 	const archived = sessions?.filter((s) => s.archived) ?? [];
+	const archivedList = sessionWindow(archived.length, archivedLimit, -1);
 	// An archived session that is open keeps the archive expanded, so it stays visible.
 	const archivedOpen = showArchived || archived.some((s) => s.id === selectedSessionId);
 	return (
@@ -548,7 +551,7 @@ function WorkspaceGroup({
 							</button>
 							{archivedOpen ? (
 								<div className="session-archived-list">
-									{archived.slice(0, archivedLimit).map((session) => (
+									{archived.slice(0, archivedList.shown).map((session) => (
 										<SessionItem
 											key={session.id}
 											session={session}
@@ -556,13 +559,13 @@ function WorkspaceGroup({
 											canArchive={canArchive}
 										/>
 									))}
-									{archived.length > archivedLimit ? (
+									{archivedList.more ? (
 										<button
 											type="button"
 											className="session-more"
-											onClick={() => setArchivedLimit(archivedLimit + SESSION_PAGE)}
+											onClick={() => setArchivedLimit(archivedList.shown + SESSION_PAGE)}
 										>
-											显示更多（还有 {archived.length - archivedLimit} 个）
+											显示更多（还有 {archivedList.more} 个）
 										</button>
 									) : null}
 								</div>

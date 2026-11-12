@@ -88,10 +88,6 @@ button:hover:not(:disabled) {
 	background: var(--bg-hover);
 }
 
-button:active:not(:disabled) {
-	transform: translateY(0.5px);
-}
-
 button:disabled {
 	opacity: 0.45;
 	cursor: default;
@@ -201,10 +197,6 @@ button.select {
 button.select:hover:not(:disabled):not(.open) {
 	background: var(--bg-input);
 	border-color: var(--text-faint);
-}
-
-button.select:active:not(:disabled) {
-	transform: none;
 }
 
 button.select:disabled {
@@ -463,13 +455,39 @@ body.resizing-sidebar .sidebar-shell {
 	cursor: col-resize;
 	touch-action: none;
 	z-index: 3;
-	border-radius: 3px;
 }
 
-.sidebar-resize:hover,
-.sidebar-resize:focus-visible,
-body.resizing-sidebar .sidebar-resize {
-	background: var(--accent-ring);
+/* Keyboard focus shows on the grip instead of an outline around the whole strip. */
+.sidebar-resize:focus-visible {
+	outline: none;
+}
+
+/* The strip itself stays clear; a short grip shows in its middle. */
+.sidebar-resize::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 1px;
+	width: 4px;
+	height: 40px;
+	margin-top: -20px;
+	border-radius: 2px;
+	background: var(--text-faint);
+	opacity: 0;
+	transition: opacity 0.15s var(--ease);
+}
+
+/* After a beat, so the pointer passing over does not flash it. */
+.sidebar-resize:hover::after {
+	opacity: 0.45;
+	transition-delay: 0.2s;
+}
+
+.sidebar-resize:focus-visible::after,
+body.resizing-sidebar .sidebar-resize::after {
+	background: var(--accent);
+	opacity: 1;
+	transition-delay: 0s;
 }
 
 body.resizing-sidebar {

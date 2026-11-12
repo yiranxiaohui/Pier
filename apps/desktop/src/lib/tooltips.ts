@@ -21,6 +21,8 @@ export function installTooltips(): void {
 
 	let target: Element | undefined;
 	let text = "";
+	/** Where the pointer came onto the target, for targets as tall as the window. */
+	let pointerY = 0;
 	let timer: number | undefined;
 	let closedAt = 0;
 	/** Clicked, typed on or scrolled: no tooltip until the pointer has left it. */
@@ -47,6 +49,8 @@ export function installTooltips(): void {
 		// Below the element, or above it when the window's bottom edge is too close.
 		let top = box.bottom + GAP;
 		if (top + height > window.innerHeight - MARGIN) top = box.top - GAP - height;
+		// Room on neither side (the sidebar's resize strip runs the window's height): beside the pointer.
+		if (top < MARGIN) top = Math.min(pointerY + 16, window.innerHeight - MARGIN - height);
 		const left = Math.min(Math.max(MARGIN, box.left + box.width / 2 - width / 2), window.innerWidth - MARGIN - width);
 		tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
 		tip.classList.add("open");
@@ -78,6 +82,7 @@ export function installTooltips(): void {
 		if (!title.trim()) return;
 		target = element;
 		text = title;
+		pointerY = event.clientY;
 		element.removeAttribute("title");
 		observer.observe(element, { attributes: true, attributeFilter: ["title"] });
 		const quick = performance.now() - closedAt < SKIP_DELAY_MS;

@@ -175,11 +175,13 @@ function Queue({ chat }: { chat: ChatState }) {
 
 function contextUsageTitle(
 	info: SessionContextInfo | undefined,
+	lastContext: number,
 	contextWindow: number | undefined,
-	percent: number | undefined,
+	share: number | undefined,
 ): string {
-	const lines = [`最近一次请求的上下文大小${percent !== undefined ? `，已用 ${percent}%` : ""}`];
-	if (contextWindow) lines.push(`窗口上限：${formatTokens(contextWindow)}`);
+	const used = share === undefined ? "" : share < 0.01 ? "，已用不到 1%" : `，已用 ${Math.round(share * 100)}%`;
+	const lines = [lastContext ? `最近一次请求的上下文大小${used}` : "还没有回复，回复后显示上下文大小"];
+	lines.push(contextWindow ? `窗口上限：${formatTokens(contextWindow)}` : "窗口上限：运行时未报告");
 	if (!info) {
 		lines.push("自动压缩：运行时未报告阈值");
 	} else if (info.autoCompaction === "disabled") {
@@ -194,19 +196,28 @@ function contextUsageTitle(
 	return lines.join("\n");
 }
 
-/** How full the context window is: a ring that fills clockwise from the top, amber past half, red past 80%. */
-function ContextRing({ percent }: { percent: number }) {
+/** The least of the ring a used context fills, so the first tokens of a large window show. */
+const CONTEXT_RING_MIN = 0.06;
+
+/**
+ * How full the context window is: a ring that fills clockwise from the top, an empty track while the
+ * share is unknown. It fills by the square root of the share, so every reply moves it on even in a
+ * window of a million tokens; amber past half and red past 80% of the real share.
+ */
+function ContextRing({ share }: { share: number | undefined }) {
 	const circumference = 2 * Math.PI * 5;
-	const level = percent >= 80 ? " high" : percent >= 50 ? " mid" : "";
+	const real = Math.min(1, share ?? 0);
+	const level = real >= 0.8 ? " high" : real >= 0.5 ? " mid" : "";
+	const fill = real > 0 ? Math.max(CONTEXT_RING_MIN, Math.sqrt(real)) : 0;
 	return (
 		<svg className={`context-ring${level}`} width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
 			<circle cx="7" cy="7" r="5" />
-			{percent > 0 ? (
+			{fill ? (
 				<circle
 					cx="7"
 					cy="7"
 					r="5"
-					strokeDasharray={`${(Math.min(100, percent) / 100) * circumference} ${circumference}`}
+					strokeDasharray={`${fill * circumference} ${circumference}`}
 					transform="rotate(-90 7 7)"
 				/>
 			) : null}
@@ -217,8 +228,7 @@ function ContextRing({ percent }: { percent: number }) {
 function StatusBar({ chat }: { chat: ChatState }) {
 	const usage = sessionUsage(chat);
 	const contextWindow = chat.contextInfo?.contextWindow ?? chat.model?.contextWindow;
-	const percent =
-		contextWindow && usage.lastContext ? Math.round((usage.lastContext / contextWindow) * 100) : undefined;
+	const share = contextWindow && usage.lastContext ? usage.lastContext / contextWindow : undefined;
 	return (
 		<div className="status-bar">
 			<span className={`run-state ${chat.runState}`}>
@@ -232,13 +242,13 @@ function StatusBar({ chat }: { chat: ChatState }) {
 			))}
 			<span className="spacer" />
 			<span className="status-usage">
-				{usage.lastContext || contextWindow ? (
-					<span title={contextUsageTitle(chat.contextInfo, contextWindow, percent)}>
-						{percent !== undefined ? <ContextRing percent={percent} /> : null}
-						{usage.lastContext ? formatTokens(usage.lastContext) : "—"}
-						{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
-					</span>
-				) : null}
+				{/* Always there, so it does not come and go: before the first reply, or when the runtime
+				    reports no window (Claude Code models without [1m]), the ring stays empty. */}
+				<span title={contextUsageTitle(chat.contextInfo, usage.lastContext, contextWindow, share)}>
+					<ContextRing share={share} />
+					{usage.lastContext ? formatTokens(usage.lastContext) : "—"}
+					{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
+				</span>
 				{usage.input || usage.output ? (
 					<span
 						className="usage-tokens"

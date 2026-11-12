@@ -311,10 +311,6 @@
 	background: var(--bg-hover);
 }
 
-.directory-picker-item:active:not(:disabled) {
-	transform: none;
-}
-
 .directory-picker-item > svg {
 	flex: none;
 	color: var(--text-muted);
