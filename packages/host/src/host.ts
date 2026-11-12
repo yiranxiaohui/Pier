@@ -49,7 +49,7 @@ import { GitService, samePath } from "./git.ts";
 import { listHostDirectories } from "./host-directories.ts";
 import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
-import type { ManagedSession } from "./managed-session.ts";
+import { errorMessage, type ManagedSession } from "./managed-session.ts";
 import { LoopbackRelays } from "./oauth-loopback.ts";
 import { detectPackageManagers } from "./package-managers.ts";
 import {
@@ -83,6 +83,7 @@ import { SkillManager } from "./runtimes/skills.ts";
 import { ScheduledTasks } from "./scheduled-tasks.ts";
 import { SessionArchiveStore } from "./session-archive.ts";
 import { SessionPool } from "./session-pool.ts";
+import { needsTitle, summarizeTitle } from "./session-titles.ts";
 import type { AppShell, AppUpdater, ShellMethod } from "./shell.ts";
 import { SpeechService } from "./speech.ts";
 import { standaloneExecutable } from "./standalone/self.ts";
@@ -171,6 +172,11 @@ export interface PierHostOptions {
 	agentInstaller?: Pick<AgentInstallerOptions, "fetch" | "probe" | "homeDirectory" | "configurePath">;
 	browser?: BrowserOptions;
 	remoteBrowser?: RemoteBrowserOptions;
+	/**
+	 * Whether a long first prompt is summarized into the session's name with the default model
+	 * (session-titles.ts). On by default; tests turn it off so their model responses stay in order.
+	 */
+	sessionTitles?: boolean;
 }
 
 /** Remote methods recorded in the audit log. */
@@ -519,6 +525,7 @@ export class PierHost implements RequestHandler {
 	readonly agentInstaller: AgentInstaller;
 	readonly peers: PeerManager;
 	private readonly log: (message: string) => void;
+	private readonly sessionTitles: boolean;
 	private readonly connections = new Set<Connection>();
 	private readonly localToken: string;
 	private readonly handlers: Handlers;
@@ -546,6 +553,7 @@ export class PierHost implements RequestHandler {
 		this.localToken = options.localToken;
 		const log = options.log ?? (() => {});
 		this.log = log;
+		this.sessionTitles = options.sessionTitles !== false;
 		const agents = options.agents ?? {};
 		const managedDirectory = join(this.pierDir, "agents");
 		const installationHome = options.agentInstaller?.homeDirectory;
@@ -862,6 +870,20 @@ export class PierHost implements RequestHandler {
 		const workspace = this.config.getWorkspace(workspaceId);
 		if (!workspace) throw new PierProtocolError("NOT_FOUND", `Workspace ${workspaceId} not found`);
 		return workspace;
+	}
+
+	/**
+	 * Names a session after a first prompt too long to read as its title, in the background. A name
+	 * given in the meantime wins; when no title comes back the prompt stays the title.
+	 */
+	private titleSession(session: ManagedSession, text: string): void {
+		summarizeTitle(this.env, session.summary().cwd, text)
+			.then(async (title) => {
+				if (!title || this.shuttingDown || this.pool.get(session.id) !== session || session.summary().name) return;
+				const summary = await session.rename(title);
+				this.broadcast({ type: "session.listChanged", workspaceId: summary.workspaceId });
+			})
+			.catch((error: unknown) => this.log(`session title: ${errorMessage(error)}`));
 	}
 
 	private extensionTarget(workspaceId: string | undefined): ExtensionTarget | undefined {
@@ -1424,7 +1446,12 @@ export class PierHost implements RequestHandler {
 			},
 
 			"session.prompt": async (_ctx, params) => {
-				await this.pool.require(params.sessionId).prompt(params.text, params.images, params.streamingBehavior);
+				const session = this.pool.require(params.sessionId);
+				const { name, firstMessage } = session.summary();
+				await session.prompt(params.text, params.images, params.streamingBehavior);
+				if (this.sessionTitles && !name && !firstMessage && needsTitle(params.text)) {
+					this.titleSession(session, params.text);
+				}
 				return { accepted: true as const };
 			},
 			"session.steer": async (_ctx, params) => ({

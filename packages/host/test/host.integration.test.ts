@@ -9,7 +9,7 @@ import {
 	type UiRequest,
 	type WorkspaceInfo,
 } from "@pier/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { PIER_HOST_VERSION } from "../src/host.ts";
 import {
@@ -669,5 +669,50 @@ describe("sessions end to end", () => {
 		await client.request("session.unsubscribe", { sessionId: session.id });
 		expect(await t.host.pool.sweep(Date.now() + 60 * 60 * 1000)).toEqual([session.id]);
 		expect(t.host.pool.size).toBe(0);
+	});
+});
+
+describe("session titles", () => {
+	let t: TestHost;
+	let client: PierClient;
+	let workspace: WorkspaceInfo;
+
+	beforeEach(async () => {
+		t = await startTestHost({ sessionTitles: true });
+		client = await t.connect();
+		workspace = (await client.request("workspace.add", { path: t.workspaceDir })).workspace;
+	});
+	afterEach(() => t.close());
+
+	async function prompt(text: string): Promise<string> {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id });
+		const rec = new Recorder();
+		await client.subscribe(session.id, rec.handler, { workspaceId: workspace.id });
+		await rec.waitForType("session.snapshot");
+		await client.request("session.prompt", { sessionId: session.id, text });
+		await rec.waitForType("agent_settled");
+		return session.id;
+	}
+
+	async function listed(sessionId: string): Promise<SessionSummary | undefined> {
+		const { sessions } = await client.request("session.list", { workspaceId: workspace.id });
+		return sessions.find((s) => s.id === sessionId);
+	}
+
+	it("names a session after a long first prompt and leaves a short one as it is", async () => {
+		// The title request and the agent's turn run side by side, so either may take a response first.
+		const reply = (context: { messages: unknown[] }) =>
+			fauxAssistantMessage(JSON.stringify(context.messages).includes("为这条消息起标题") ? "「重构登录流程」。" : "ok");
+		t.faux.setResponses([reply, reply]);
+		const text = "请帮我把登录流程重构一下，拆成更小的函数并补上单元测试";
+		const long = await prompt(text);
+		await vi.waitFor(async () =>
+			expect(await listed(long)).toMatchObject({ name: "重构登录流程", firstMessage: text }),
+		);
+
+		t.faux.setResponses([fauxAssistantMessage("ok")]);
+		const short = await prompt("修一下这个 bug");
+		expect(await listed(short)).not.toHaveProperty("name");
+		expect(t.faux.getPendingResponseCount()).toBe(0);
 	});
 });
