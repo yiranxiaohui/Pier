@@ -77,7 +77,7 @@
 }
 
 button.statusbar-item {
-	gap: 10px;
+	gap: 14px;
 	height: 22px;
 	padding: 0 8px;
 	border: none;
@@ -100,8 +100,10 @@ button.statusbar-item.active {
 	min-width: 0;
 }
 
+/* 进程 and 端口: an icon and a word, spaced like the figures. */
 .statusbar-right > button.statusbar-item {
 	flex: none;
+	gap: 5px;
 }
 
 .host-status > button.statusbar-item {
@@ -115,11 +117,19 @@ button.statusbar-item.active {
 	display: inline-flex;
 	flex: none;
 	align-items: center;
-	gap: 4px;
+	gap: 5px;
 }
 
-.statusbar-stat b {
-	font-weight: 600;
+/* Icons in the faint text color, the figures beside them in the text color. */
+.statusbar-stat .icon-svg,
+.statusbar-host .icon-svg {
+	flex: none;
+	color: var(--text-faint);
+}
+
+.statusbar-stat b,
+.statusbar-rate {
+	font-weight: 500;
 	color: var(--text);
 }
 
@@ -133,23 +143,29 @@ button.statusbar-item.active {
 	color: var(--danger);
 }
 
+/* Each arrow close to its rate, the upload a little apart from the download. */
 .statusbar-net {
-	gap: 2px;
+	gap: 3px;
 }
 
-/* Fixed widths keep the bar from jittering as the numbers change. */
+.statusbar-rate + .icon-svg {
+	margin-left: 5px;
+}
+
+/* Widths that fit the usual figures (`42%`, `6.5 KB/s`) keep the bar from jittering as they
+   change, without leaving a gap after them. */
 .statusbar-stat b {
 	display: inline-block;
-	min-width: 3.1em;
+	min-width: 2.4em;
 }
 
 .statusbar-rate {
 	display: inline-block;
-	min-width: 5.6em;
+	min-width: 4.4em;
 }
 
 .statusbar-host {
-	padding-left: 10px;
+	padding-left: 12px;
 	border-left: 1px solid var(--border-strong);
 }
 
