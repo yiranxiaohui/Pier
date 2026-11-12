@@ -48,7 +48,6 @@ button.titlebar-button:hover {
 
 button.titlebar-button:active {
 	background: rgba(127, 127, 127, 0.26);
-	transform: none;
 }
 
 button.titlebar-button.close:hover {

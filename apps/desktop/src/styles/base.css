@@ -88,10 +88,6 @@ button:hover:not(:disabled) {
 	background: var(--bg-hover);
 }
 
-button:active:not(:disabled) {
-	transform: translateY(0.5px);
-}
-
 button:disabled {
 	opacity: 0.45;
 	cursor: default;
@@ -201,10 +197,6 @@ button.select {
 button.select:hover:not(:disabled):not(.open) {
 	background: var(--bg-input);
 	border-color: var(--text-faint);
-}
-
-button.select:active:not(:disabled) {
-	transform: none;
 }
 
 button.select:disabled {
