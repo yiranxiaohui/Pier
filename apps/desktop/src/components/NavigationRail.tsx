@@ -13,7 +13,6 @@ import {
 	IconSmartphone,
 	IconSparkles,
 	IconUser,
-	Logo,
 } from "./Icons.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
 import { SIDEBAR_SHORTCUT } from "./Sidebar.tsx";
@@ -104,9 +103,6 @@ export function NavigationRail() {
 
 	return (
 		<nav className="navigation-rail" data-quota={quota?.level} aria-label="主导航">
-			<div className="navigation-brand" title="Pier">
-				<Logo size={28} />
-			</div>
 			<div className="navigation-links">
 				<button
 					type="button"

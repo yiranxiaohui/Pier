@@ -7,8 +7,8 @@
 	padding-top: 8px;
 }
 
-/* Centred on the rail's logo, 38px down (navigation.css: 22px padding, 32px logo): 8px sidebar
-   padding + 17px + half the 26px wordmark. */
+/* Centred on the rail's first button, 38px down (navigation.css): 8px sidebar padding + 17px +
+   half the 26px wordmark. */
 .brand {
 	display: flex;
 	align-items: center;

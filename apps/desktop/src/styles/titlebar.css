@@ -74,7 +74,7 @@ button.titlebar-button:focus-visible {
 	padding-top: 0;
 }
 
-/* Up by the same 8px, so the logo stays level with the sidebar's first line. */
+/* Up by the same 8px, so the first button stays level with the sidebar's first line. */
 :root.custom-titlebar .navigation-rail {
-	padding-top: 14px;
+	padding-top: 8px;
 }
