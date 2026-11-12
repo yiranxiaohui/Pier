@@ -58,20 +58,21 @@ function Title({ chat, fallback }: { chat: ChatState; fallback: SessionSummary }
 			</form>
 		);
 	}
+	const titleSource = {
+		name: session.name ?? fallback.name,
+		firstMessage: session.firstMessage || firstUserText(chat) || fallback.firstMessage,
+	};
 	return (
 		<button
 			type="button"
 			className="session-title"
-			title="点击重命名"
+			title={`${sessionTitle(titleSource, { full: true })}\n点击重命名`}
 			onClick={() => {
 				setValue(session.name ?? "");
 				setEditing(true);
 			}}
 		>
-			{sessionTitle({
-				name: session.name ?? fallback.name,
-				firstMessage: session.firstMessage || firstUserText(chat) || fallback.firstMessage,
-			})}
+			{sessionTitle(titleSource)}
 		</button>
 	);
 }
