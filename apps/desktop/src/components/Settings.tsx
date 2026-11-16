@@ -1,7 +1,7 @@
 import type { ApprovalPolicy, WorkspaceInfo } from "@pier/protocol";
 import { type ComponentType, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { POLICY_DESCRIPTION, POLICY_LABEL } from "../lib/format.ts";
-import { pageDescribesHost, pageFollowsHost, pageIsLocalOnly } from "../lib/settings-target.ts";
+import { pageDescribesHost, pageFollowsHost, pageIsReadOnly } from "../lib/settings-target.ts";
 import {
 	LOCAL_NODE,
 	type SettingsSection,
@@ -41,7 +41,7 @@ import {
 import { CopyButton } from "./Markdown.tsx";
 import { ModelsSettings } from "./ModelsPanel.tsx";
 import { PiSettings } from "./PiSettingsPanel.tsx";
-import { RemoteSettings } from "./RemotePanel.tsx";
+import { RemoteSettings } from "./RemoteOverview.tsx";
 import { ResourcesSettings } from "./ResourcesPanel.tsx";
 import { Select } from "./Select.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
@@ -581,15 +581,13 @@ function WorkspaceCard({ workspace, readOnly = false }: { workspace: WorkspaceIn
 
 function WorkspacesSettings() {
 	const store = useStore();
-	const computers = useComputers();
-	const hasPeers = computers.length > 1;
+	const target = useSettingsTarget();
+	const computers = useComputers().filter((computer) => computer.id === target.node);
 	return (
 		<>
 			<p className="settings-intro">
-				{hasPeers
-					? "这里管理本机和已配对电脑上的工作区，它们都列在左侧边栏中；新建会话时选择工作区，就决定了 Agent 在哪台电脑上运行。"
-					: "这里管理本机的工作区。"}
-				每个工作区可以单独设置 Agent 调用工具时的审批策略。危险命令（rm -r、sudo、git push --force
+				这里管理 {target.name} 上的工作区。切换右上角的电脑可以管理其他主机的工作区。 每个工作区可以单独设置 Agent
+				调用工具时的审批策略。危险命令（rm -r、sudo、git push --force
 				等）在“逐项审批”和“智能”策略下总是需要批准。移除工作区不会删除任何文件。
 			</p>
 			{computers.map((computer) => {
@@ -599,11 +597,7 @@ function WorkspacesSettings() {
 				return (
 					<SettingsGroup
 						key={computer.id}
-						title={
-							hasPeers
-								? `${computer.name}${computer.local ? "（本机）" : ""} · ${workspaces.length} 个工作区`
-								: `工作区（${workspaces.length}）`
-						}
+						title={`${computer.name}${computer.local ? "（本机）" : ""} · ${workspaces.length} 个工作区`}
 						actions={
 							<button
 								type="button"
@@ -782,7 +776,7 @@ function hostStatus(
 }
 
 /** Above the pages that manage a paired computer: which computer the changes go to. */
-function RemoteTargetBanner() {
+function RemoteTargetBanner({ readOnly = false }: { readOnly?: boolean }) {
 	const store = useStore();
 	const target = useSettingsTarget();
 	const syncing = useAppState((s) => s.settingsSyncing);
@@ -791,7 +785,8 @@ function RemoteTargetBanner() {
 		<div className="banner info inline settings-target-banner">
 			<IconMonitor size={15} />
 			<span>
-				正在设置 <strong>{target.name}</strong> 上的 Pier，修改会直接保存到那台电脑。
+				{readOnly ? "正在查看" : "正在设置"} <strong>{target.name}</strong> 上的 Pier，
+				{readOnly ? "此页只读，不会修改本机或远程主机。" : "修改会直接保存到那台电脑。"}
 				{target.online ? <span className="muted"> {syncedText(syncedAt)}</span> : null}
 			</span>
 			<span className="banner-actions">
@@ -814,7 +809,7 @@ function RemoteUnavailable({ blocker }: { blocker?: string | undefined }) {
 	if (blocker) {
 		return (
 			<SettingsCard>
-				<SettingRow title="无法远程修改" description={blocker}>
+				<SettingRow title="此主机暂不支持此页" description={blocker}>
 					<button type="button" onClick={() => store.openSettings("about")}>
 						关于与更新
 					</button>
@@ -823,7 +818,7 @@ function RemoteUnavailable({ blocker }: { blocker?: string | undefined }) {
 		);
 	}
 	const text = target.revoked
-		? `${target.name} 已移除这台电脑（或重置了 Pier），需要重新配对后才能修改它的设置。`
+		? `${target.name} 已移除这台电脑（或重置了 Pier），需要重新配对后才能查看它的设置。`
 		: target.connectError
 			? `无法连接到 ${target.name}：${target.connectError}。连接后会自动同步它的设置。`
 			: `正在连接 ${target.name}，连接后会自动同步它的设置…`;
@@ -852,16 +847,9 @@ function NavBadge({ id }: { id: SettingsSection }): ReactNode {
 	const remote = useAppState((s) => s.remote);
 	const connected = useAppState((s) => s.devices.filter((d) => d.connected).length);
 	const update = useAppState((s) => computerUpdateStatus(s.settingsNode, s));
-	const managingOther = useAppState((s) => s.settingsNode !== LOCAL_NODE);
+	const local = useAppState((s) => s.settingsNode === LOCAL_NODE);
 	if (id === "models" && noModels) return <span className="nav-dot warn" title="还没有可用模型" />;
-	if (managingOther && pageIsLocalOnly(id)) {
-		return (
-			<span className="nav-tag" title="这一页只针对本机">
-				本机
-			</span>
-		);
-	}
-	if (id === "remote" && (remote?.running || remote?.relay?.state === "online") && connected > 0) {
+	if (local && id === "remote" && (remote?.running || remote?.relay?.state === "online") && connected > 0) {
 		return (
 			<span className="nav-count" title={`${connected} 台设备在线`}>
 				{connected}
@@ -999,22 +987,16 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 						<strong>{nav.label}</strong>
 					</div>
 					<div className="settings-topbar-actions">
-						{!followsHost || !hasPeers ? (
-							<span className="settings-scope" title={followsHost ? target.name : undefined}>
+						{!hasPeers ? (
+							<span className="settings-scope" title={target.name}>
 								<IconMonitor size={13} />
-								<span>
-									{followsHost
-										? `${target.local ? "本机" : "远程"} · ${target.name}`
-										: current.id === "workspaces"
-											? "所有电脑"
-											: "本机设置"}
-								</span>
+								<span>{`${target.local ? "本机" : "远程"} · ${target.name}`}</span>
 							</span>
 						) : null}
 						<HostSwitcher />
 					</div>
 				</div>
-				<HostBanner onShowLogs={() => store.openSettings("logs")} />
+				<HostBanner onShowLogs={() => store.openSettings("logs", LOCAL_NODE)} />
 				<div className="settings-scroll" ref={scrollRef}>
 					<div className="settings-content">
 						<header className="settings-page-heading">
@@ -1067,11 +1049,8 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 								))}
 							</div>
 						) : null}
-						{remoteTarget && !pageDescribesHost(current.id) ? <RemoteTargetBanner /> : null}
-						{!target.local && pageIsLocalOnly(current.id) ? (
-							<p className="muted small settings-note">
-								这一页只针对本机（{store.nodeName(LOCAL_NODE)}），不受上方所选电脑影响。
-							</p>
+						{remoteTarget && !pageDescribesHost(current.id) ? (
+							<RemoteTargetBanner readOnly={pageIsReadOnly(current.id)} />
 						) : null}
 						{nav.tabs ? (
 							<div

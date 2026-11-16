@@ -116,7 +116,16 @@ describe("computer-to-computer (peers)", () => {
 		// Other computers can see B's resource usage (the status bar's host status).
 		expect((await remote.request("host.stats")).memory.total).toBeGreaterThan(0);
 		await expectCode(remote.request("pairing.start"), "FORBIDDEN");
-		await expectCode(remote.request("peer.list"), "FORBIDDEN");
+		await expectCode(remote.request("peer.remove", { peerId: "unrelated" }), "FORBIDDEN");
+		// Remote settings inspect B (not the proxying local host A); access controls stay local.
+		expect(await remote.request("peer.list")).toEqual({ peers: [] });
+		expect(await remote.request("remote.status")).toEqual(await bDesktop.request("remote.status"));
+		expect(await remote.request("device.list")).toEqual(await bDesktop.request("device.list"));
+		a.host.recordLog("only-on-local-computer-A");
+		b.host.recordLog("only-on-selected-computer-B");
+		const logs = (await remote.request("host.logs")).lines;
+		expect(logs).toContain("only-on-selected-computer-B");
+		expect(logs).not.toContain("only-on-local-computer-A");
 
 		b.faux.setResponses([fauxAssistantMessage("answered by computer B")]);
 		const { session } = await remote.request("session.create", { workspaceId: bWorkspace.id });

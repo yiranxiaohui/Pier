@@ -1287,6 +1287,24 @@ export class PierStore {
 		);
 	}
 
+	/** Read-only settings snapshots, explicitly bound to the selected computer, never local fallback. */
+	async remoteOverview(node: string) {
+		const client = this.openClient(node);
+		if (!client) throw new Error(`${this.nodeName(node)} 未连接`);
+		const [remote, { devices }, { peers }] = await Promise.all([
+			client.request("remote.status"),
+			client.request("device.list"),
+			client.request("peer.list"),
+		]);
+		return { remote, devices, peers };
+	}
+
+	async hostLogs(node: string): Promise<string[]> {
+		const client = this.openClient(node);
+		if (!client) throw new Error(`${this.nodeName(node)} 未连接`);
+		return (await client.request("host.logs")).lines;
+	}
+
 	// ---- remote access and devices (this computer) -------------------------------------
 
 	async loadRemote(): Promise<void> {

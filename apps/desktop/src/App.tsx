@@ -21,7 +21,7 @@ import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { TerminalPanel } from "./components/TerminalPanel.tsx";
 import { TitleBar } from "./components/TitleBar.tsx";
 import { useCanOpenTerminal } from "./lib/remote-terminals.ts";
-import { NEW_CHAT_DRAFT, useAppState, useStore } from "./lib/store.tsx";
+import { LOCAL_NODE, NEW_CHAT_DRAFT, useAppState, useStore } from "./lib/store.tsx";
 import { terminals, useTerminals } from "./lib/terminals.ts";
 
 function Toasts() {
@@ -195,7 +195,7 @@ export function App() {
 							{sidebar ? <SidebarResizeHandle /> : null}
 						</div>
 						<main className="main">
-							<HostBanner scope="node" onShowLogs={() => store.openSettings("logs")} />
+							<HostBanner scope="node" onShowLogs={() => store.openSettings("logs", LOCAL_NODE)} />
 							<div className="main-body">
 								<Main />
 							</div>

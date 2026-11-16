@@ -151,7 +151,7 @@ function PairingSection() {
 	);
 }
 
-function DeviceRow({ device }: { device: DeviceInfo }) {
+export function DeviceRow({ device, readOnly = false }: { device: DeviceInfo; readOnly?: boolean }) {
 	const store = useStore();
 	const [confirm, setConfirm] = useState(false);
 	const [editing, setEditing] = useState(false);
@@ -182,17 +182,19 @@ function DeviceRow({ device }: { device: DeviceInfo }) {
 				) : (
 					<div className="device-name">
 						{device.name}
-						<button
-							type="button"
-							className="ghost icon small-icon"
-							title="重命名"
-							onClick={() => {
-								setName(device.name);
-								setEditing(true);
-							}}
-						>
-							<IconPencil size={13} />
-						</button>
+						{!readOnly ? (
+							<button
+								type="button"
+								className="ghost icon small-icon"
+								title="重命名"
+								onClick={() => {
+									setName(device.name);
+									setEditing(true);
+								}}
+							>
+								<IconPencil size={13} />
+							</button>
+						) : null}
 					</div>
 				)}
 				<div className="muted small">
@@ -207,27 +209,29 @@ function DeviceRow({ device }: { device: DeviceInfo }) {
 					{device.fingerprint}
 				</div>
 			</div>
-			<button
-				type="button"
-				className={confirm ? "danger" : "ghost"}
-				onClick={() => {
-					if (!confirm) {
-						setConfirm(true);
-						return;
-					}
-					void store.revokeDevice(device.id);
-				}}
-				onBlur={() => setConfirm(false)}
-			>
-				{confirm ? "确认移除" : "移除"}
-			</button>
+			{!readOnly ? (
+				<button
+					type="button"
+					className={confirm ? "danger" : "ghost"}
+					onClick={() => {
+						if (!confirm) {
+							setConfirm(true);
+							return;
+						}
+						void store.revokeDevice(device.id);
+					}}
+					onBlur={() => setConfirm(false)}
+				>
+					{confirm ? "确认移除" : "移除"}
+				</button>
+			) : null}
 		</div>
 	);
 }
 
-function PeerRow({ peer }: { peer: PeerInfo }) {
+export function PeerRow({ peer, readOnly = false }: { peer: PeerInfo; readOnly?: boolean }) {
 	const store = useStore();
-	const workspaces = useAppState((s) => s.nodes[peer.id]?.workspaces.length ?? 0);
+	const workspaces = useAppState((s) => (readOnly ? 0 : (s.nodes[peer.id]?.workspaces.length ?? 0)));
 	const [confirm, setConfirm] = useState(false);
 	const [editing, setEditing] = useState(false);
 	const details = [
@@ -247,30 +251,34 @@ function PeerRow({ peer }: { peer: PeerInfo }) {
 					{peer.fingerprint} · {[...peer.addresses, ...(peer.relays ?? []).map((r) => `中继 ${r}`)].join("、")}
 				</div>
 			</div>
-			<button
-				type="button"
-				className="ghost"
-				title="修改连接地址（那台电脑的 IP 变了时）"
-				onClick={() => setEditing(true)}
-			>
-				编辑
-			</button>
-			<button
-				type="button"
-				className={confirm ? "danger" : "ghost"}
-				onClick={() => {
-					if (!confirm) {
-						setConfirm(true);
-						return;
-					}
-					void store.removePeer(peer.id);
-				}}
-				onBlur={() => setConfirm(false)}
-				title="只从这台电脑的列表中移除；要撤销它的访问权限，请在那台电脑的设备列表中移除本机"
-			>
-				{confirm ? "确认移除" : "移除"}
-			</button>
-			{editing ? <PeerAddressDialog peer={peer} onClose={() => setEditing(false)} /> : null}
+			{!readOnly ? (
+				<>
+					<button
+						type="button"
+						className="ghost"
+						title="修改连接地址（那台电脑的 IP 变了时）"
+						onClick={() => setEditing(true)}
+					>
+						编辑
+					</button>
+					<button
+						type="button"
+						className={confirm ? "danger" : "ghost"}
+						onClick={() => {
+							if (!confirm) {
+								setConfirm(true);
+								return;
+							}
+							void store.removePeer(peer.id);
+						}}
+						onBlur={() => setConfirm(false)}
+						title="只从这台电脑的列表中移除；要撤销它的访问权限，请在那台电脑的设备列表中移除本机"
+					>
+						{confirm ? "确认移除" : "移除"}
+					</button>
+					{editing ? <PeerAddressDialog peer={peer} onClose={() => setEditing(false)} /> : null}
+				</>
+			) : null}
 		</div>
 	);
 }
@@ -529,8 +537,8 @@ function PairingLinkForm({ onClose, onBusyChange }: { onClose: () => void; onBus
 	);
 }
 
-/** The “devices and remote access” settings page. */
-export function RemoteSettings() {
+/** Local access controls. Remote inspection lives in RemoteOverview. */
+export function LocalRemoteSettings() {
 	const store = useStore();
 	const remote = useAppState((s) => s.remote);
 	const devices = useAppState((s) => s.devices);
@@ -640,7 +648,7 @@ export function RemoteSettings() {
 	);
 }
 
-const RELAY_STATE_TEXT = {
+export const RELAY_STATE_TEXT = {
 	off: "未开启",
 	connecting: "正在连接…",
 	online: "在线",

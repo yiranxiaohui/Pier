@@ -45,6 +45,7 @@ import {
 	type RequestHandler,
 	type Transport,
 } from "./connection.ts";
+import { DiagnosticLog } from "./diagnostic-log.ts";
 import { GitService, samePath } from "./git.ts";
 import { listHostDirectories } from "./host-directories.ts";
 import { HostProcessManager } from "./host-processes.ts";
@@ -524,6 +525,7 @@ export class PierHost implements RequestHandler {
 	readonly mcp: McpManager;
 	readonly agentInstaller: AgentInstaller;
 	readonly peers: PeerManager;
+	private readonly diagnostics = new DiagnosticLog();
 	private readonly log: (message: string) => void;
 	private readonly sessionTitles: boolean;
 	private readonly connections = new Set<Connection>();
@@ -551,7 +553,10 @@ export class PierHost implements RequestHandler {
 		this.speech = new SpeechService(join(this.pierDir, "speech.json"));
 		this.env = env;
 		this.localToken = options.localToken;
-		const log = options.log ?? (() => {});
+		const log = (message: string) => {
+			this.recordLog(message);
+			options.log?.(message);
+		};
 		this.log = log;
 		this.sessionTitles = options.sessionTitles !== false;
 		const agents = options.agents ?? {};
@@ -571,7 +576,7 @@ export class PierHost implements RequestHandler {
 			config: this.config,
 			locksDir: locksDir(this.pierDir),
 			trashDir: sessionTrashDir(this.pierDir),
-			archive: new SessionArchiveStore(archivedSessionsPath(this.pierDir), options.log),
+			archive: new SessionArchiveStore(archivedSessionsPath(this.pierDir), log),
 			...(options.uiTimeoutMs === undefined ? {} : { uiTimeoutMs: options.uiTimeoutMs }),
 			...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
 			...(options.eventLogCapacity === undefined ? {} : { eventLogCapacity: options.eventLogCapacity }),
@@ -700,6 +705,11 @@ export class PierHost implements RequestHandler {
 		this.uploads = new WorkspaceUploads({ log });
 		this.offUpdaterStatus = this.updater?.onUpdateStatus((status) => this.broadcast({ type: "update.status", status }));
 		this.handlers = this.createHandlers();
+	}
+
+	/** Record entry-point diagnostics too, without redirecting stdout (the shell control channel). */
+	recordLog(message: string): void {
+		this.diagnostics.append(message);
 	}
 
 	static async create(options: PierHostOptions): Promise<PierHost> {
@@ -1163,6 +1173,7 @@ export class PierHost implements RequestHandler {
 				};
 			},
 			"host.info": () => this.info(),
+			"host.logs": () => ({ lines: this.diagnostics.read() }),
 			"host.listDirectories": (_ctx, params) => listHostDirectories(params?.path),
 			"host.stats": () => this.stats.sample(),
 			"host.packageManagers": async () => ({ managers: await detectPackageManagers() }),

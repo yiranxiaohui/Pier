@@ -224,12 +224,27 @@ describe("remote access", () => {
 		expect((await phone.request("provider.list")).providers.length).toBeGreaterThan(0);
 		expect(await phone.request("workspace.remove", { workspaceId: added.id })).toEqual({ removed: true });
 
-		// Who can reach this computer stays local-only: devices, pairing, remote access, peers.
+		// Inspect the selected host, without granting authority to change who may reach it (1.55).
+		expect(await phone.request("device.list")).toEqual(await desktop.request("device.list"));
+		expect(await phone.request("remote.status")).toEqual(await desktop.request("remote.status"));
+		expect(await phone.request("peer.list")).toEqual(await desktop.request("peer.list"));
+		t.host.recordLog("remote-settings diagnostic marker");
+		t.host.recordLog("request https://example.test/path?token=secret-value password=hidden-value");
+		const logs = await phone.request("host.logs");
+		expect(logs.lines).toContain("remote-settings diagnostic marker");
+		expect(logs).toEqual(await desktop.request("host.logs"));
+		expect(logs.lines.join("\n")).not.toMatch(/secret-value|hidden-value/);
+		expect(logs.lines.some((line) => line.includes("remote access listening"))).toBe(true);
+
+		// Mutation and pairing remain local-only, including removal of the current device.
 		for (const call of [
-			phone.request("device.list"),
+			phone.request("device.revoke", { deviceId: outcome.deviceId }),
+			phone.request("device.rename", { deviceId: outcome.deviceId, name: "Changed" }),
 			phone.request("pairing.start"),
+			phone.request("pairing.cancel"),
+			phone.request("pairing.respond", { requestId: "not-pending", accept: true }),
 			phone.request("remote.configure", { enabled: false }),
-			phone.request("peer.list"),
+			phone.request("peer.remove", { peerId: "other-host" }),
 			// Listening on this computer for another computer's browser sign-in.
 			phone.request("loopback.open"),
 		]) {

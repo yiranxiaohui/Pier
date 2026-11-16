@@ -1,4 +1,4 @@
-# Pier 协议 v1.54
+# Pier 协议 v1.55
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -54,6 +54,8 @@
 | 4404 | 本地 `/peer/<id>`：该电脑未配对（或已在本机移除）；`host.hello` 同时返回 `NOT_FOUND` | 不要重连 |
 | 4502 | 本地 `/peer/<id>`：连不上那台电脑，或与它的连接中断（原因写在 reason 中） | 稍后重连 |
 
+自 1.55 起，`remote.status`、`device.list`、`peer.list` 可由已配对设备只读查询；所有配对和访问配置写操作仍仅限本地，对应管理事件也仍仅发送给本地。远程设置页通过轮询刷新，不接收配对请求或配对链接。
+
 ## 2. 握手与版本
 
 连接后第一个请求必须是 `host.hello`；在其成功前，其他请求返回 `UNAUTHENTICATED`。10 秒内未完成握手的连接会被关闭。握手完成前 Host 按顺序处理帧，因此客户端可以在 `host.hello` 之后立即流水线发送请求。
@@ -75,7 +77,7 @@
 
 ## 3. 方法
 
-参数中的 `sessionId` 均为 pi 会话 ID。标注 🔒 的方法仅本地桌面连接可调用（`LOCAL_ONLY_METHODS`），它们决定谁能连接这台电脑：设备、配对、远程访问与 `peer.*`，另外还有在本机回环地址上监听的 `loopback.*`（1.28）。其余方法对已配对的远程设备（手机和其他电脑）同样开放（1.10）：配对即完全信任，可以管理工作区与审批策略、编辑文件、配置服务商与模型、账号和扩展；1.9 及以前这些方法也仅限本地。
+参数中的 `sessionId` 均为 pi 会话 ID。标注 🔒 的方法仅本地桌面连接可调用（`LOCAL_ONLY_METHODS`），它们决定谁能连接这台电脑：设备修改、配对、远程访问配置与 `peer.*` 写操作，另外还有在本机回环地址上监听的 `loopback.*`（1.28）。其余方法对已配对的远程设备（手机和其他电脑）同样开放（1.10）：配对即完全信任，可以管理工作区与审批策略、编辑文件、配置服务商与模型、账号和扩展；1.9 及以前这些方法也仅限本地。
 
 ### host
 
@@ -83,6 +85,7 @@
 |---|---|---|
 | `host.hello` | 见上 | `{ protocolVersion, host, connectionId }` |
 | `host.info` | – | `HostInfo`（hostId、hostName、version、protocolVersion、platform、piVersion、agentDir） |
+| `host.logs` | – | `{ lines: string[] }`（1.55）：本次 Host 进程的内存诊断日志，最多 2000 行 / 256000 字符，每行最多 4096 字符加省略号；过滤终端控制字符、常见凭据与 URL 查询参数。不读取任意文件、会话内容或桌面监督进程日志；已配对设备可读取，客户端定时刷新 |
 | `host.listDirectories` | `{ path?(绝对路径) }` | `HostDirectoryListing`：`{ path, parent?, home, separator, entries: { name, path, symlink? }[], truncated?, total? }`；列出 Host 上一个目录的子目录（含指向目录的符号链接），用于在其他电脑上选择工作区（1.10）。省略 `path` 时为用户主目录；`path` 不做 realpath，`parent` 在文件系统根目录时省略。按名称自然排序，最多 2000 项，超出时 `truncated: true` 并给出 `total`。相对路径或不是目录时 `BAD_REQUEST`，不存在时 `NOT_FOUND`，无权限时 `FORBIDDEN` |
 | `host.stats` | – | `HostStats`：`{ sampledAt, platform, uptime(秒), cpu: { usage(0–1), cores, model?, loadAverage?[1/5/15 分钟] }, memory: { total, used }, disk?: { path, total, used, available }, network?: { rxRate, txRate, rxTotal, txTotal }, hostRss }`；Host 所在电脑的资源占用（1.12），大小单位为字节，速率为字节/秒。`cpu.usage` 与网络速率按与上一次采样的差值计算（上一次采样超过 10 秒时先取 0.4 秒的基线），1 秒内的重复调用共用一次采样。内存 `used` 不含可回收的缓存（Linux 为 `MemTotal - MemAvailable`，macOS 按 `vm_stat` 计算）；`disk` 为用户主目录所在的文件系统；`network` 统计物理网卡（Linux 上没有物理网卡时统计除回环外的全部网卡，macOS 为 `en*`，Windows 为 `netstat -e` 的总计），无法读取时省略；Windows 上没有 `loadAverage`；`hostRss` 为 Pier Host 进程的常驻内存。对已配对设备开放 |
 
@@ -460,7 +463,7 @@ Host 由桌面端启动时（`--watch-stdin`，macOS / Linux），启动过程�
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
-| `peer.list` 🔒 | – | `{ peers: PeerInfo[] }`：`{ id（那台电脑的 hostId）, name, fingerprint, addresses, relays?, deviceId, pairedAt, lastConnectedAt?, platform?, version?, connected }`；`connected` 表示当前有桌面窗口经本机连着它；`relays` 为那台电脑注册的中继（1.26，来自配对链接） |
+| `peer.list` | – | `{ peers: PeerInfo[] }`：`{ id（那台电脑的 hostId）, name, fingerprint, addresses, relays?, deviceId, pairedAt, lastConnectedAt?, platform?, version?, connected }`；`connected` 表示当前有桌面窗口经本机连着它；`relays` 为那台电脑注册的中继（1.26，来自配对链接） |
 | `peer.pair` 🔒 | `{ uri }`（那台电脑显示的 `pier://pair?...` 链接） | `{ peer }`；在那台电脑的用户确认后返回。失败时 `data.reason` 为 `INVALID_LINK`（`BAD_REQUEST`）、`SELF`（本机自己的链接）、`UNREACHABLE`、`PAIRING_INVALID`、`PAIRING_REJECTED`、`PAIRING_TIMEOUT`、`BAD_HANDSHAKE` 等（`CONFLICT`）。可能耗时数分钟，客户端请放宽超时 |
 | `peer.update` 🔒 | `{ peerId, addresses, relays? }`（`host:port` 列表，0–16 个，IPv6 加方括号；`relays` 为中继地址，0–4 个，省略时不变；两者至少一项非空） | `{ peer }`；修改连接那台电脑使用的地址（例如它的 IP 变了），去重后按顺序尝试，地址都连不上时再经中继；有变化时以 1012 断开经本机到它的连接以便用新地址重连。固定的公钥不变，新地址上若是另一台电脑会握手失败。未配对时 `NOT_FOUND`，地址无效时 `BAD_REQUEST`（1.24；`relays` 1.26） |
 | `peer.remove` 🔒 | `{ peerId }` | `{ removed }`；只在本机忘记那台电脑，并断开经本机到它的连接（4404）；那台电脑的设备列表不变 |
@@ -473,12 +476,12 @@ Host 保存已配对的电脑于 `~/.pier/peers.json`（0600），每次经代�
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
-| `remote.status` 🔒 | – | `RemoteAccessStatus`：`{ enabled, port, running, addresses, hostFingerprint, mdns, pairingActive, error?, relay?, p2p? }`；`relay`（1.26）为 `{ enabled, url?, hasToken, state: "off" \| "connecting" \| "online" \| "error", error?, mode?: "private" \| "open" }`（从不返回令牌本身），`p2p`（1.26）表示经中继的连接是否尝试切换到点对点路径 |
+| `remote.status` | – | `RemoteAccessStatus`：`{ enabled, port, running, addresses, hostFingerprint, mdns, pairingActive, error?, relay?, p2p? }`；`relay`（1.26）为 `{ enabled, url?, hasToken, state: "off" \| "connecting" \| "online" \| "error", error?, mode?: "private" \| "open" }`（从不返回令牌本身），`p2p`（1.26）表示经中继的连接是否尝试切换到点对点路径 |
 | `remote.configure` 🔒 | `{ enabled?, port?(1024–65535), relay?: { enabled?, url?, token?: string \| null }, p2p? }` | `RemoteAccessStatus`；写入 `config.json` 并立即启动 / 停止 / 换端口（换端口或关闭会断开局域网连接）。`relay`（1.26）：`url` 为 `wss://` / `ws://` / `https://` 地址或裸域名（规范化为 `ws(s)://`），`token` 为私有模式中继的访问令牌（`null` 删除），开启时没有地址为 `BAD_REQUEST`；修改或关闭中继会断开经中继与 P2P 的连接（4410）。局域网访问与中继相互独立 |
 | `pairing.start` 🔒 | – | `{ uri, expiresAt, addresses, relays? }`；`uri` 即二维码内容。局域网访问未运行且中继不在线时 `CONFLICT`；只有中继在线时 `addresses` 为空。再次调用会让旧配对码失效 |
 | `pairing.cancel` 🔒 | – | `{ cancelled }` |
 | `pairing.respond` 🔒 | `{ requestId, accept }` | `{ accepted }`；请求已超时或设备已断开时为 `false` |
-| `device.list` 🔒 | – | `{ devices: DeviceInfo[] }`：`{ id, name, platform?, model?, appVersion?, fingerprint, pairedAt, lastSeenAt?, connected, route? }`；`route`（1.26）为在线设备的连接方式：`lan`（直连监听端口）、`relay`（经中继）、`p2p`（经中继建立的点对点路径） |
+| `device.list` | – | `{ devices: DeviceInfo[] }`：`{ id, name, platform?, model?, appVersion?, fingerprint, pairedAt, lastSeenAt?, connected, route? }`；`route`（1.26）为在线设备的连接方式：`lan`（直连监听端口）、`relay`（经中继）、`p2p`（经中继建立的点对点路径） |
 | `device.rename` 🔒 | `{ deviceId, name }` | `{ device }` |
 | `device.revoke` 🔒 | `{ deviceId }` | `{ revoked }`；该设备的连接立即以 4403 断开 |
 

@@ -62,8 +62,13 @@ Environment:
   PIER_RELAY_TOKEN    Access token for --relay
 `;
 
-function log(message: string): void {
+let runningHost: PierHost | undefined;
+function writeLog(message: string): void {
 	process.stderr.write(`[pier-host] ${message}\n`);
+}
+function log(message: string): void {
+	runningHost?.recordLog(message);
+	writeLog(message);
 }
 
 async function main(): Promise<void> {
@@ -136,7 +141,7 @@ async function main(): Promise<void> {
 		...(shell ? { shell } : { updater: createStandaloneUpdater(pierDir) }),
 		localToken: token,
 		env: values["agent-dir"] ? { agentDir: values["agent-dir"] } : {},
-		log,
+		log: writeLog,
 		remote: {
 			...(values["no-remote"] ? { enabled: false } : {}),
 			...(remotePort !== undefined ? { port: remotePort } : {}),
@@ -153,6 +158,7 @@ async function main(): Promise<void> {
 			...(values["no-p2p"] ? { p2p: false } : {}),
 		},
 	});
+	runningHost = host;
 	const gateway = await startLocalGateway(host, {
 		port,
 		...(values.origin?.length ? { allowedOrigins: [...DEFAULT_ALLOWED_ORIGINS, ...values.origin] } : {}),

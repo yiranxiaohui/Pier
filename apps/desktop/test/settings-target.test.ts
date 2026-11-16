@@ -5,7 +5,7 @@ import {
 	hostSpeaksMinor,
 	pageDescribesHost,
 	pageFollowsHost,
-	pageIsLocalOnly,
+	pageIsReadOnly,
 	remotePageBlocker,
 } from "../src/lib/settings-target.ts";
 
@@ -20,16 +20,23 @@ const host = (protocolVersion: string): HostInfo => ({
 });
 
 describe("settings pages of the managed computer", () => {
-	it("splits pages into per-computer, all-computer and this-computer ones", () => {
-		for (const page of ["general", "account", "models", "extensions", "pi", "claude", "codex", "about"]) {
+	it("makes every settings page follow the selected computer", () => {
+		for (const page of [
+			"general",
+			"account",
+			"models",
+			"workspaces",
+			"extensions",
+			"resources",
+			"pi",
+			"claude",
+			"codex",
+			"about",
+			"remote",
+			"logs",
+		]) {
 			expect(pageFollowsHost(page)).toBe(true);
-			expect(pageIsLocalOnly(page)).toBe(false);
-		}
-		expect(pageFollowsHost("workspaces")).toBe(false);
-		expect(pageIsLocalOnly("workspaces")).toBe(false);
-		for (const page of ["remote", "logs"]) {
-			expect(pageFollowsHost(page)).toBe(false);
-			expect(pageIsLocalOnly(page)).toBe(true);
+			expect(pageIsReadOnly(page)).toBe(page === "remote" || page === "logs");
 		}
 		expect(pageFollowsHost("toString")).toBe(false);
 	});
@@ -58,10 +65,14 @@ describe("settings pages of the managed computer", () => {
 		expect(remotePageBlocker("pi", "studio", host("1.18"))).toBeUndefined();
 		expect(remotePageBlocker("claude", "studio", host("1.22"))).toMatch(/1\.23/);
 		expect(remotePageBlocker("codex", "studio", host("1.23"))).toBeUndefined();
-		// The general and about pages only show the computer's info; other pages do not follow it.
+		// The general and about pages explain compatibility on their own.
 		expect(remotePageBlocker("general", "studio", host("1.0"))).toBeUndefined();
 		expect(remotePageBlocker("about", "studio", host("1.0"))).toBeUndefined();
-		expect(remotePageBlocker("remote", "studio", host("1.0"))).toBeUndefined();
+		for (const page of ["remote", "logs"]) {
+			expect(remotePageBlocker(page, "studio", host("1.54"))).toMatch(/查看.*1\.55/);
+			expect(remotePageBlocker(page, "studio", host("1.55"))).toBeUndefined();
+		}
+		expect(remotePageBlocker("workspaces", "studio", host("1.9"))).toMatch(/1\.10/);
 		// Not connected yet: the connection state explains it instead.
 		expect(remotePageBlocker("models", "studio", undefined)).toBeUndefined();
 	});

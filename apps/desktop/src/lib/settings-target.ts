@@ -7,27 +7,25 @@ import { parseProtocolVersion } from "@pier/protocol";
  * manage the page remotely: paired devices may manage providers, the 云链API account and
  * extensions since 1.10, pi's settings files since 1.15, and Claude Code's and Codex's
  * configuration files since 1.23. The general and about pages show any computer's Pier (about
- * updates it since 1.13 and explains older versions itself).
- *
- * Every other page is about this computer only (pairing, remote access, logs) or already lists
- * every computer (workspaces).
+ * updates it since 1.13 and explains older versions itself). Remote access, devices and peers
+ * can be inspected (not modified) and diagnostic logs read since 1.55.
  */
 export const HOST_SETTINGS_PAGES = {
 	general: 0,
 	account: 10,
 	models: 10,
+	workspaces: 10,
 	extensions: 10,
 	resources: 38,
 	pi: 15,
 	claude: 23,
 	codex: 23,
 	about: 0,
+	remote: 55,
+	logs: 55,
 } as const;
 
 export type HostSettingsPage = keyof typeof HOST_SETTINGS_PAGES;
-
-/** Pages that list every computer at once (workspaces), so the chosen computer does not matter. */
-const ALL_COMPUTER_PAGES: ReadonlySet<string> = new Set(["workspaces"]);
 
 /**
  * Pages that show a paired computer's connection and version themselves (offline, too old,
@@ -36,14 +34,14 @@ const ALL_COMPUTER_PAGES: ReadonlySet<string> = new Set(["workspaces"]);
  */
 const SELF_DESCRIBING_PAGES: ReadonlySet<string> = new Set(["general", "about"]);
 
+/** These pages follow the target but never change its access controls or restart it. */
+export function pageIsReadOnly(page: string): boolean {
+	return page === "remote" || page === "logs";
+}
+
 /** Whether a settings page manages the chosen computer (rather than always this one). */
 export function pageFollowsHost(page: string): page is HostSettingsPage {
 	return Object.hasOwn(HOST_SETTINGS_PAGES, page);
-}
-
-/** Whether a settings page only concerns this computer, whichever computer is chosen. */
-export function pageIsLocalOnly(page: string): boolean {
-	return !pageFollowsHost(page) && !ALL_COMPUTER_PAGES.has(page);
 }
 
 /** Whether a page that follows the chosen computer shows that computer's state on its own. */
@@ -65,5 +63,5 @@ export function remotePageBlocker(page: string, name: string, info: HostInfo | u
 	if (!pageFollowsHost(page) || !info) return undefined;
 	const minor = HOST_SETTINGS_PAGES[page];
 	if (hostSpeaksMinor(info, minor)) return undefined;
-	return `${name} 上的 Pier v${info.version}（协议 ${info.protocolVersion}）版本过旧，不支持从这台电脑修改这一页的设置（需要协议 1.${minor} 或更高）。请先在「关于与更新」中更新那台电脑。`;
+	return `${name} 上的 Pier v${info.version}（协议 ${info.protocolVersion}）版本过旧，不支持从这台电脑${pageIsReadOnly(page) ? "查看" : "管理"}这一页（需要协议 1.${minor} 或更高）。请先在「关于与更新」中更新那台电脑。`;
 }

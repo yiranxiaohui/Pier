@@ -217,6 +217,8 @@ export const MethodParamsSchemas = {
 		coalesceMs: z.number().int().min(0).max(1000).optional(),
 	}),
 	"host.info": z.object({}).optional(),
+	/** Bounded, sanitized diagnostic output of this Host process (1.55). */
+	"host.logs": z.object({}).optional(),
 	/**
 	 * List the subdirectories of an absolute directory on the host (1.10), so a client can pick
 	 * a workspace on another computer. Omit `path` for the user's home directory.
@@ -893,7 +895,8 @@ export function isMethodName(method: string): method is MethodName {
 
 /**
  * Methods that only the local desktop UI may call: managing who can reach this computer
- * (paired devices, pairing, remote access, paired computers). A paired device is fully
+ * (pairing, access configuration and changes to paired devices/computers). Read-only device,
+ * remote status and peer lists are available to paired devices since 1.55. A paired device is fully
  * trusted otherwise (1.10): it can manage workspaces and policies, edit files, and
  * configure models, providers, accounts, and extensions.
  */
@@ -905,15 +908,12 @@ export const LOCAL_ONLY_METHODS: ReadonlySet<MethodName> = new Set([
 	"browser.setTransport",
 	"browser.list",
 	"browser.close",
-	"device.list",
 	"device.revoke",
 	"device.rename",
 	"pairing.start",
 	"pairing.cancel",
 	"pairing.respond",
-	"remote.status",
 	"remote.configure",
-	"peer.list",
 	"peer.pair",
 	"peer.update",
 	"peer.remove",
@@ -995,6 +995,7 @@ export interface MethodResults {
 	"task.readRun": { run: ScheduledTaskRun };
 	"host.hello": HelloResult;
 	"host.info": HostInfo;
+	"host.logs": { lines: string[] };
 	"host.listDirectories": HostDirectoryListing;
 	"host.stats": HostStats;
 	"host.packageManagers": PackageManagerDetection;

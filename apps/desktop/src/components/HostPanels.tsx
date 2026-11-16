@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { LOCAL_NODE, useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
+import { useHostPolling } from "../lib/use-host-polling.ts";
 import { IconAlert, IconInfo, IconLoader } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
 import { SettingsGroup } from "./SettingsUi.tsx";
@@ -150,8 +151,45 @@ export function HostBanner({ onShowLogs, scope = "local" }: { onShowLogs: () => 
 	);
 }
 
-/** The host log page of the settings screen. */
+/** Always show the selected host; never attach the local log stream to a remote page. */
 export function LogsSettings() {
+	const target = useSettingsTarget();
+	return target.local ? <LocalLogsSettings /> : <RemoteLogsSettings key={target.node} />;
+}
+
+function RemoteLogsSettings() {
+	const store = useStore();
+	const target = useSettingsTarget();
+	const load = useCallback(() => store.hostLogs(target.node), [store, target.node]);
+	const { value: lines, error } = useHostPolling(load, 2000);
+	const scroller = useRef<HTMLPreElement>(null);
+	useEffect(() => {
+		if (lines && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+	}, [lines]);
+	return (
+		<SettingsGroup
+			title={
+				<span className="settings-inline-status">
+					<span className={`status-dot ${error ? "bad" : target.online ? "ok" : "wait"}`} />
+					{target.name} · Pier Host 日志
+				</span>
+			}
+			description="显示该 Host 本次启动后保留的最近运行日志，每 2 秒刷新。重启 Host 请在那台电脑上操作。"
+			actions={<CopyButton text={lines?.join("\n") ?? ""} label="复制日志" />}
+		>
+			{error ? (
+				<div className="banner error inline" role="alert">
+					读取日志失败：{error}（会自动重试）
+				</div>
+			) : null}
+			<pre className="logs settings-logs" ref={scroller}>
+				{lines ? lines.join("\n") || "（暂无日志）" : error ? "（日志尚未读取）" : "正在读取日志…"}
+			</pre>
+		</SettingsGroup>
+	);
+}
+
+function LocalLogsSettings() {
 	const store = useStore();
 	const host = useAppState((s) => s.host);
 	const [lines, setLines] = useState<string[]>([]);
@@ -159,9 +197,14 @@ export function LogsSettings() {
 
 	useEffect(() => {
 		let alive = true;
-		void store.logs().then((initial) => {
-			if (alive) setLines(initial);
-		});
+		void store
+			.logs()
+			.then((initial) => {
+				if (alive) setLines(initial);
+			})
+			.catch((error) => {
+				if (alive) setLines([`读取日志失败：${error instanceof Error ? error.message : String(error)}`]);
+			});
 		const off = store.onLog((line) => setLines((current) => [...current, line].slice(-2000)));
 		return () => {
 			alive = false;
