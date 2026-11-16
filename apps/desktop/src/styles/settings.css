@@ -333,6 +333,11 @@ button.settings-host-trigger.open:hover:not(:disabled) {
 	white-space: nowrap;
 }
 
+/* A Pier update is waiting on that computer. */
+.settings-host-update {
+	color: var(--accent-text);
+}
+
 .settings-host-chevron {
 	flex: none;
 	color: var(--text-faint);

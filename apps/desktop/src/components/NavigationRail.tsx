@@ -1,6 +1,6 @@
 import { type ComponentType, useEffect, useState } from "react";
 import { useAccountQuota } from "../lib/account-quota.ts";
-import { type SettingsSection, useAppState, useStore } from "../lib/store.tsx";
+import { LOCAL_NODE, type SettingsSection, useAppState, useStore } from "../lib/store.tsx";
 import { useHostStatus } from "./HostPanels.tsx";
 import {
 	IconBot,
@@ -75,7 +75,7 @@ export function NavigationRail() {
 					aria-current={settings === "about" ? "page" : undefined}
 					aria-expanded={pending ? updateOpen : undefined}
 					title={pending ? `${updating ? "正在更新" : "有可用更新"} · Pier v${update.version}` : "关于与更新"}
-					onClick={() => (pending ? setUpdateOpen(!updateOpen) : store.openSettings("about"))}
+					onClick={() => (pending ? setUpdateOpen(!updateOpen) : store.openSettings("about", LOCAL_NODE))}
 				>
 					{updating ? <IconLoader size={20} className="spin" /> : <IconDownload size={20} />}
 					{pending ? <span className={`navigation-badge${update.state === "error" ? " warning" : ""}`} /> : null}

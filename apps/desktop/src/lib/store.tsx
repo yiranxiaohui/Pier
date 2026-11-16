@@ -738,7 +738,8 @@ export class PierStore {
 		const off = this.bridge.onStatus((status) => this.onHostStatus(status));
 		void this.bridge.status().then((status) => this.onHostStatus(status));
 		const offUpdate = this.bridge.updates.onStatus((status) => this.onUpdateStatus(status));
-		const offOpen = this.bridge.updates.onOpen(() => this.openSettings("about"));
+		// The tray's “check for updates” is about this app: show this computer's page.
+		const offOpen = this.bridge.updates.onOpen(() => this.openSettings("about", LOCAL_NODE));
 		void this.bridge.updates.status().then((status) => this.onUpdateStatus(status));
 		return () => {
 			off();
@@ -2990,7 +2991,7 @@ export class PierStore {
 			status.state === "available" &&
 			status.version &&
 			status.version !== this.announcedUpdate &&
-			this.state.settings !== "about";
+			!(this.state.settings === "about" && this.state.settingsNode === LOCAL_NODE);
 		this.set({ update: status });
 		if (announce && status.version) {
 			this.announcedUpdate = status.version;
@@ -3001,8 +3002,11 @@ export class PierStore {
 	// ---- settings screen ---------------------------------------------------------------
 
 	openSettings(section: SettingsSection = "general", node?: string): void {
-		if (section === "about" && this.state.update.version) this.announcedUpdate = this.state.update.version;
 		if (node !== undefined) this.setSettingsNode(node);
+		// This app's update has been seen once its own page is shown.
+		if (section === "about" && this.state.settingsNode === LOCAL_NODE && this.state.update.version) {
+			this.announcedUpdate = this.state.update.version;
+		}
 		this.set({ settings: section, scheduledTasksOpen: false });
 		if (section === "models" || section === "account") void this.loadProviders();
 	}
@@ -3273,17 +3277,22 @@ export class PierStore {
 		}
 	}
 
-	/** Check for a new Pier release on a paired computer. */
-	async checkPeerUpdate(node: string): Promise<void> {
+	/**
+	 * Check for a new Pier release on a paired computer. `quiet` (the check made when its update
+	 * page opens) leaves failures to the page instead of announcing them.
+	 */
+	async checkPeerUpdate(node: string, quiet = false): Promise<void> {
 		const client = this.openPeerClient(node);
 		if (!client || this.state.peerUpdates[node]?.busy) return;
 		this.patchPeerUpdate(node, { busy: "check" });
 		try {
 			const status = await client.request("update.check", {}, { timeoutMs: 120_000 });
 			this.patchPeerUpdate(node, { status });
-			if (status.state === "error") this.toast("error", `${this.nodeName(node)}：${status.error ?? "检查更新失败"}`);
+			if (status.state === "error" && !quiet) {
+				this.toast("error", `${this.nodeName(node)}：${status.error ?? "检查更新失败"}`);
+			}
 		} catch (error) {
-			this.toast("error", `${this.nodeName(node)} 检查更新失败：${errorText(error)}`);
+			if (!quiet) this.toast("error", `${this.nodeName(node)} 检查更新失败：${errorText(error)}`);
 		} finally {
 			this.patchPeerUpdate(node, { busy: undefined });
 		}

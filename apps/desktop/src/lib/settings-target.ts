@@ -6,10 +6,11 @@ import { parseProtocolVersion } from "@pier/protocol";
  * or a paired one), with the protocol minor version that computer needs for this computer to
  * manage the page remotely: paired devices may manage providers, the 云链API account and
  * extensions since 1.10, pi's settings files since 1.15, and Claude Code's and Codex's
- * configuration files since 1.23.
+ * configuration files since 1.23. The general and about pages show any computer's Pier (about
+ * updates it since 1.13 and explains older versions itself).
  *
- * Every other page is about this computer only (pairing, remote access, logs, this app's
- * updates) or already lists every computer (workspaces).
+ * Every other page is about this computer only (pairing, remote access, logs) or already lists
+ * every computer (workspaces).
  */
 export const HOST_SETTINGS_PAGES = {
 	general: 0,
@@ -20,12 +21,20 @@ export const HOST_SETTINGS_PAGES = {
 	pi: 15,
 	claude: 23,
 	codex: 23,
+	about: 0,
 } as const;
 
 export type HostSettingsPage = keyof typeof HOST_SETTINGS_PAGES;
 
-/** Pages that list every computer at once (workspaces, updates), so the chosen computer does not matter. */
-const ALL_COMPUTER_PAGES: ReadonlySet<string> = new Set(["workspaces", "about"]);
+/** Pages that list every computer at once (workspaces), so the chosen computer does not matter. */
+const ALL_COMPUTER_PAGES: ReadonlySet<string> = new Set(["workspaces"]);
+
+/**
+ * Pages that show a paired computer's connection and version themselves (offline, too old,
+ * restarting after an update), instead of the generic “not connected” card and the “changes are
+ * saved on that computer” banner.
+ */
+const SELF_DESCRIBING_PAGES: ReadonlySet<string> = new Set(["general", "about"]);
 
 /** Whether a settings page manages the chosen computer (rather than always this one). */
 export function pageFollowsHost(page: string): page is HostSettingsPage {
@@ -35,6 +44,11 @@ export function pageFollowsHost(page: string): page is HostSettingsPage {
 /** Whether a settings page only concerns this computer, whichever computer is chosen. */
 export function pageIsLocalOnly(page: string): boolean {
 	return !pageFollowsHost(page) && !ALL_COMPUTER_PAGES.has(page);
+}
+
+/** Whether a page that follows the chosen computer shows that computer's state on its own. */
+export function pageDescribesHost(page: string): boolean {
+	return pageFollowsHost(page) && SELF_DESCRIBING_PAGES.has(page);
 }
 
 /** Whether a host speaks protocol `1.<minor>` or a later version. */

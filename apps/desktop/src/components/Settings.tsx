@@ -1,7 +1,7 @@
 import type { ApprovalPolicy, WorkspaceInfo } from "@pier/protocol";
 import { type ComponentType, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { POLICY_DESCRIPTION, POLICY_LABEL } from "../lib/format.ts";
-import { pageFollowsHost, pageIsLocalOnly } from "../lib/settings-target.ts";
+import { pageDescribesHost, pageFollowsHost, pageIsLocalOnly } from "../lib/settings-target.ts";
 import {
 	LOCAL_NODE,
 	type SettingsSection,
@@ -48,7 +48,7 @@ import { useOutsideClick } from "./SessionControls.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
 import { addWorkspaceBlocker } from "./Sidebar.tsx";
 import { SpeechSettings } from "./SpeechSettings.tsx";
-import { UpdateSettings, updatePending } from "./UpdatePanel.tsx";
+import { computerUpdateStatus, UpdateSettings, updatePending } from "./UpdatePanel.tsx";
 
 type IconComponent = ComponentType<{ size?: number; className?: string }>;
 
@@ -279,7 +279,7 @@ function RemoteGeneralSettings() {
 				) : null}
 				<SettingRow
 					title="更新"
-					description="在「关于与更新 → 其他电脑」中检查并安装那台电脑上的 Pier 更新。重启或退出 Pier 只能在那台电脑上进行。"
+					description="在「关于与更新」中检查并安装那台电脑上的 Pier 更新。重启或退出 Pier 只能在那台电脑上进行。"
 				>
 					<button type="button" onClick={() => store.openSettings("about")}>
 						<IconInfo size={14} />
@@ -662,6 +662,9 @@ function HostSwitcher() {
 	const computers = useComputers();
 	const target = useSettingsTarget();
 	const syncing = useAppState((s) => s.settingsSyncing);
+	const update = useAppState((s) => s.update);
+	const peerUpdates = useAppState((s) => s.peerUpdates);
+	const nodes = useAppState((s) => s.nodes);
 	const [open, setOpen] = useState(false);
 	const close = useCallback(() => setOpen(false), []);
 	const ref = useOutsideClick(open, close);
@@ -702,6 +705,8 @@ function HostSwitcher() {
 							computer.state.revoked === true,
 						);
 						const selected = computer.id === target.node;
+						const status = computerUpdateStatus(computer.id, { update, peerUpdates, nodes });
+						const pending = status && updatePending(status) && status.version ? status.version : undefined;
 						return (
 							<button
 								type="button"
@@ -718,7 +723,10 @@ function HostSwitcher() {
 								<span className={`status-dot ${item.tone}`} />
 								<span className="settings-host-text">
 									<span className="settings-host-name">{computer.name}</span>
-									<span className="settings-host-detail">{item.text}</span>
+									<span className="settings-host-detail">
+										{item.text}
+										{pending ? <span className="settings-host-update"> · 可更新到 v{pending}</span> : null}
+									</span>
 								</span>
 								{selected ? <IconCheck size={14} className="settings-host-check" /> : null}
 							</button>
@@ -843,7 +851,7 @@ function NavBadge({ id }: { id: SettingsSection }): ReactNode {
 	const noModels = useAppState((s) => s.providers?.availableCount === 0);
 	const remote = useAppState((s) => s.remote);
 	const connected = useAppState((s) => s.devices.filter((d) => d.connected).length);
-	const update = useAppState((s) => s.update);
+	const update = useAppState((s) => computerUpdateStatus(s.settingsNode, s));
 	const managingOther = useAppState((s) => s.settingsNode !== LOCAL_NODE);
 	if (id === "models" && noModels) return <span className="nav-dot warn" title="还没有可用模型" />;
 	if (managingOther && pageIsLocalOnly(id)) {
@@ -860,7 +868,7 @@ function NavBadge({ id }: { id: SettingsSection }): ReactNode {
 			</span>
 		);
 	}
-	if (id === "about" && updatePending(update)) return <span className="nav-dot accent" title="有可用更新" />;
+	if (id === "about" && update && updatePending(update)) return <span className="nav-dot accent" title="有可用更新" />;
 	return null;
 }
 
@@ -922,7 +930,7 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 				<div className="settings-empty">Pier Host 未连接，连接后才能修改这些设置。</div>
 			</SettingsCard>
 		);
-	} else if (remoteTarget && current.id !== "general" && (!target.online || blocker)) {
+	} else if (remoteTarget && !pageDescribesHost(current.id) && (!target.online || blocker)) {
 		body = <RemoteUnavailable blocker={target.online ? blocker : undefined} />;
 	} else {
 		// Switching computers or syncing again remounts the page, which reads everything afresh.
@@ -997,7 +1005,7 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 								<span>
 									{followsHost
 										? `${target.local ? "本机" : "远程"} · ${target.name}`
-										: current.id === "workspaces" || current.id === "about"
+										: current.id === "workspaces"
 											? "所有电脑"
 											: "本机设置"}
 								</span>
@@ -1059,7 +1067,7 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 								))}
 							</div>
 						) : null}
-						{remoteTarget && current.id !== "general" ? <RemoteTargetBanner /> : null}
+						{remoteTarget && !pageDescribesHost(current.id) ? <RemoteTargetBanner /> : null}
 						{!target.local && pageIsLocalOnly(current.id) ? (
 							<p className="muted small settings-note">
 								这一页只针对本机（{store.nodeName(LOCAL_NODE)}），不受上方所选电脑影响。

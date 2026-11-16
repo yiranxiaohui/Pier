@@ -104,21 +104,6 @@
 	}
 }
 
-/* Updates of paired computers. */
-
-.peer-update-title {
-	display: inline-flex;
-	align-items: center;
-	gap: 6px;
-}
-
-.peer-update-error {
-	color: var(--danger);
-}
-
-.peer-update-warning {
-	color: var(--warning);
-}
 .update-route-form {
 	display: flex;
 	flex-wrap: wrap;
