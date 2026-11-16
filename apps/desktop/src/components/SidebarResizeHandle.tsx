@@ -17,7 +17,9 @@ export function SidebarResizeHandle() {
 		const target = e.currentTarget;
 		const pointerId = e.pointerId;
 		target.setPointerCapture(pointerId);
-		target.focus();
+		// Focused for the arrow keys, but marked only for keyboard focus: the composer usually has
+		// focus, and taking it from there would otherwise count as keyboard focus.
+		target.focus({ focusVisible: false });
 		document.body.classList.add("resizing-sidebar");
 		const move = (ev: PointerEvent) => {
 			if (ev.pointerId === pointerId) store.setSidebarWidth(startWidth + ev.clientX - startX);

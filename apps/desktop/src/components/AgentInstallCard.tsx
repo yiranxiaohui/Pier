@@ -18,6 +18,7 @@ import { hostSpeaksMinor } from "../lib/settings-target.ts";
 import { useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
 import { IconAlert, IconDownload, IconLoader, IconRefresh } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
+import { Select } from "./Select.tsx";
 import { SettingRow, SettingsCard, SettingsGroup } from "./SettingsUi.tsx";
 
 const LABELS: Record<AgentInstallationStatus["state"], string> = {
@@ -190,26 +191,19 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 								: "npmmirror 镜像提供与官方相同的原生程序，适合国内网络；版本与 SHA-256 校验值仍从官方获取。"
 						}
 					>
-						<select
-							aria-label="下载线路"
+						<Select
+							ariaLabel="下载线路"
 							value={source}
 							disabled={starting}
-							onChange={(event) => {
-								const next = AGENT_INSTALL_SOURCES[runtime].find((s) => s === event.target.value);
-								if (!next) return;
+							options={AGENT_INSTALL_SOURCES[runtime].map((s) => {
+								const info = agentInstallSourceInfo(runtime, s);
+								return { value: s, label: `${info.name}（${info.host}）` };
+							})}
+							onChange={(next) => {
 								setSource(next);
 								saveAgentInstallSource(target.node, runtime, next);
 							}}
-						>
-							{AGENT_INSTALL_SOURCES[runtime].map((s) => {
-								const info = agentInstallSourceInfo(runtime, s);
-								return (
-									<option key={s} value={s}>
-										{`${info.name}（${info.host}）`}
-									</option>
-								);
-							})}
-						</select>
+						/>
 					</SettingRow>
 				) : null}
 				{status && status.state !== "idle" ? (

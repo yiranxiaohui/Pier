@@ -198,10 +198,6 @@ body.resizing-panel {
 	background: transparent;
 }
 
-.files-entry:active:not(:disabled) {
-	transform: none;
-}
-
 .files-chevron {
 	flex: none;
 	display: inline-flex;

@@ -12,6 +12,19 @@ describe("sessionWindow", () => {
 		});
 	});
 
+	it("lists a single session left over instead of offering 显示更多 for it", () => {
+		expect(sessionWindow(SESSION_PREVIEW + 1, SESSION_PREVIEW, -1)).toEqual({
+			shown: SESSION_PREVIEW + 1,
+			more: 0,
+			collapsible: false,
+		});
+		expect(sessionWindow(SESSION_PREVIEW + 2, SESSION_PREVIEW, -1)).toEqual({
+			shown: SESSION_PREVIEW,
+			more: 2,
+			collapsible: false,
+		});
+	});
+
 	it("previews the first sessions of a long list", () => {
 		expect(sessionWindow(100, SESSION_PREVIEW, -1)).toEqual({ shown: SESSION_PREVIEW, more: 94, collapsible: false });
 		expect(sessionWindow(100, SESSION_PREVIEW, 2)).toEqual({ shown: SESSION_PREVIEW, more: 94, collapsible: false });
