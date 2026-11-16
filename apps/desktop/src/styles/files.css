@@ -73,12 +73,35 @@ body.resizing-panel .files-shell {
 	left: 0;
 	width: 6px;
 	cursor: col-resize;
+	touch-action: none;
 	z-index: 3;
 }
 
-.files-resize:hover,
-body.resizing-panel .files-resize {
-	background: var(--accent-ring);
+/* Like the sidebar's strip (base.css): it stays clear; a short grip shows in its middle. */
+.files-resize::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 1px;
+	width: 4px;
+	height: 40px;
+	margin-top: -20px;
+	border-radius: 2px;
+	background: var(--text-faint);
+	opacity: 0;
+	transition: opacity 0.15s var(--ease);
+}
+
+/* After a beat, so the pointer passing over does not flash it. */
+.files-resize:hover::after {
+	opacity: 0.45;
+	transition-delay: 0.2s;
+}
+
+body.resizing-panel .files-resize::after {
+	background: var(--accent);
+	opacity: 1;
+	transition-delay: 0s;
 }
 
 body.resizing-panel {

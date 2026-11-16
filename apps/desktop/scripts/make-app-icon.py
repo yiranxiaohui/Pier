@@ -83,12 +83,13 @@ def main():
     render(artwork("mark", sidebar=True, scale=0.9), 512).save(MOBILE / "android-icon-foreground.png")
     render(artwork("mark", monochrome=True, scale=0.9), 432).save(MOBILE / "android-icon-monochrome.png")
     tile(mobile, 1024, inset=44).save(MOBILE / "splash-icon.png")
-    # Desktop and the browser tabs use the bare mark, cropped as the navigation rail shows it.
+    # The browser tabs use the bare mark, cropped as the navigation rail shows it.
     bare = artwork("mark", sidebar=True, crop=True)
     render(bare, 48).save(MOBILE / "favicon.png")
     render(bare, 64).save(DESKTOP / "public/favicon.png")
     (DESKTOP / "public/logo.svg").write_bytes(SOURCE.read_bytes())
-    render(bare, 1024).save(DESKTOP / "src-tauri/app-icon.png")
+    # The desktop app icon is the source artwork as it is, on Apple's 824px grid of a 1024px canvas.
+    tile(render(artwork(), 1024), 1024, inset=100).save(DESKTOP / "src-tauri/app-icon.png")
     print("Generated desktop, mobile, adaptive, themed, splash, and web artwork from assets/brand/pier.svg")
 
 

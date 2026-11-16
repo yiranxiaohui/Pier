@@ -47,6 +47,8 @@ export class FakeClaude {
 	readonly calls: string[] = [];
 	/** Task ids passed to `stopTask`. */
 	readonly stoppedTasks: string[] = [];
+	/** `modelUsage` of each successful result. */
+	modelUsage: Record<string, Json> = {};
 	responder: FakeResponder = async function* () {
 		yield { type: "assistant", message: { id: "msg_default", content: [{ type: "text", text: "ok" }] } };
 	};
@@ -181,7 +183,7 @@ export class FakeClaude {
 				output.push(
 					interrupted
 						? { type: "result", subtype: "error_during_execution", errors: ["interrupted"], is_error: true }
-						: { type: "result", subtype: "success", is_error: false, result: "" },
+						: { type: "result", subtype: "success", is_error: false, result: "", modelUsage: this.modelUsage },
 				);
 			}
 			output.close();
