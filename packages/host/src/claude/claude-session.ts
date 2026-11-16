@@ -168,6 +168,8 @@ export class ClaudeCodeSession extends ManagedSession {
 	private readonly createdAt: string;
 	private modelId: string | undefined;
 	private resolvedModel: string | undefined;
+	/** The context window Claude Code reported for the model in a turn's result (`modelUsage`). */
+	private reportedWindow: number | undefined;
 	private thinkingLevel: ThinkingLevel;
 	/** Whether the user picked the thinking level (otherwise Claude Code's default applies). */
 	private thinkingChosen = false;
@@ -543,12 +545,38 @@ export class ClaudeCodeSession extends ManagedSession {
 		}
 		// An interrupted run is not an error for the user.
 		if (failure && this.aborting) failure = undefined;
+		this.noteContextWindow(m.modelUsage);
 		this.finishRun(failure);
 		if (this.pendingName) {
 			const name = this.pendingName;
 			this.pendingName = undefined;
 			void this.applyName(name);
 		}
+	}
+
+	/**
+	 * Claude Code's model list gives no context windows (only `[1m]` names tell theirs), but each
+	 * result's `modelUsage` does, keyed by the model that ran. The main model is the one the session
+	 * resolved to, or else the one that read the most input (subagents and helpers read less).
+	 */
+	private noteContextWindow(modelUsage: unknown): void {
+		if (!modelUsage || typeof modelUsage !== "object") return;
+		const entries = Object.entries(modelUsage as Record<string, Json>);
+		const read = (u: Json) =>
+			(Number(u.inputTokens) || 0) + (Number(u.cacheReadInputTokens) || 0) + (Number(u.cacheCreationInputTokens) || 0);
+		const main =
+			entries.find(([model]) => model === this.resolvedModel)?.[1] ??
+			entries.reduce<Json | undefined>((best, [, u]) => (!best || read(u) > read(best) ? u : best), undefined);
+		const window = Number(main?.contextWindow);
+		if (!Number.isSafeInteger(window) || window <= 0 || window === this.reportedWindow) return;
+		this.reportedWindow = window;
+		const model = this.modelInfo();
+		this.emit({
+			type: "session.model",
+			model,
+			contextInfo: this.contextInfo(model),
+			thinkingLevel: this.thinkingLevel,
+		});
 	}
 
 	private aborting = false;
@@ -1048,9 +1076,10 @@ export class ClaudeCodeSession extends ManagedSession {
 	}
 
 	private contextInfo(model = this.modelInfo()): SessionContextInfo {
+		const contextWindow = this.reportedWindow ?? model.contextWindow;
 		return {
 			autoCompaction: "runtime",
-			...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+			...(contextWindow ? { contextWindow } : {}),
 		};
 	}
 
@@ -1171,6 +1200,7 @@ export class ClaudeCodeSession extends ManagedSession {
 		if (!info) throw new PierProtocolError("NOT_FOUND", `Unknown model ${provider}/${modelId}`);
 		this.modelId = modelId;
 		this.resolvedModel = undefined;
+		this.reportedWindow = undefined;
 		if (this.query) await this.query.setModel(modelId === "default" ? undefined : modelId);
 		if (info.thinkingLevels && !info.thinkingLevels.includes(this.thinkingLevel)) {
 			this.thinkingLevel = info.thinkingLevels.includes("high") ? "high" : (info.thinkingLevels.at(-1) ?? "off");

@@ -255,6 +255,29 @@ describe("Claude Code runtime", () => {
 		expect(fake.options[1]).toMatchObject({ resume: session.id });
 	});
 
+	it("takes the context window from the result's model usage", async () => {
+		fake.responder = async function* () {
+			yield* streamText("msg_c", "hi");
+		};
+		// Another model read more, but the one that answered (`claude-test`) is the one that counts.
+		fake.modelUsage = {
+			"claude-helper": { inputTokens: 900, contextWindow: 100_000 },
+			"claude-test": { inputTokens: 5, contextWindow: 200_000 },
+		};
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		expect(state().contextInfo?.contextWindow).toBeUndefined();
+		await client.request("session.prompt", { sessionId: session.id, text: "hello" });
+		await rec.waitForType("agent_settled");
+		expect(state().contextInfo?.contextWindow).toBe(200_000);
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(snapshot.contextInfo?.contextWindow).toBe(200_000);
+		// Another model starts without a window until it reports one.
+		await client.request("model.set", { sessionId: session.id, provider: "claude-code", modelId: "haiku" });
+		const switched = await client.request("session.snapshot", { sessionId: session.id });
+		expect(switched.contextInfo?.contextWindow).toBeUndefined();
+	});
+
 	it("switches models and thinking levels, renames and forks", async () => {
 		fake.responder = async function* (ctx) {
 			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
