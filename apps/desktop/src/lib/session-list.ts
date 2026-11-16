@@ -15,9 +15,11 @@ export interface SessionWindow {
 /**
  * How much of a workspace's `total` sessions the sidebar lists: `limit` of them (the preview, then a
  * page more for each 显示更多), and always as far down as the open one at `selectedIndex` (-1 for
- * none), so it never drops out of view.
+ * none), so it never drops out of view. A single session left over is listed too: a 显示更多 for it
+ * would take the same room.
  */
 export function sessionWindow(total: number, limit: number, selectedIndex: number): SessionWindow {
-	const shown = Math.min(total, Math.max(limit, selectedIndex + 1));
+	let shown = Math.min(total, Math.max(limit, selectedIndex + 1));
+	if (total - shown === 1) shown = total;
 	return { shown, more: total - shown, collapsible: limit > SESSION_PREVIEW && total > SESSION_PREVIEW };
 }

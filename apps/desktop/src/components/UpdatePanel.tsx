@@ -15,6 +15,7 @@ import {
 	Logo,
 } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
+import { Select } from "./Select.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
 
 export const RELEASES_URL = "https://github.com/yiranxiaohui/Pier/releases";
@@ -389,28 +390,28 @@ function UpdateRouteSettings() {
 	return (
 		<>
 			<SettingRow title="更新线路" description="检查更新和下载安装包都使用所选线路，自动检查也会沿用此设置。">
-				<select
-					aria-label="更新线路"
+				<Select
+					ariaLabel="更新线路"
 					value={editing ? "custom" : selected}
 					disabled={busy}
-					onChange={(event) => {
-						if (event.target.value === "custom") {
+					options={[
+						...UPDATE_ROUTES.map((route) => ({
+							value: route.id,
+							label: route.prefix ? `${route.label}（${new URL(route.prefix).hostname}）` : route.label,
+						})),
+						{ value: "custom" as const, label: "自定义加速线路" },
+					]}
+					onChange={(value) => {
+						if (value === "custom") {
 							setEditing(true);
 						} else {
-							const route = UPDATE_ROUTES.find((route) => route.id === event.target.value);
+							const route = UPDATE_ROUTES.find((route) => route.id === value);
 							if (!route) return;
 							setEditing(false);
 							void store.setUpdateMirror(route.prefix);
 						}
 					}}
-				>
-					{UPDATE_ROUTES.map((route) => (
-						<option key={route.id} value={route.id}>
-							{route.prefix ? `${route.label}（${new URL(route.prefix).hostname}）` : route.label}
-						</option>
-					))}
-					<option value="custom">自定义加速线路</option>
-				</select>
+				/>
 			</SettingRow>
 			{editing || selected === "custom" ? (
 				<SettingRow

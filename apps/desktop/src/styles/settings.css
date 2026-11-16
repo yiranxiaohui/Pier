@@ -13,8 +13,8 @@
 	--nav-inset: 12px;
 }
 
-/* The eyebrow's line is centred on the rail's logo, 38px down (navigation.css: 22px padding, 32px
-   logo): 8px sidebar padding + 22px + half its 16px line. */
+/* The eyebrow's line is centred on the rail's first button, 38px down (navigation.css): 8px
+   sidebar padding + 22px + half its 16px line. */
 .settings-nav-heading {
 	padding: 22px calc(var(--nav-edge) + var(--nav-inset)) 18px;
 }
@@ -1185,7 +1185,7 @@ button.switch.on .switch-thumb {
 		--nav-inset: 10px;
 	}
 
-	/* With the eyebrow hidden, the title's 40px line is the one centred on the logo:
+	/* With the eyebrow hidden, the title's 40px line is the one centred on the rail's first button:
 	   8px sidebar padding + 6px + its 4px margin + 20px. */
 	.settings-nav-heading {
 		padding-block: 6px 12px;

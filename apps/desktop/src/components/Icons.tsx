@@ -533,6 +533,60 @@ export const IconServer = make(
 		<line x1="6" x2="6.01" y1="18" y2="18" />
 	</>,
 );
+// cpu
+export const IconCpu = make(
+	<>
+		<path d="M12 20v2" />
+		<path d="M12 2v2" />
+		<path d="M17 20v2" />
+		<path d="M17 2v2" />
+		<path d="M2 12h2" />
+		<path d="M2 17h2" />
+		<path d="M2 7h2" />
+		<path d="M20 12h2" />
+		<path d="M20 17h2" />
+		<path d="M20 7h2" />
+		<path d="M7 20v2" />
+		<path d="M7 2v2" />
+		<rect x="4" y="4" width="16" height="16" rx="2" />
+		<rect x="8" y="8" width="8" height="8" rx="1" />
+	</>,
+);
+// memory-stick
+export const IconMemoryStick = make(
+	<>
+		<path d="M12 12v-2" />
+		<path d="M12 18v-2" />
+		<path d="M16 12v-2" />
+		<path d="M16 18v-2" />
+		<path d="M2 11h1.5" />
+		<path d="M20 18v-2" />
+		<path d="M20.5 11H22" />
+		<path d="M4 18v-2" />
+		<path d="M8 12v-2" />
+		<path d="M8 18v-2" />
+		<rect x="2" y="6" width="20" height="10" rx="2" />
+	</>,
+);
+// hard-drive
+export const IconHardDrive = make(
+	<>
+		<path d="M10 16h.01" />
+		<path d="M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+		<path d="M21.946 12.013H2.054" />
+		<path d="M6 16h.01" />
+	</>,
+);
+// ethernet-port
+export const IconEthernetPort = make(
+	<>
+		<path d="M10 8v1" />
+		<path d="M14 8v1" />
+		<path d="M18 8v1" />
+		<path d="M19 17a2 2 0 00-1.765 1.059l-.47.882A2 2 0 0115 20H9a2 2 0 01-1.765-1.059l-.47-.882A2 2 0 005 17H4a2 2 0 01-2-2V6a2 2 0 012-2h16a2 2 0 012 2v9a2 2 0 01-2 2z" />
+		<path d="M6 8v1" />
+	</>,
+);
 // sliders-horizontal
 export const IconSliders = make(
 	<>

@@ -1,21 +1,16 @@
-/* Persistent app navigation, separate from the collapsible workspace list. */
+/*
+ * Persistent app navigation, separate from the collapsible workspace list. The first button is
+ * centred 38px down, level with the sidebar's first line: 16px padding + the links' 2px + half its 40px.
+ */
 .navigation-rail {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	gap: 18px;
 	min-height: 0;
-	padding: 22px 8px 10px;
+	padding: 16px 8px 10px;
 	background: var(--bg-nav);
 	border-right: 1px solid var(--border);
-}
-
-.navigation-brand {
-	display: grid;
-	place-items: center;
-	flex: none;
-	height: 32px;
-	margin-bottom: 4px;
 }
 
 .navigation-links,

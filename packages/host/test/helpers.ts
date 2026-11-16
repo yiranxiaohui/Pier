@@ -85,6 +85,8 @@ export async function startTestHost(
 		localToken: TOKEN,
 		// Only pi unless a test sets up other runtimes (the CLIs may be installed on this machine).
 		agents: { claudeCode: false, codex: false },
+		// A title request would take one of the responses a test sets up for its agent turns.
+		sessionTitles: false,
 		...hostOptions,
 		agentInstaller: {
 			homeDirectory: join(root, "home"),

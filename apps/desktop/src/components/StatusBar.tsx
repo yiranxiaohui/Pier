@@ -5,7 +5,18 @@ import { type HostStatsEntry, LOCAL_NODE, useAppState, useStore } from "../lib/s
 import { useNodeStatus } from "./HostPanels.tsx";
 import { HostPortsPanel } from "./HostPortsPanel.tsx";
 import { HostProcessesPanel } from "./HostProcessesPanel.tsx";
-import { IconActivity, IconArrowDown, IconArrowUp, IconLink, IconPlus, IconServer, IconSettings } from "./Icons.tsx";
+import {
+	IconActivity,
+	IconArrowDown,
+	IconArrowUp,
+	IconCpu,
+	IconEthernetPort,
+	IconHardDrive,
+	IconMemoryStick,
+	IconPlus,
+	IconServer,
+	IconSettings,
+} from "./Icons.tsx";
 import { platformName } from "./RemotePanel.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
 
@@ -149,7 +160,7 @@ function HostCard({
 				<IconActivity size={13} /> 查看进程
 			</button>
 			<button type="button" className="ghost host-card-action" onClick={() => onPorts(node)}>
-				<IconLink size={13} /> 查看端口与映射
+				<IconEthernetPort size={13} /> 查看端口与映射
 			</button>
 		</div>
 	);
@@ -275,35 +286,43 @@ function HostStatus() {
 					aria-expanded={open}
 					onClick={() => setOpen(!open)}
 				>
+					{/* Each figure behind its icon; its title names it while the pointer is on it. */}
 					{stats ? (
 						<>
-							<span className="statusbar-stat">
-								<IconActivity size={12} />
-								CPU <b className={level(stats.cpu.usage)}>{formatPercent(stats.cpu.usage)}</b>
+							<span className="statusbar-stat" title={`CPU ${formatPercent(stats.cpu.usage)}`}>
+								<IconCpu size={13} />
+								<b className={level(stats.cpu.usage)}>{formatPercent(stats.cpu.usage)}</b>
 							</span>
-							<span className="statusbar-stat">
-								内存{" "}
+							<span
+								className="statusbar-stat"
+								title={`内存 ${formatSize(stats.memory.used)} / ${formatSize(stats.memory.total)}`}
+							>
+								<IconMemoryStick size={13} />
 								<b className={level(ratio(stats.memory.used, stats.memory.total))}>
 									{formatPercent(ratio(stats.memory.used, stats.memory.total))}
 								</b>
 							</span>
 							{stats.disk ? (
-								<span className="statusbar-stat">
-									磁盘 <b className={level(diskRatio(stats.disk))}>{formatPercent(diskRatio(stats.disk))}</b>
+								<span
+									className="statusbar-stat"
+									title={`磁盘 ${formatSize(stats.disk.used)} / ${formatSize(stats.disk.used + stats.disk.available)}`}
+								>
+									<IconHardDrive size={13} />
+									<b className={level(diskRatio(stats.disk))}>{formatPercent(diskRatio(stats.disk))}</b>
 								</span>
 							) : null}
 							{stats.network ? (
-								<span className="statusbar-stat statusbar-net">
-									<IconArrowDown size={11} />
+								<span className="statusbar-stat statusbar-net" title="网络：下载 / 上传速率">
+									<IconArrowDown size={12} />
 									<span className="statusbar-rate">{formatRate(stats.network.rxRate)}</span>
-									<IconArrowUp size={11} />
+									<IconArrowUp size={12} />
 									<span className="statusbar-rate">{formatRate(stats.network.txRate)}</span>
 								</span>
 							) : null}
 						</>
 					) : (
 						<span className="statusbar-stat">
-							<IconActivity size={12} />
+							<IconActivity size={13} />
 							{entryText(entry)}
 						</span>
 					)}
@@ -314,7 +333,7 @@ function HostStatus() {
 					</span>
 					{peerCount ? (
 						<span className="statusbar-host">
-							<IconServer size={12} />
+							<IconServer size={13} />
 							{peerCount} 台远程主机
 						</span>
 					) : null}
@@ -327,7 +346,7 @@ function HostStatus() {
 				title={`查看 ${name} 的进程`}
 				onClick={() => openProcesses(node)}
 			>
-				<IconActivity size={12} /> 进程
+				<IconActivity size={13} /> 进程
 			</button>
 			<button
 				type="button"
@@ -335,7 +354,7 @@ function HostStatus() {
 				title={`查看 ${name} 的监听端口与映射`}
 				onClick={() => openPorts(node)}
 			>
-				<IconLink size={12} /> 端口
+				<IconEthernetPort size={13} /> 端口
 			</button>
 			{portsNode ? <HostPortsPanel initialNode={portsNode} onClose={() => setPortsNode(undefined)} /> : null}
 			{processesNode ? (

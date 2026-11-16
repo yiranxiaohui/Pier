@@ -205,7 +205,7 @@ export function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
 										type="button"
 										key={session.id}
 										className="recent-row"
-										title={sessionTitle(session)}
+										title={sessionTitle(session, { full: true })}
 										onClick={() => store.selectSession(session)}
 									>
 										<span className="recent-icon">
