@@ -11,6 +11,7 @@ import {
 	type ToolBlock,
 	type TranscriptItem,
 	thinkingHeadline,
+	toolOutputImages,
 	toolOutputText,
 	waitingForModelLabel,
 } from "@pier/chat-state";
@@ -180,6 +181,7 @@ export const ToolCard = memo(function ToolCard({ block }: { block: ToolBlock }) 
 	const summary = summarizeToolCall(call.name, call.arguments);
 	const result = block.result ?? block.execution?.result;
 	const output = toolOutputText(result ?? block.execution?.partialResult);
+	const images = toolOutputImages(result ?? block.execution?.partialResult);
 	const diff = call.name === "edit" ? editDiff(result) : undefined;
 	const replacements = call.name === "edit" && !diff ? editReplacements(call.arguments) : [];
 	const writeContent =
@@ -238,11 +240,33 @@ export const ToolCard = memo(function ToolCard({ block }: { block: ToolBlock }) 
 							</Text>
 						</ScrollView>
 					) : null}
+					{images.map((image, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: positional result images.
+						<ToolImage key={i} uri={`data:${image.mimeType};base64,${image.data}`} />
+					))}
 				</View>
 			) : null}
 		</View>
 	);
 });
+
+/** An image a tool returned (an image file `read`, a screenshot), as wide as the card. */
+function ToolImage({ uri }: { uri: string }) {
+	const p = usePalette();
+	const [ratio, setRatio] = useState(4 / 3);
+	return (
+		<Image
+			source={{ uri }}
+			style={[styles.toolImage, { aspectRatio: ratio, backgroundColor: p.code }]}
+			resizeMode="contain"
+			accessibilityLabel="工具返回的图片"
+			onLoad={(event) => {
+				const { width, height } = event.nativeEvent.source;
+				if (width > 0 && height > 0) setRatio(width / height);
+			}}
+		/>
+	);
+}
 
 function Thinking({ text, redacted, live }: { text: string; redacted: boolean; live: boolean }) {
 	const p = usePalette();
@@ -412,6 +436,7 @@ const styles = StyleSheet.create({
 	subagentText: { fontSize: 13 },
 	subagentDetail: { fontSize: 11, fontFamily: MONO },
 	output: { borderRadius: 10, padding: 10, maxHeight: 280 },
+	toolImage: { width: "100%", maxHeight: 360, borderRadius: 10 },
 	bashOutput: { marginHorizontal: 8, marginBottom: 8 },
 	mono: { fontFamily: MONO, fontSize: 12, lineHeight: 17 },
 	thinking: { alignSelf: "flex-start", maxWidth: "100%", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },

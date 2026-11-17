@@ -250,6 +250,12 @@ export function toolOutputText(result: unknown): string {
 	return contentText((result as { content?: unknown }).content);
 }
 
+/** Images in a tool result (or a streamed partial result), e.g. the image file a `read` returned. */
+export function toolOutputImages(result: unknown): ImagePart[] {
+	if (!result || typeof result !== "object") return [];
+	return contentImages((result as { content?: unknown }).content);
+}
+
 /** Display diff attached to an `edit` tool result, if any. */
 export function editDiff(result: unknown): string | undefined {
 	const details = result && typeof result === "object" ? (result as { details?: unknown }).details : undefined;

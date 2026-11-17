@@ -22,10 +22,10 @@ import {
 	IconSparkles,
 	IconTerminal,
 } from "./Icons.tsx";
-import { ImageLightbox } from "./ImageLightbox.tsx";
+import { ImageThumb } from "./ImageLightbox.tsx";
 import { CopyButton, Markdown, MarkdownFiles } from "./Markdown.tsx";
 import { delegates, SubagentCard, type SubagentScope, SubagentScopeContext } from "./SubagentCard.tsx";
-import { ToolCard } from "./ToolCard.tsx";
+import { ToolCard, ToolImages } from "./ToolCard.tsx";
 
 function Thinking({ text, redacted, live }: { text: string; redacted: boolean; live: boolean }) {
 	const [open, setOpen] = useState<boolean | undefined>(undefined);
@@ -205,18 +205,6 @@ const AssistantMessageView = memo(
 		prev.item.blocks.every((b) => b.kind !== "tool" || prev.approvals.get(b.call.id) === next.approvals.get(b.call.id)),
 );
 
-function MessageImage({ src }: { src: string }) {
-	const [open, setOpen] = useState(false);
-	return (
-		<>
-			<button type="button" className="message-image" onClick={() => setOpen(true)} title="查看大图">
-				<img src={src} alt="附件" />
-			</button>
-			{open ? <ImageLightbox src={src} alt="附件" onClose={() => setOpen(false)} /> : null}
-		</>
-	);
-}
-
 type UserItem = Extract<TranscriptItem, { kind: "user" }>;
 
 /** Sends an edited copy of a user message; `fromEnd` counts the user messages after it. */
@@ -310,7 +298,7 @@ function UserMessage({ item, fromEnd, onEdit }: { item: UserItem; fromEnd: numbe
 				<div className="message-images">
 					{item.images.map((image, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: positional attachments.
-						<MessageImage key={i} src={`data:${image.mimeType};base64,${image.data}`} />
+						<ImageThumb key={i} src={`data:${image.mimeType};base64,${image.data}`} alt="附件" />
 					))}
 				</div>
 			) : null}
@@ -400,6 +388,7 @@ const ItemView = memo(function ItemView({
 					<pre className="tool-output">
 						{item.message.content.map((c) => (c.type === "text" ? c.text : "")).join("")}
 					</pre>
+					<ToolImages result={item.message} />
 				</div>
 			);
 		default:

@@ -197,6 +197,33 @@
 	color: var(--del-text);
 }
 
+/* Images a tool returned (an image file `read`, a screenshot), under its text output. */
+.tool-images {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 10px 14px;
+	border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tool-body > .tool-images:first-child {
+	border-top: none;
+}
+
+.tool-images .message-image {
+	max-width: 100%;
+	border-color: rgba(255, 255, 255, 0.1);
+}
+
+.tool-images .message-image:hover:not(:disabled) {
+	border-color: rgba(255, 255, 255, 0.25);
+}
+
+.tool-images .message-image img {
+	max-width: 100%;
+	max-height: 360px;
+}
+
 .tool-preview {
 	max-height: 360px;
 	overflow-y: auto;

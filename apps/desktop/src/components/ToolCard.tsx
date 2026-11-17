@@ -1,4 +1,11 @@
-import { editDiff, editReplacements, summarizeToolCall, type ToolBlock, toolOutputText } from "@pier/chat-state";
+import {
+	editDiff,
+	editReplacements,
+	summarizeToolCall,
+	type ToolBlock,
+	toolOutputImages,
+	toolOutputText,
+} from "@pier/chat-state";
 import type { UiRequest } from "@pier/protocol";
 import hljs from "highlight.js/lib/common";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +29,7 @@ import {
 	IconWrench,
 	IconX,
 } from "./Icons.tsx";
+import { ImageThumb } from "./ImageLightbox.tsx";
 import { CopyButton } from "./Markdown.tsx";
 
 const STATUS_LABEL: Record<ToolBlock["status"], string> = {
@@ -217,6 +225,20 @@ function ToolBody({ block }: { block: ToolBlock }) {
 	}
 }
 
+/** Images a tool returned, e.g. an image file `read` or a screenshot; click one for the full size. */
+export function ToolImages({ result }: { result: unknown }) {
+	const images = toolOutputImages(result);
+	if (!images.length) return null;
+	return (
+		<div className="tool-images">
+			{images.map((image, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: positional result images.
+				<ImageThumb key={i} src={`data:${image.mimeType};base64,${image.data}`} alt="工具返回的图片" />
+			))}
+		</div>
+	);
+}
+
 function defaultOpen(block: ToolBlock): boolean {
 	if (block.status === "running" || block.status === "error") return true;
 	if (block.call.name === "edit") return true;
@@ -262,6 +284,7 @@ export const ToolCard = memo(function ToolCard({
 						</div>
 					) : null}
 					<ToolBody block={block} />
+					<ToolImages result={block.result ?? block.execution?.partialResult ?? block.execution?.result} />
 				</div>
 			) : null}
 		</div>

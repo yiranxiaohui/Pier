@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { IconX } from "./Icons.tsx";
 
@@ -20,5 +20,18 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt: string;
 			</button>
 		</div>,
 		document.body,
+	);
+}
+
+/** A thumbnail that opens the full-size image in a lightbox. */
+export function ImageThumb({ src, alt }: { src: string; alt: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			<button type="button" className="message-image" onClick={() => setOpen(true)} title="查看大图">
+				<img src={src} alt={alt} />
+			</button>
+			{open ? <ImageLightbox src={src} alt={alt} onClose={() => setOpen(false)} /> : null}
+		</>
 	);
 }
