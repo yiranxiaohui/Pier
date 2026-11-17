@@ -366,11 +366,6 @@
 	margin-bottom: 4px;
 }
 
-/* A subagent's conversation reads as a list of steps: no "Agent" label on every message. */
-.subagent-panel .message.assistant > .assistant-label {
-	display: none;
-}
-
 .subagent-panel .message.user {
 	margin-bottom: 12px;
 }
@@ -387,6 +382,11 @@
 .subagent-panel .message.assistant,
 .subagent-panel .message.user {
 	font-size: 14px;
+}
+
+/* A subagent's conversation reads as a list of steps, already tightly spaced. */
+.subagent-panel .message.assistant + .message.assistant {
+	margin-top: 0;
 }
 
 .subagent-panel-actions {

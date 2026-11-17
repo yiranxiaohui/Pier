@@ -24,6 +24,12 @@
 	line-height: 1.5;
 }
 
+/* Replies carry no speaker label, as in Codex: the user's bubble marks each turn, and a turn's
+   consecutive replies sit closer together so they read as one flow (margins collapse to 14px). */
+.message.assistant + .message.assistant {
+	margin-top: -16px;
+}
+
 .message.user {
 	width: fit-content;
 	max-width: min(78%, 640px);
@@ -614,20 +620,4 @@ button.markdown-image {
 	max-width: 420px;
 	margin: 0;
 	line-height: 1.7;
-}
-
-.assistant-label {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin-bottom: 14px;
-	font-size: 11px;
-	font-weight: 600;
-	letter-spacing: 0.02em;
-	color: var(--text-muted);
-}
-
-.assistant-label > span {
-	display: flex;
-	color: var(--accent-text);
 }

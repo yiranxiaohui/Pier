@@ -129,8 +129,26 @@ function mergeDelegations(items: TranscriptItem[], approvals: Map<string, UiRequ
 	return merged;
 }
 
+/**
+ * Whether `items[index]` is the last assistant message of its turn, which alone carries the reply's
+ * footer, as in ChatGPT and Codex: a footer under every step would keep each step apart. The last
+ * message ends its turn only once the agent stops.
+ */
+function endsTurn(items: TranscriptItem[], index: number, running: boolean): boolean {
+	const next = items[index + 1];
+	return next ? next.kind !== "assistant" : !running;
+}
+
 const AssistantMessageView = memo(
-	function AssistantMessageView({ item, approvals }: { item: AssistantItem; approvals: Map<string, UiRequest> }) {
+	function AssistantMessageView({
+		item,
+		approvals,
+		endsTurn,
+	}: {
+		item: AssistantItem;
+		approvals: Map<string, UiRequest>;
+		endsTurn: boolean;
+	}) {
 		const { message, blocks, streaming } = item;
 		const text = blocks
 			.filter((b): b is Extract<AssistantBlock, { kind: "text" }> => b.kind === "text")
@@ -138,12 +156,6 @@ const AssistantMessageView = memo(
 			.join("\n\n");
 		return (
 			<div className={`message assistant${streaming ? " streaming" : ""}`}>
-				<div className="assistant-label">
-					<span>
-						<IconSparkles size={15} />
-					</span>
-					Agent
-				</div>
 				{groupParts(blocks, approvals).map((part) => {
 					if (part.kind === "subagents") {
 						return <SubagentCard key={`subagents-${part.blocks[0]?.call.id}`} blocks={part.blocks} />;
@@ -159,7 +171,7 @@ const AssistantMessageView = memo(
 					<div className="message-error">出错了：{message.errorMessage}</div>
 				) : null}
 				{message.stopReason === "aborted" ? <div className="message-note">已中止</div> : null}
-				{!streaming && text ? (
+				{endsTurn && !streaming && text ? (
 					<div className="message-footer">
 						<CopyButton text={text} iconOnly label="复制回复" />
 						{message.model ? (
@@ -186,6 +198,7 @@ const AssistantMessageView = memo(
 		);
 	},
 	(prev, next) =>
+		prev.endsTurn === next.endsTurn &&
 		prev.item.message === next.item.message &&
 		prev.item.streaming === next.item.streaming &&
 		blocksEqual(prev.item.blocks, next.item.blocks) &&
@@ -319,18 +332,21 @@ const ItemView = memo(function ItemView({
 	item,
 	approvals,
 	fromEnd,
+	endsTurn,
 	onEdit,
 }: {
 	item: TranscriptItem;
 	approvals: Map<string, UiRequest>;
 	fromEnd: number;
+	/** Whether an assistant message is its turn's last: only that one gets the footer. */
+	endsTurn: boolean;
 	onEdit?: EditMessage | undefined;
 }) {
 	switch (item.kind) {
 		case "user":
 			return <UserMessage item={item} fromEnd={fromEnd} {...(onEdit ? { onEdit } : {})} />;
 		case "assistant":
-			return <AssistantMessageView item={item} approvals={approvals} />;
+			return <AssistantMessageView item={item} approvals={approvals} endsTurn={endsTurn} />;
 		case "bash":
 			return (
 				<div className="message bash tool-card">
@@ -444,6 +460,7 @@ export function Transcript({
 	}, [chat.sessionId]);
 
 	const waitingForModel = isWaitingForModel(chat, items);
+	const running = chat.runState !== "idle" && chat.runState !== "inactive";
 
 	return (
 		<SubagentScopeContext.Provider value={scope}>
@@ -470,12 +487,13 @@ export function Transcript({
 								<p>在下方输入任务，Agent 将在该工作区中读写文件、运行命令。高风险操作会先请求你批准。</p>
 							</div>
 						) : null}
-						{shown.map((item) => (
+						{shown.map((item, i) => (
 							<ItemView
 								key={item.key}
 								item={item}
 								approvals={approvals}
 								fromEnd={userFromEnd.get(item.key) ?? 0}
+								endsTurn={endsTurn(shown, i, running)}
 								onEdit={onEdit}
 							/>
 						))}
