@@ -20,6 +20,7 @@ import {
 	span,
 	suggestionChoice,
 	suggestionRows,
+	TaggedTextStream,
 	toolHeader,
 	toolResult,
 	toolSummary,
@@ -106,6 +107,52 @@ describe("markdownTable", () => {
 	it("declines lines without a separator row, or a table wider than the room", () => {
 		expect(markdownTable(["| a | b |", "| c | d |"], 80)).toBeUndefined();
 		expect(markdownTable(["| aaaaaaaa | bbbbbbbb |", "|---|---|"], 10)).toBeUndefined();
+	});
+});
+
+describe("TaggedTextStream", () => {
+	/** Feed `text` one character at a time; consecutive chunks of one kind are joined. */
+	function chunks(text: string): Array<[string, string]> {
+		const tagged = new TaggedTextStream();
+		const out: Array<[string, string]> = [];
+		const add = (chunk: { kind: string; text: string }) => {
+			const last = out.at(-1);
+			if (last?.[0] === chunk.kind) last[1] += chunk.text;
+			else out.push([chunk.kind, chunk.text]);
+		};
+		for (const char of text) tagged.push(char).forEach(add);
+		tagged.end().forEach(add);
+		return out;
+	}
+
+	it("streams thinking written as tags as thinking", () => {
+		expect(chunks("<thinking>**Merging task branch**</thinking>\nMerging now.\n")).toEqual([
+			["thinking", "**Merging task branch**"],
+			["text", "Merging now."],
+		]);
+		// Text passed on before a tag arrives keeps its line break.
+		expect(chunks("Intro\n<think>\nstep\n</think>\nAnswer")).toEqual([
+			["text", "Intro\n"],
+			["thinking", "step"],
+			["text", "Answer"],
+		]);
+		expect(chunks("<thinking>**Unclosed")).toEqual([["thinking", "**Unclosed"]]);
+	});
+
+	it("passes text without tags through unchanged, including what looked like a tag", () => {
+		expect(chunks("a < b\n<br> and `<thinking>`\n<")).toEqual([["text", "a < b\n<br> and `<thinking>`\n<"]]);
+	});
+
+	it("renders the thinking with the thinking marker", () => {
+		const tagged = new TaggedTextStream();
+		const s = new MessageStream({ width: () => 40, markdown: true });
+		const rows = [
+			...tagged.push("<thinking>**Plan**</thi").flatMap((c) => s.push(c.kind, c.text)),
+			...tagged.push("nking>\nDone.\n").flatMap((c) => s.push(c.kind, c.text)),
+			...tagged.end().flatMap((c) => s.push(c.kind, c.text)),
+			...s.finish(),
+		];
+		expect(rows).toEqual(["", "✻ Plan", "", "● Done."]);
 	});
 });
 

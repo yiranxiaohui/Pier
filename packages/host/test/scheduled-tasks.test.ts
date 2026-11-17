@@ -3,9 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type ScheduledTaskInput, ScheduledTaskInputSchema } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManagedSession, SessionSubscriber } from "../src/managed-session.ts";
+import { type ManagedSession, replyText, type SessionSubscriber } from "../src/managed-session.ts";
 import { nextTaskRun, ScheduledTasks, type ScheduledTasksOptions } from "../src/scheduled-tasks.ts";
 import { deferred } from "./helpers.ts";
+
+describe("run summaries", () => {
+	it("leave out thinking the model writes into its reply as tags", () => {
+		expect(
+			replyText([
+				{ type: "thinking", thinking: "hidden" },
+				{ type: "text", text: "<thinking>**Checking the logs**</thinking>\nAll jobs passed." },
+				{ type: "text", text: "<think>unclosed" },
+				{ type: "text", text: "Report sent." },
+			]),
+		).toBe("All jobs passed. Report sent.");
+		expect(replyText("plain")).toBe("plain");
+	});
+});
 
 describe("task recurrence", () => {
 	it("computes intervals without drifting after a missed day", () => {

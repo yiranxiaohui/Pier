@@ -14,7 +14,7 @@ import {
 import { Cron } from "croner";
 import { z } from "zod";
 import { writePrivateFile } from "./config.ts";
-import { errorMessage, type ManagedSession, textOf } from "./managed-session.ts";
+import { errorMessage, type ManagedSession, replyText } from "./managed-session.ts";
 import type { SessionPool } from "./session-pool.ts";
 
 const StoreSchema = z.object({
@@ -323,7 +323,7 @@ export class ScheduledTasks {
 					taskId,
 					error ? "failed" : "succeeded",
 					error,
-					last ? textOf(last.content).slice(0, 4000) : undefined,
+					last ? replyText(last.content).slice(0, 4000) : undefined,
 				);
 			} else {
 				const status = session.bridge.pendingRequests.length ? "waiting" : "running";

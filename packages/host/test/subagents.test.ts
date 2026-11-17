@@ -38,6 +38,18 @@ describe("SubagentTracker", () => {
 		expect(t.forToolCall("call").map((s) => s.id)).toEqual(["a"]);
 	});
 
+	it("shows replies as activity without the thinking written into them as tags", () => {
+		const { t } = tracker();
+		t.update("a", { name: "explorer" });
+		const conversation = t.conversation("a");
+		conversation.text("<thinking>**Locating routes**</thinking>\nReading the router.");
+		conversation.endAssistant();
+		expect(t.get("a")?.activity).toBe("Reading the router.");
+		conversation.text("<thinking>**Planning merge****Merging task branch**");
+		conversation.endAssistant();
+		expect(t.get("a")?.activity).toBe("Merging task branch");
+	});
+
 	it("records live conversations, counts steps and serves them from an index", async () => {
 		const { t } = tracker();
 		t.update("a", { name: "explorer" });

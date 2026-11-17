@@ -1,5 +1,5 @@
 import type { Api, AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
-import type { ModelInfo } from "@pier/protocol";
+import { type ModelInfo, withoutThinkingTags } from "@pier/protocol";
 
 /**
  * A first prompt wider than this many CJK characters (two Latin letters, digits or spaces count as
@@ -94,6 +94,7 @@ export async function summarizeTitle(
 		{ maxTokens: 256, ...(signal ? { signal } : {}) },
 	);
 	if (answer.stopReason === "error" || answer.stopReason === "aborted") return undefined;
-	const reply = answer.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+	// Some models write their thinking into the reply as `<thinking>` text.
+	const reply = withoutThinkingTags(answer.content.map((part) => (part.type === "text" ? part.text : "")).join(""));
 	return cleanTitle(reply);
 }

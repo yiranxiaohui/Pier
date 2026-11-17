@@ -1,4 +1,4 @@
-import type { SubagentInfo } from "@pier/protocol";
+import { hasVisibleText, type SubagentInfo, splitThinkingTags } from "@pier/protocol";
 import {
 	type AnyMessage,
 	type AssistantMessage,
@@ -14,7 +14,6 @@ import {
 	userText,
 } from "./messages.ts";
 import { type ChatState, subagentsOf, type ToolExecution } from "./reducer.ts";
-import { hasVisibleText, splitThinkingTags } from "./thinking-text.ts";
 
 /**
  * Tool call lifecycle as displayed:

@@ -1,14 +1,11 @@
-import type { EventFrame, SessionSnapshot } from "@pier/protocol";
 import { describe, expect, it } from "vitest";
 import {
-	buildTranscript,
 	formatThinking,
-	initialChatState,
-	isWaitingForModel,
-	reduceChat,
+	hasVisibleText,
 	splitThinkingTags,
 	thinkingHeadline,
-} from "../src/index.ts";
+	withoutThinkingTags,
+} from "../src/thinking-text.ts";
 
 describe("splitThinkingTags", () => {
 	it("leaves text without tags unchanged", () => {
@@ -46,6 +43,35 @@ describe("splitThinkingTags", () => {
 		expect(splitThinkingTags("Done.\n<", true)).toEqual([{ kind: "text", text: "Done." }]);
 		expect(splitThinkingTags("a < b", true)).toEqual([{ kind: "text", text: "a < b" }]);
 		expect(splitThinkingTags("<thin")).toEqual([{ kind: "text", text: "<thin" }]);
+		expect(splitThinkingTags("<thinking>**Plan**</thin", true)).toEqual([
+			{ kind: "thinking", text: "**Plan**", closed: false },
+		]);
+		expect(splitThinkingTags("<thinking>**Plan**</thin")).toEqual([
+			{ kind: "thinking", text: "**Plan**</thin", closed: false },
+		]);
+	});
+
+	it("only grows its segments while the text streams", () => {
+		const text =
+			"\n\nIntro line\n<thinking>**Checking**</thinking>\nSome `<think>` text\n\n```\n<think>code</think>\n```\n<think>\nsecond\n</think>tail";
+		const final = splitThinkingTags(text);
+		for (let end = 0; end <= text.length; end++) {
+			const partial = splitThinkingTags(text.slice(0, end), end < text.length);
+			for (const [i, segment] of partial.entries()) {
+				const next = final[i];
+				expect(next?.kind).toBe(segment.kind);
+				expect(next?.text.startsWith(segment.text.trimEnd())).toBe(true);
+			}
+		}
+	});
+});
+
+describe("withoutThinkingTags", () => {
+	it("keeps only the text", () => {
+		expect(withoutThinkingTags("<thinking>**Plan**</thinking>\nDone.\n<think>more</think>\nBye")).toBe("Done.\n\nBye");
+		expect(withoutThinkingTags("<thinking>**Unclosed**")).toBe("");
+		expect(hasVisibleText("<thinking>**Unclosed**")).toBe(false);
+		expect(hasVisibleText("Answer")).toBe(true);
 	});
 });
 
@@ -63,87 +89,5 @@ describe("formatThinking", () => {
 		expect(thinkingHeadline("Fetch direct remote then merge push")).toBe("Fetch direct remote then merge push");
 		expect(thinkingHeadline("First line.\nSecond line.")).toBeUndefined();
 		expect(thinkingHeadline("")).toBeUndefined();
-	});
-});
-
-const summary = {
-	id: "s1",
-	workspaceId: "w1",
-	cwd: "/tmp/w",
-	createdAt: "2026-01-01T00:00:00.000Z",
-	modifiedAt: "2026-01-01T00:00:00.000Z",
-	messageCount: 0,
-	firstMessage: "",
-	active: true,
-	state: "idle",
-} as const;
-
-function stateWith(overrides: Partial<SessionSnapshot>) {
-	const snapshot: SessionSnapshot = {
-		session: summary,
-		seq: 1,
-		epoch: "e1",
-		messages: [],
-		pendingToolCalls: [],
-		pendingUi: [],
-		queue: { steering: [], followUp: [] },
-		thinkingLevel: "medium",
-		statuses: {},
-		widgets: {},
-		...overrides,
-	};
-	const frame: EventFrame = { type: "evt", sessionId: "s1", event: { type: "session.snapshot", snapshot } };
-	return reduceChat(initialChatState("s1"), frame);
-}
-
-describe("transcript thinking tags", () => {
-	it("shows tagged thinking in a reply as thinking, joined with the thinking before it", () => {
-		const state = stateWith({
-			messages: [
-				{
-					role: "assistant",
-					content: [
-						{ type: "thinking", thinking: "**Planning merge**" },
-						{ type: "text", text: "<thinking>**Merging task branch into main**</thinking>\nMerging now." },
-						{ type: "toolCall", id: "t1", name: "bash", arguments: { command: "git merge" } },
-					],
-					stopReason: "toolUse",
-					timestamp: 1,
-				},
-			],
-		});
-		const [item] = buildTranscript(state);
-		expect(item?.kind === "assistant" && item.blocks.map((b) => (b.kind === "tool" ? b.kind : b))).toEqual([
-			{
-				kind: "thinking",
-				text: "**Planning merge**\n\n**Merging task branch into main**",
-				redacted: false,
-				live: false,
-			},
-			{ kind: "text", text: "Merging now." },
-			"tool",
-		]);
-	});
-
-	it("marks an unclosed tag in the streaming reply as live thinking", () => {
-		const message = {
-			role: "assistant",
-			content: [{ type: "text", text: "<thinking>**Deploying rebuilt container", completed: false }],
-			timestamp: 2,
-		};
-		const state = { ...stateWith({}), runState: "streaming" as const, streaming: message as never };
-		const item = buildTranscript(state).at(-1);
-		expect(item?.kind === "assistant" && item.blocks).toEqual([
-			{ kind: "thinking", text: "**Deploying rebuilt container", redacted: false, live: true },
-		]);
-		expect(isWaitingForModel(state, buildTranscript(state))).toBe(false);
-
-		const closed = {
-			...message,
-			content: [{ type: "text", text: "<thinking>**Deploying**</thinking>\n", completed: false }],
-		};
-		const next = { ...state, streaming: closed as never };
-		// Only collapsed thinking is visible: keep showing that the model is working.
-		expect(isWaitingForModel(next, buildTranscript(next))).toBe(true);
 	});
 });

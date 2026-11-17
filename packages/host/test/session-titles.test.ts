@@ -57,6 +57,13 @@ describe("session titles", () => {
 		expect(JSON.stringify(seen[0]?.messages)).toContain("帮我整理一下侧边栏里的会话列表样式");
 	});
 
+	it("leaves out thinking the model writes into its answer as tags", async () => {
+		const reply = "<thinking>**Summarizing the request**</thinking>\n整理会话列表";
+		expect(await summarizeTitle(models(answer(reply)), "/w", "帮我整理一下侧边栏里的会话列表样式")).toBe(
+			"整理会话列表",
+		);
+	});
+
 	it("gives no title without a model or when the request fails", async () => {
 		expect(await summarizeTitle(models(undefined), "/w", "一条很长很长很长很长很长的消息")).toBeUndefined();
 		expect(await summarizeTitle(models(answer("", "error")), "/w", "一条很长很长很长很长很长的消息")).toBeUndefined();

@@ -1,4 +1,11 @@
-import { PierProtocolError, type SubagentInfo, type SubagentStatus, type WireEvent } from "@pier/protocol";
+import {
+	PierProtocolError,
+	type SubagentInfo,
+	type SubagentStatus,
+	splitThinkingTags,
+	thinkingHeadline,
+	type WireEvent,
+} from "@pier/protocol";
 import { LiveTranscript, publicMessage, type TranscriptMessage } from "./live-transcript.ts";
 
 /** Longest task, result and error text kept in a {@link SubagentInfo}. */
@@ -68,14 +75,24 @@ export function toolActivity(name: string, args: unknown): string {
 	return oneLine(detail ? `${name}: ${detail}` : name);
 }
 
+/**
+ * The last text of a reply. Thinking the model wrote into it as `<thinking>` text is left out;
+ * a reply with nothing else gives the latest headline of that thinking.
+ */
 function lastText(message: unknown): string | undefined {
 	const content = (message as { content?: unknown } | undefined)?.content;
 	if (!Array.isArray(content)) return undefined;
+	let headline: string | undefined;
 	for (let i = content.length - 1; i >= 0; i--) {
 		const part = content[i] as { type?: string; text?: string };
-		if (part?.type === "text" && part.text?.trim()) return part.text;
+		if (part?.type !== "text" || !part.text?.trim()) continue;
+		const segments = splitThinkingTags(part.text);
+		const text = segments.flatMap((s) => (s.kind === "text" ? [s.text] : [])).join("\n\n");
+		if (text.trim()) return text;
+		const thinking = segments.findLast((s) => s.kind === "thinking");
+		headline ??= thinking ? thinkingHeadline(thinking.text) : undefined;
 	}
-	return undefined;
+	return headline;
 }
 
 /**

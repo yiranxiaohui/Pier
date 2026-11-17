@@ -19,21 +19,28 @@ function partialTag(line: string): boolean {
 	return rest.length > 0 && TAGS.some((tag) => tag.length > rest.length && tag.startsWith(rest));
 }
 
-/** Text without its leading blank lines and trailing whitespace. */
-function trimText(text: string): string {
-	return text.replace(/^(?:[ \t]*\n)+/, "").trimEnd();
+/** `text` without a trailing start of `tag` (`</thin`), which may still be streaming. */
+function withoutPartialEnd(text: string, tag: string): string {
+	for (let length = Math.min(tag.length - 1, text.length); length > 0; length--) {
+		if (text.endsWith(tag.slice(0, length))) return text.slice(0, -length);
+	}
+	return text;
 }
 
 /**
  * Split `text` into text and thinking segments. Tags only count at the start of a line and
  * outside code blocks; an unclosed tag runs to the end of the text. With `streaming`, the
- * start of a tag at the end of the text (`<thi`) is held back until it is complete.
+ * start of a tag at the end of the text (`<thi`, `</thin`) is held back until it is complete.
+ *
+ * While text streams, each segment only grows (apart from whitespace at its end), so the
+ * segments of a longer text start with those of a shorter one: deltas can be split as well.
  */
 export function splitThinkingTags(text: string, streaming = false): TextSegment[] {
 	if (!text.includes("<think") && !(streaming && text.includes("<"))) return text ? [{ kind: "text", text }] : [];
 	const segments: TextSegment[] = [];
-	const pushText = (chunk: string) => {
-		const trimmed = trimText(chunk);
+	// Blank lines next to a tag are dropped; the text before the first tag keeps its start.
+	const pushText = (chunk: string, afterTag: boolean) => {
+		const trimmed = (afterTag ? chunk.replace(/^(?:[ \t]*\n)+/, "") : chunk).trimEnd();
 		if (trimmed) segments.push({ kind: "text", text: trimmed });
 	};
 	let fence: string | undefined;
@@ -49,33 +56,41 @@ export function splitThinkingTags(text: string, streaming = false): TextSegment[
 			const tag = opener ? null : OPEN_TAG.exec(line);
 			if (opener?.[1]) fence = opener[1];
 			else if (tag) {
-				pushText(text.slice(textStart, lineStart));
+				pushText(text.slice(textStart, lineStart), textStart > 0);
 				const bodyStart = lineStart + tag[0].length;
 				const closeTag = `</${tag[1]}>`;
 				const close = text.indexOf(closeTag, bodyStart);
+				const body = close < 0 ? text.slice(bodyStart) : text.slice(bodyStart, close);
 				segments.push({
 					kind: "thinking",
-					text: text.slice(bodyStart, close < 0 ? text.length : close).trim(),
+					text: (close < 0 && streaming ? withoutPartialEnd(body, closeTag) : body).trim(),
 					closed: close >= 0,
 				});
 				if (close < 0) return segments;
 				textStart = lineStart = close + closeTag.length;
 				continue;
 			} else if (streaming && newline < 0 && partialTag(line)) {
-				pushText(text.slice(textStart, lineStart));
+				pushText(text.slice(textStart, lineStart), textStart > 0);
 				return segments;
 			}
 		}
 		if (newline < 0) break;
 		lineStart = newline + 1;
 	}
-	pushText(text.slice(textStart));
+	pushText(text.slice(textStart), textStart > 0);
 	return segments;
 }
 
 /** Whether `text` has anything to show as text once its thinking tags are taken out. */
 export function hasVisibleText(text: string, streaming = false): boolean {
 	return splitThinkingTags(text, streaming).some((s) => s.kind === "text" && s.text.trim());
+}
+
+/** `text` without the thinking written into it (its text segments, a blank line apart). */
+export function withoutThinkingTags(text: string): string {
+	return splitThinkingTags(text)
+		.flatMap((s) => (s.kind === "text" ? [s.text] : []))
+		.join("\n\n");
 }
 
 /**

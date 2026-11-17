@@ -3,6 +3,7 @@
  * results, boxes, aligned lists and the status line. Pure functions that return the rows to
  * print, so they can be tested without a terminal or a running host.
  */
+import { splitThinkingTags } from "@pier/protocol";
 import { c, charWidth, displayWidth, fitStyled, fitWidth, padWidth, sanitize } from "./cli-style.ts";
 
 /** A run of text in one style. */
@@ -251,6 +252,41 @@ export function formatMarkdownLine(line: string, state: MarkdownState, options: 
 // ── Streaming assistant messages ────────────────────────────────────────────
 
 export type StreamKind = "text" | "thinking";
+
+/**
+ * Splits the streamed deltas of one text part into text and thinking deltas, for models that
+ * write their thinking into the reply as `<thinking>…</thinking>` (see `splitThinkingTags`).
+ */
+export class TaggedTextStream {
+	private text = "";
+	/** Kind and length of each segment already passed on. */
+	private sent: Array<{ kind: StreamKind; length: number }> = [];
+
+	/** Add a delta of the text part; returns what it adds to each segment, in order. */
+	push(delta: string): Array<{ kind: StreamKind; text: string }> {
+		this.text += delta;
+		return this.diff(true);
+	}
+
+	/** The text part ended: passes on what was held back (such as a lone `<`) and starts over. */
+	end(): Array<{ kind: StreamKind; text: string }> {
+		const out = this.text ? this.diff(false) : [];
+		this.text = "";
+		this.sent = [];
+		return out;
+	}
+
+	private diff(streaming: boolean): Array<{ kind: StreamKind; text: string }> {
+		const out: Array<{ kind: StreamKind; text: string }> = [];
+		for (const [i, segment] of splitThinkingTags(this.text, streaming).entries()) {
+			const sent = this.sent[i];
+			const from = sent?.kind === segment.kind ? sent.length : 0;
+			if (segment.text.length > from) out.push({ kind: segment.kind, text: segment.text.slice(from) });
+			this.sent[i] = { kind: segment.kind, length: Math.max(from, segment.text.length) };
+		}
+		return out;
+	}
+}
 
 const MARKERS: Record<StreamKind, () => Span> = {
 	text: () => span("● "),

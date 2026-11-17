@@ -20,6 +20,7 @@ import {
 	type UiResponse,
 	type WireEvent,
 	type WorkspaceInfo,
+	withoutThinkingTags,
 } from "@pier/protocol";
 import { evaluateToolCall } from "./approval/policy.ts";
 import { DEFAULT_EVENT_LOG_CAPACITY, EventLog } from "./event-log.ts";
@@ -472,6 +473,18 @@ export function runtimeName(id: AgentRuntimeId): string {
 		default:
 			return id;
 	}
+}
+
+/** Text of an assistant reply, without the thinking some models write into it as `<thinking>` tags. */
+export function replyText(content: unknown): string {
+	if (typeof content === "string") return withoutThinkingTags(content);
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((part) =>
+			part && typeof part === "object" && part.type === "text" ? withoutThinkingTags(String(part.text ?? "")) : "",
+		)
+		.filter(Boolean)
+		.join(" ");
 }
 
 export function textOf(content: unknown): string {

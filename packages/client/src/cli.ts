@@ -28,6 +28,7 @@ import {
 	type UiRequest,
 	type UiResponse,
 	type WorkspaceInfo,
+	withoutThinkingTags,
 } from "@pier/protocol";
 import { parseNewArgs, requireAvailable, resolveRuntime, runtimeName } from "./cli-agents.ts";
 import { CLI_COMMANDS, candidateValue, completeCliLine, matchModel, oneLine } from "./cli-complete.ts";
@@ -57,6 +58,7 @@ import {
 	spinnerFrame,
 	suggestionChoice,
 	suggestionRows,
+	TaggedTextStream,
 	toolHeader,
 	toolResult,
 	toolResultText,
@@ -325,6 +327,8 @@ class Cli {
 	private contextWindow: number | undefined;
 	private contextUsed: number | undefined;
 	private readonly stream: MessageStream;
+	/** The text part being streamed, which may carry thinking in `<thinking>` tags. */
+	private readonly tagged = new TaggedTextStream();
 	private readonly tools = new Map<string, RunningTool>();
 	/** Last status shown for each subagent (1.54), to report starts and ends once. */
 	private readonly subagentStatus = new Map<string, SubagentInfo["status"]>();
@@ -786,6 +790,7 @@ class Cli {
 	}
 
 	private resetRun(): void {
+		this.tagged.end();
 		this.stream.finish();
 		this.tools.clear();
 		this.streaming = false;
@@ -838,7 +843,7 @@ class Cli {
 				break;
 			case "message_start": {
 				const message = event.message as TranscriptMessage | undefined;
-				if (message?.role === "assistant") this.emit(this.stream.finish());
+				if (message?.role === "assistant") this.emit([...this.endText(), ...this.stream.finish()]);
 				else if (message?.role === "user") {
 					// Prompts typed here are on screen already; show those sent from other devices.
 					const text = textOf(message.content).trim();
@@ -850,14 +855,19 @@ class Cli {
 			}
 			case "message_update": {
 				const inner = event.assistantMessageEvent as { type: string; delta?: string };
-				if (inner.type === "text_delta" && inner.delta) this.emit(this.stream.push("text", inner.delta));
-				else if (inner.type === "thinking_delta" && inner.delta) this.emit(this.stream.push("thinking", inner.delta));
+				if (inner.type === "text_delta") {
+					if (inner.delta) this.emit(this.pushText(inner.delta));
+					break;
+				}
+				// Any other part (or the end of this one) ends the text part.
+				this.emit(this.endText());
+				if (inner.type === "thinking_delta" && inner.delta) this.emit(this.stream.push("thinking", inner.delta));
 				break;
 			}
 			case "message_end": {
 				const message = event.message as TranscriptMessage | undefined;
 				if (message?.role !== "assistant") break;
-				const rows = this.stream.finish();
+				const rows = [...this.endText(), ...this.stream.finish()];
 				const used = contextTokens(message.usage);
 				if (used) this.contextUsed = used;
 				this.emit(rows);
@@ -1032,10 +1042,21 @@ class Cli {
 		const live = snapshot.streamingMessage as TranscriptMessage | undefined;
 		if (live?.role === "assistant")
 			for (const part of partsOf(live.content)) {
-				if (part.type === "text" && part.text) this.emit(this.stream.push("text", part.text));
-				else if (part.type === "thinking" && part.thinking) this.emit(this.stream.push("thinking", part.thinking));
+				if (part.type === "text" && part.text) this.emit([...this.endText(), ...this.pushText(part.text)]);
+				else if (part.type === "thinking" && part.thinking)
+					this.emit([...this.endText(), ...this.stream.push("thinking", part.thinking)]);
 			}
 		for (const request of snapshot.pendingUi) this.showUiRequest(request);
+	}
+
+	/** Stream a text delta; thinking the model writes as `<thinking>` text streams as thinking. */
+	private pushText(delta: string): string[] {
+		return this.tagged.push(delta).flatMap((chunk) => this.stream.push(chunk.kind, chunk.text));
+	}
+
+	/** End the text part being streamed, passing on what it held back. */
+	private endText(): string[] {
+		return this.tagged.end().flatMap((chunk) => this.stream.push(chunk.kind, chunk.text));
 	}
 
 	/** The last messages of a transcript: prompts, replies and tool calls with their results. */
@@ -1064,7 +1085,9 @@ class Cli {
 			if (message.role === "user") rows.push(...userMessage(textOf(message.content), width, { maxRows: 6 }));
 			if (message.role !== "assistant") continue;
 			for (const part of partsOf(message.content)) {
-				if (part.type === "text" && part.text?.trim()) rows.push(...this.markdownRows(part.text, 20));
+				// Thinking is left out of the history, also when the model wrote it as `<thinking>` text.
+				const text = part.type === "text" ? withoutThinkingTags(part.text ?? "") : "";
+				if (text.trim()) rows.push(...this.markdownRows(text, 20));
 				if (part.type !== "toolCall" || (part.id && this.tools.has(part.id))) continue;
 				const result = part.id ? results.get(part.id) : undefined;
 				const name = part.name ?? "tool";
