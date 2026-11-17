@@ -288,6 +288,7 @@ button.user-edit-cancel {
 }
 
 .thinking-toggle {
+	max-width: 100%;
 	gap: 7px;
 	padding: 3px 10px 3px 8px;
 	border: none;
@@ -307,6 +308,19 @@ button.user-edit-cancel {
 	color: var(--accent-text);
 }
 
+/* The latest reasoning-summary title, next to a collapsed thinking block. */
+.thinking-headline {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--text-faint);
+}
+
+.thinking-headline::before {
+	content: "·";
+	margin-right: 7px;
+}
+
 .thinking-text {
 	max-height: 360px;
 	overflow-y: auto;
@@ -316,7 +330,6 @@ button.user-edit-cancel {
 	color: var(--text-muted);
 	font-size: 13px;
 	line-height: 1.65;
-	white-space: pre-wrap;
 	animation: fade-in 0.2s var(--ease);
 }
 
@@ -485,6 +498,16 @@ button.markdown-image {
 .divider-block > .markdown,
 .divider-block > pre {
 	padding: 10px 14px;
+}
+
+/* Thinking is compact: reasoning-summary titles stand out from the muted text. */
+.thinking-text .markdown p {
+	margin: 0.35em 0;
+}
+
+.thinking-text .markdown strong {
+	color: var(--text);
+	font-weight: 600;
 }
 
 /* ---- copy button & code blocks --------------------------------------------------- */

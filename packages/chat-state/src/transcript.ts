@@ -14,6 +14,7 @@ import {
 	userText,
 } from "./messages.ts";
 import { type ChatState, subagentsOf, type ToolExecution } from "./reducer.ts";
+import { hasVisibleText, splitThinkingTags } from "./thinking-text.ts";
 
 /**
  * Tool call lifecycle as displayed:
@@ -55,6 +56,16 @@ export type TranscriptItem =
 	| { kind: "toolResult"; key: string; message: ToolResultMessage }
 	| { kind: "unknown"; key: string; message: AnyMessage };
 
+/** Add thinking; it joins the thinking right before it, so a reply shows one thinking block per run. */
+function pushThinking(blocks: AssistantBlock[], text: string, redacted: boolean, live: boolean): void {
+	if (!text && !redacted && !live) return;
+	const last = blocks.at(-1);
+	if (last?.kind === "thinking" && !last.redacted && !redacted) {
+		const joined = [last.text, text].filter(Boolean).join("\n\n");
+		blocks[blocks.length - 1] = { kind: "thinking", text: joined, redacted: false, live };
+	} else blocks.push({ kind: "thinking", text, redacted, live });
+}
+
 function assistantBlocks(
 	message: AssistantMessage,
 	streaming: boolean,
@@ -65,23 +76,26 @@ function assistantBlocks(
 	const content = message.content ?? [];
 	for (const [index, part] of content.entries()) {
 		if (!part) continue;
+		const last = streaming && index === content.length - 1;
 		if (part.type === "text") {
-			if (part.text) blocks.push({ kind: "text", text: part.text });
+			const live = last && part.completed !== true;
+			// Thinking some models write into the reply as `<thinking>…</thinking>` is shown as thinking.
+			for (const segment of splitThinkingTags(part.text ?? "", live)) {
+				if (segment.kind === "text") blocks.push({ kind: "text", text: segment.text });
+				else pushThinking(blocks, segment.text, false, live && !segment.closed);
+			}
 		} else if (part.type === "thinking") {
 			// Keep the in-progress thinking part even before (or without) any text: some
 			// providers stream only an empty/encrypted thinking block for a long time,
 			// and dropping it would leave the reply blank while the model is working.
-			const live = streaming && part.completed !== true && index === content.length - 1;
-			if (part.thinking || part.redacted || live) {
-				blocks.push({ kind: "thinking", text: part.thinking, redacted: !!part.redacted, live });
-			}
+			pushThinking(blocks, part.thinking ?? "", !!part.redacted, last && part.completed !== true);
 		} else if (part.type === "toolCall") {
 			const result = results.get(part.id);
 			const execution = state.tools[part.id];
 			let status: ToolStatus;
 			if (result) status = result.isError ? "error" : "done";
 			else if (execution) status = execution.status;
-			else if (streaming && part.partialJson !== undefined && index === content.length - 1) status = "generating";
+			else if (streaming && part.partialJson !== undefined && last) status = "generating";
 			else if (state.runState === "idle" || state.runState === "inactive") status = "interrupted";
 			else status = "pending";
 			const subagents = part.id ? subagentsOf(state, part.id) : [];
@@ -196,7 +210,7 @@ export function isWaitingForModel(state: ChatState, items: TranscriptItem[]): bo
 			return false;
 	}
 	const part = state.streaming?.content.at(-1);
-	return !(part?.type === "text" && part.completed !== true && part.text.trim());
+	return !(part?.type === "text" && part.completed !== true && hasVisibleText(part.text, true));
 }
 
 export function waitingForModelLabel(state: ChatState): string {

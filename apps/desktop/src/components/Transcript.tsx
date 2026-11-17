@@ -2,9 +2,11 @@ import {
 	type AssistantBlock,
 	buildTranscript,
 	type ChatState,
+	formatThinking,
 	isWaitingForModel,
 	type ToolBlock,
 	type TranscriptItem,
+	thinkingHeadline,
 	waitingForModelLabel,
 } from "@pier/chat-state";
 import type { UiRequest } from "@pier/protocol";
@@ -28,15 +30,27 @@ import { ToolCard } from "./ToolCard.tsx";
 function Thinking({ text, redacted, live }: { text: string; redacted: boolean; live: boolean }) {
 	const [open, setOpen] = useState<boolean | undefined>(undefined);
 	const expanded = open ?? live;
+	const headline = useMemo(() => thinkingHeadline(text), [text]);
+	const formatted = useMemo(() => formatThinking(text), [text]);
 	return (
 		<div className={`thinking${expanded ? " open" : ""}`}>
-			<button type="button" className="thinking-toggle" onClick={() => setOpen(!expanded)}>
+			<button
+				type="button"
+				className="thinking-toggle"
+				onClick={() => setOpen(!expanded)}
+				title={!expanded && headline ? headline : undefined}
+			>
 				<IconBrain size={14} className={live ? "thinking-live" : undefined} />
 				<span className={live ? "shimmer" : undefined}>{live ? "思考中…" : "思考过程"}</span>
 				{redacted ? "（已被隐藏）" : ""}
+				{!expanded && headline ? <span className="thinking-headline">{headline}</span> : null}
 				<IconChevronRight size={13} className={`chevron${expanded ? " open" : ""}`} />
 			</button>
-			{expanded && text ? <div className="thinking-text">{text}</div> : null}
+			{expanded && text ? (
+				<div className="thinking-text">
+					<Markdown text={formatted} />
+				</div>
+			) : null}
 		</div>
 	);
 }

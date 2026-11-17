@@ -5,10 +5,12 @@ import {
 	contentText,
 	editDiff,
 	editReplacements,
+	formatThinking,
 	isWaitingForModel,
 	summarizeToolCall,
 	type ToolBlock,
 	type TranscriptItem,
+	thinkingHeadline,
 	toolOutputText,
 	waitingForModelLabel,
 } from "@pier/chat-state";
@@ -245,6 +247,7 @@ export const ToolCard = memo(function ToolCard({ block }: { block: ToolBlock }) 
 function Thinking({ text, redacted, live }: { text: string; redacted: boolean; live: boolean }) {
 	const p = usePalette();
 	const [open, setOpen] = useState(false);
+	const headline = useMemo(() => (redacted ? undefined : thinkingHeadline(text)), [text, redacted]);
 	return (
 		<Pressable onPress={() => setOpen(!open)} style={[styles.thinking, { backgroundColor: p.elevated }]}>
 			<View style={styles.thinkingHead}>
@@ -252,9 +255,16 @@ function Thinking({ text, redacted, live }: { text: string; redacted: boolean; l
 				<Text style={[styles.thinkingLabel, { color: p.muted }]}>
 					{redacted ? "思考内容已隐藏" : live ? "思考中…" : "思考过程"}
 				</Text>
+				{!open && headline ? (
+					<Text style={[styles.thinkingHeadline, { color: p.faint }]} numberOfLines={1}>
+						{headline}
+					</Text>
+				) : null}
 				{redacted ? null : <Icon name={open ? "chevron-up" : "chevron-down"} size={13} color={p.faint} />}
 			</View>
-			{open && !redacted ? <Text style={[styles.thinkingText, { color: p.muted }]}>{text}</Text> : null}
+			{open && !redacted ? (
+				<Text style={[styles.thinkingText, { color: p.muted }]}>{formatThinking(text, { plain: true })}</Text>
+			) : null}
 		</Pressable>
 	);
 }
@@ -407,6 +417,7 @@ const styles = StyleSheet.create({
 	thinking: { alignSelf: "flex-start", maxWidth: "100%", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
 	thinkingHead: { flexDirection: "row", alignItems: "center", gap: 6 },
 	thinkingLabel: { fontSize: 13, fontWeight: "600" },
+	thinkingHeadline: { flexShrink: 1, fontSize: 13 },
 	thinkingText: { fontSize: 13, lineHeight: 19, marginTop: 6 },
 	notice: { textAlign: "center", fontSize: 12 },
 	divider: { flexDirection: "row", alignItems: "center", gap: 6 },
