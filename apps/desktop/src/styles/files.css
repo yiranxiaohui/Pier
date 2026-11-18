@@ -279,6 +279,40 @@
 	color: var(--text-muted);
 }
 
+/* The path as VS Code's breadcrumbs: folders shrink first so the file name stays readable. */
+.file-viewer-breadcrumbs {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.file-viewer-crumb {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-viewer-crumb:not(.current)::after {
+	content: "›";
+	margin: 0 5px;
+	color: var(--text-faint);
+}
+
+.file-viewer-crumb:not(.current) {
+	max-width: 160px;
+}
+
+.file-viewer-crumb.current {
+	flex-shrink: 0;
+	max-width: 100%;
+	color: var(--text);
+}
+
 .file-viewer-actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -348,108 +382,150 @@
 	color: var(--danger);
 }
 
-.file-viewer-hint {
-	margin-right: 6px;
-	font-size: 11.5px;
-	color: var(--text-faint);
-}
-
-.file-viewer-editor {
+/* The source editor of a text file (CodeEditor.tsx); hidden, not unmounted, while Markdown or
+   HTML shows rendered, so unsaved edits survive. */
+.file-viewer-source {
 	display: flex;
 	flex: 1;
+	flex-direction: column;
 	min-height: 0;
-	background: var(--bg-code);
 }
 
-.file-viewer-editor pre.file-viewer-gutter {
-	flex-shrink: 0;
-	margin: 0;
-	/* Extra bottom space so the gutter can follow the text area past its horizontal scrollbar. */
-	padding: 12px 12px 40px 14px;
-	border-right: 1px solid rgba(255, 255, 255, 0.05);
+.file-viewer-source.hidden {
+	display: none;
+}
+
+.code-editor {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	background: var(--bg-code);
+	color-scheme: dark;
+}
+
+/* The app styles form controls and a few generic class names (.message, .status-bar) globally;
+   keep those rules out of Monaco's widgets (find input, problem messages, hover status bar). */
+.code-editor textarea,
+.code-editor input {
+	border-radius: 0;
+	box-shadow: none;
+	transition: none;
+}
+
+.code-editor .message {
+	margin-bottom: 0;
+	animation: none;
+}
+
+.code-editor .hover-row.status-bar {
+	display: block;
+	gap: normal;
+	padding: 0;
+	color: inherit;
+	white-space: normal;
+	font-variant-numeric: normal;
+}
+
+.code-editor-host {
+	position: relative;
+	flex: 1;
+	min-height: 0;
 	overflow: hidden;
+}
+
+/* Monaco sizes itself to this box (automaticLayout), so it must not size the box in turn. */
+.code-editor-mount {
+	position: absolute;
+	inset: 0;
+}
+
+.code-editor-loading {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	font-size: 13px;
+	color: #8a8f9c;
+}
+
+.code-editor-fallback {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	padding: 12px 14px;
+	overflow: auto;
 	font-family: var(--mono);
 	font-size: 12.5px;
 	line-height: 1.6;
-	text-align: right;
-	color: #5c606c;
+	white-space: pre;
+	color: #e6e8eb;
+	background: transparent;
+}
+
+/* VS Code's status bar, for this editor: problems and read-only on the left, cursor and file
+   format on the right. */
+.code-editor-status {
+	display: flex;
+	flex-shrink: 0;
+	justify-content: space-between;
+	align-items: stretch;
+	gap: 8px;
+	height: 24px;
+	padding: 0 4px;
+	border-top: 1px solid rgba(255, 255, 255, 0.07);
+	background: #181a1f;
+	font-size: 11.5px;
+	line-height: 24px;
+	color: #a7abb4;
 	user-select: none;
 }
 
-.file-viewer-editor textarea {
-	flex: 1;
+.code-editor-status-group {
+	display: flex;
+	align-items: stretch;
 	min-width: 0;
-	margin: 0;
-	padding: 12px 14px;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.code-editor-status-item {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: 4px;
+	height: auto;
+	padding: 0 7px;
 	border: none;
 	border-radius: 0;
-	outline: none;
-	resize: none;
-	overflow: auto;
 	background: transparent;
-	font-family: var(--mono);
-	font-size: 12.5px;
-	line-height: 1.6;
-	white-space: pre;
-	tab-size: 4;
-	color: #e6e8eb;
-	caret-color: #e6e8eb;
 	box-shadow: none;
+	font: inherit;
+	color: inherit;
 }
 
-.file-viewer-editor textarea:focus,
-.file-viewer-editor textarea:focus-visible {
-	outline: none;
-	border: none;
-	box-shadow: none;
-}
-
-.file-viewer-code {
-	display: flex;
-	flex: 1;
-	align-items: flex-start;
-	min-height: 0;
-	overflow: auto;
-	background: var(--bg-code);
-}
-
-.file-viewer-code pre {
-	margin: 0;
-	padding: 12px 14px;
-	font-family: var(--mono);
-	font-size: 12.5px;
-	line-height: 1.6;
-	white-space: pre;
-	background: transparent;
-}
-
-.file-viewer-code pre.file-viewer-gutter {
-	position: sticky;
-	left: 0;
-	flex-shrink: 0;
-	min-height: 100%;
-	padding-right: 12px;
-	border-right: 1px solid rgba(255, 255, 255, 0.05);
-	background: var(--bg-code);
-	text-align: right;
-	color: #5c606c;
-	user-select: none;
-}
-
-.file-viewer-text {
-	flex: 1;
+.code-editor-status-item:hover:not(:disabled) {
+	background: rgba(255, 255, 255, 0.08);
 	color: #e6e8eb;
 }
 
-.file-viewer-text code {
-	font-size: inherit;
-	line-height: inherit;
-	tab-size: 4;
+.code-editor-status-item:disabled {
+	opacity: 1;
+	cursor: default;
 }
 
-.file-viewer-text code.hljs {
-	background: transparent;
-	padding: 0;
+.code-editor-status-item .codicon {
+	font-size: 14px;
+}
+
+.code-editor-status-item .codicon:not(:first-child) {
+	margin-left: 4px;
+}
+
+.code-editor-readonly {
+	color: #e9b44c;
 }
 
 .file-viewer-markdown {

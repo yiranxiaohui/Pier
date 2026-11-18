@@ -41,7 +41,16 @@ function textOf(node: ReactNode): string {
 	return "";
 }
 
-export function CopyButton({ text, label = "复制", iconOnly }: { text: string; label?: string; iconOnly?: boolean }) {
+export function CopyButton({
+	text,
+	label = "复制",
+	iconOnly,
+}: {
+	/** The text, or a function that reads it when clicked (e.g. from an editor). */
+	text: string | (() => string);
+	label?: string;
+	iconOnly?: boolean;
+}) {
 	const [copied, setCopied] = useState(false);
 	return (
 		<button
@@ -49,7 +58,7 @@ export function CopyButton({ text, label = "复制", iconOnly }: { text: string;
 			className={`copy-button${iconOnly ? " icon-only" : ""}${copied ? " copied" : ""}`}
 			title={iconOnly ? label : undefined}
 			onClick={() => {
-				void navigator.clipboard.writeText(text).then(() => {
+				void navigator.clipboard.writeText(typeof text === "function" ? text() : text).then(() => {
 					setCopied(true);
 					setTimeout(() => setCopied(false), 1500);
 				});

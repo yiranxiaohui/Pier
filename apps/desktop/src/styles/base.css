@@ -410,7 +410,8 @@ code {
 	background: var(--bg-app);
 }
 
-.main {
+/* Only the <main> element: Monaco's suggest list uses the class `main` too. */
+:where(main).main {
 	display: flex;
 	flex-direction: column;
 	min-width: 0;

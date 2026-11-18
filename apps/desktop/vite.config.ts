@@ -20,6 +20,7 @@ export default defineConfig({
 		target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari15",
 		minify: process.env.TAURI_ENV_DEBUG ? false : "oxc",
 		sourcemap: !!process.env.TAURI_ENV_DEBUG,
-		chunkSizeWarningLimit: 2000,
+		// The code editor's Monaco core (~2.7 MB) is one lazily loaded chunk; the start-up bundle stays below 2 MB.
+		chunkSizeWarningLimit: 3000,
 	},
 });

@@ -1,19 +1,26 @@
 import type { PierClient } from "@pier/client";
 import type { WorkspaceFileContent } from "@pier/protocol";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, relativeTime } from "../lib/format.ts";
 import { type FileScope, fileErrorText, scopeAbsolute, scopeFiles } from "../lib/host-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
-import { TextEditor, TextView } from "./FileViewer.tsx";
-import { IconAlert, IconDownload, IconFile, IconLoader, IconPencil, IconRefresh, IconShieldAlert } from "./Icons.tsx";
+import { CodeEditor, type CodeEditorHandle, SAVE_SHORTCUT } from "./CodeEditor.tsx";
+import {
+	IconAlert,
+	IconDownload,
+	IconFile,
+	IconLoader,
+	IconRefresh,
+	IconSave,
+	IconShieldAlert,
+	IconUndo,
+} from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
 import { Modal } from "./Modal.tsx";
 
-const toLf = (text: string) => text.replace(/\r\n?/g, "\n");
-
 /**
- * Preview of one file in the host file manager: text with line numbers and highlighting, an
- * image, or a note for binary files. Text read in full can be edited and saved back; saving
+ * Preview of one file in the host file manager: text in VS Code's editor (Monaco), an image, or a
+ * note for binary files. Text read in full can be edited in place and saved with Ctrl/⌘+S; saving
  * refuses to overwrite a file changed on disk unless confirmed.
  */
 export function HostFileViewer({
@@ -36,24 +43,35 @@ export function HostFileViewer({
 	onSaved?: () => void;
 }) {
 	const [confirmed, setConfirmed] = useState(() => !isSensitiveFile(path));
+	/** The file as last read or saved; edits in progress live in the editor. */
 	const [file, setFile] = useState<WorkspaceFileContent>();
+	/** Bumped for every read, so the editor starts over with the file's new text. */
+	const [reads, setReads] = useState(0);
 	const [error, setError] = useState<string>();
 	const [loading, setLoading] = useState(false);
-	const [draft, setDraft] = useState<string>();
+	const [dirty, setDirty] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string>();
 	const [conflict, setConflict] = useState(false);
 	const [closePrompt, setClosePrompt] = useState(false);
 	const request = useRef(0);
+	const editor = useRef<CodeEditorHandle>(null);
 
 	const load = useCallback(async () => {
 		const id = ++request.current;
 		setLoading(true);
 		setError(undefined);
+		setDirty(false);
+		setSaveError(undefined);
+		setConflict(false);
+		setClosePrompt(false);
 		try {
 			if (!client) throw new Error("主机未连接");
 			const result = await scopeFiles(client, scope).readFile(path);
-			if (request.current === id) setFile(result);
+			if (request.current === id) {
+				setFile(result);
+				setReads((n) => n + 1);
+			}
 		} catch (e) {
 			if (request.current === id) {
 				setFile(undefined);
@@ -71,19 +89,28 @@ export function HostFileViewer({
 		};
 	}, [confirmed, load]);
 
-	const original = useMemo(() => toLf(file?.text ?? ""), [file?.text]);
-	const editing = draft !== undefined && !!file;
-	const dirty = editing && draft !== original;
-	const canEdit = editable && file?.kind === "text" && !file.truncated;
+	const isText = file?.kind === "text";
+	const canEdit = editable && isText && !file.truncated;
+	const readOnlyReason = !isText
+		? undefined
+		: file.truncated
+			? "文件太大，只读取了开头部分，无法编辑"
+			: !editable
+				? "主机未连接，或那台电脑的 Pier 版本不支持编辑文件"
+				: undefined;
 
+	/** Write the editor's text; `force` skips the check that the file is unchanged on disk. */
 	const save = async (force = false): Promise<boolean> => {
-		if (!client || !file || draft === undefined || saving) return false;
-		const text = file.text?.includes("\r\n") ? draft.replace(/\n/g, "\r\n") : draft;
+		const handle = editor.current;
+		if (!client || !file || !handle || !canEdit || saving) return false;
+		const text = handle.getValue();
+		const version = handle.version();
 		setSaving(true);
 		setSaveError(undefined);
 		try {
 			const result = await scopeFiles(client, scope).writeFile(path, text, force ? undefined : file.modifiedAt);
 			setFile({ ...file, text, size: result.size, modifiedAt: result.modifiedAt });
+			handle.markSaved(version);
 			setConflict(false);
 			setClosePrompt(false);
 			onSaved?.();
@@ -95,6 +122,16 @@ export function HostFileViewer({
 		} finally {
 			setSaving(false);
 		}
+	};
+	// Ctrl/⌘+S in the editor saves with the latest state.
+	const saveHandler = useRef(save);
+	saveHandler.current = save;
+	const onEditorSave = useCallback(() => void saveHandler.current(), []);
+	/** Drop unsaved edits (undoably, as VS Code's "Revert File"). */
+	const revert = () => {
+		editor.current?.revert(file?.text ?? "");
+		setSaveError(undefined);
+		setConflict(false);
 	};
 	const requestClose = () => {
 		if (dirty) setClosePrompt(true);
@@ -150,7 +187,7 @@ export function HostFileViewer({
 				二进制文件，无法以文本显示
 			</div>
 		);
-	} else if (editing) {
+	} else {
 		body = (
 			<>
 				{closePrompt ? (
@@ -175,15 +212,7 @@ export function HostFileViewer({
 				{conflict ? (
 					<div className="file-viewer-banner row">
 						<span>文件在打开后已被修改，保存会覆盖磁盘上的内容。</span>
-						<button
-							type="button"
-							className="ghost small"
-							onClick={() => {
-								setDraft(undefined);
-								setConflict(false);
-								void load();
-							}}
-						>
+						<button type="button" className="ghost small" onClick={() => void load()}>
 							放弃修改并重新读取
 						</button>
 						<button type="button" className="primary small" disabled={saving} onClick={() => void save(true)}>
@@ -192,16 +221,19 @@ export function HostFileViewer({
 					</div>
 				) : null}
 				{saveError ? <div className="file-viewer-banner error">保存失败：{saveError}</div> : null}
-				<TextEditor value={draft} path={path} onChange={setDraft} onSave={() => void save()} />
-			</>
-		);
-	} else {
-		body = (
-			<>
 				{file.truncated ? (
-					<div className="file-viewer-banner">文件较大（{formatBytes(file.size)}），仅显示开头部分</div>
+					<div className="file-viewer-banner">文件较大（{formatBytes(file.size)}），仅显示开头部分，无法编辑</div>
 				) : null}
-				<TextView file={file} />
+				<CodeEditor
+					key={reads}
+					ref={editor}
+					path={path}
+					value={file.text ?? ""}
+					readOnly={!canEdit}
+					readOnlyReason={readOnlyReason}
+					onDirtyChange={setDirty}
+					onSave={onEditorSave}
+				/>
 			</>
 		);
 	}
@@ -220,65 +252,48 @@ export function HostFileViewer({
 						) : null}
 					</span>
 					<span className="file-viewer-actions">
-						{editing ? (
+						{isText && file.text !== undefined ? (
+							<CopyButton text={() => editor.current?.getValue() ?? file.text ?? ""} label="复制内容" />
+						) : null}
+						<CopyButton text={absolute} label="复制路径" iconOnly />
+						{onDownload ? (
+							<button type="button" className="ghost icon" title="下载到本机" onClick={onDownload}>
+								<IconDownload size={14} />
+							</button>
+						) : null}
+						<button
+							type="button"
+							className="ghost icon"
+							title={dirty ? "有未保存的修改，请先保存或还原" : "重新读取"}
+							disabled={!confirmed || loading || dirty}
+							onClick={() => void load()}
+						>
+							<IconRefresh size={14} className={loading ? "spin" : undefined} />
+						</button>
+						{dirty ? (
 							<>
-								<span className="file-viewer-hint">{dirty ? "未保存" : "已保存"} · Ctrl/⌘+S 保存</span>
 								<button
 									type="button"
 									className="ghost small"
+									title="放弃未保存的修改（可撤销）"
 									disabled={saving}
-									onClick={() => {
-										if (dirty) setDraft(original);
-										else {
-											setDraft(undefined);
-											setSaveError(undefined);
-											setConflict(false);
-											setClosePrompt(false);
-										}
-									}}
+									onClick={revert}
 								>
-									{dirty ? "撤销修改" : "完成"}
+									<IconUndo size={13} />
+									还原
 								</button>
-								<button type="button" className="primary small" disabled={!dirty || saving} onClick={() => void save()}>
-									{saving ? <IconLoader size={13} className="spin" /> : null}
+								<button
+									type="button"
+									className="primary small"
+									title={`保存 (${SAVE_SHORTCUT})`}
+									disabled={saving}
+									onClick={() => void save()}
+								>
+									{saving ? <IconLoader size={13} className="spin" /> : <IconSave size={13} />}
 									保存
 								</button>
 							</>
-						) : (
-							<>
-								{canEdit ? (
-									<button
-										type="button"
-										className="ghost small"
-										title="编辑文件"
-										onClick={() => {
-											setDraft(original);
-											setSaveError(undefined);
-											setConflict(false);
-										}}
-									>
-										<IconPencil size={13} />
-										编辑
-									</button>
-								) : null}
-								{file?.kind === "text" && file.text ? <CopyButton text={file.text} label="复制内容" /> : null}
-								<CopyButton text={absolute} label="复制路径" iconOnly />
-								{onDownload ? (
-									<button type="button" className="ghost icon" title="下载到本机" onClick={onDownload}>
-										<IconDownload size={14} />
-									</button>
-								) : null}
-								<button
-									type="button"
-									className="ghost icon"
-									title="重新读取"
-									disabled={!confirmed || loading}
-									onClick={() => void load()}
-								>
-									<IconRefresh size={14} className={loading ? "spin" : undefined} />
-								</button>
-							</>
-						)}
+						) : null}
 					</span>
 				</div>
 				<div className="file-viewer-body">{body}</div>

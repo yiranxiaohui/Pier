@@ -1,7 +1,7 @@
 import type { WorkspaceFileContent } from "@pier/protocol";
-import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { downloadFile } from "../lib/file-transfers.ts";
-import { formatBytes, joinPath, languageForPath, relativeTime, relativeWorkspacePath } from "../lib/format.ts";
+import { formatBytes, joinPath, relativeTime, relativeWorkspacePath } from "../lib/format.ts";
 import { filePreviewAuthorizationPath, filePreviewError } from "../lib/markdown-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
 import {
@@ -13,6 +13,7 @@ import {
 	useCanManageWorkspace,
 	useStore,
 } from "../lib/store.tsx";
+import { CodeEditor, type CodeEditorHandle, SAVE_SHORTCUT } from "./CodeEditor.tsx";
 import { HtmlPreview } from "./HtmlPreview.tsx";
 import {
 	IconAlert,
@@ -21,12 +22,12 @@ import {
 	IconFolderOpen,
 	IconLoader,
 	IconMessagePlus,
-	IconPencil,
 	IconRefresh,
+	IconSave,
 	IconShieldAlert,
+	IconUndo,
 } from "./Icons.tsx";
 import { CopyButton, Markdown, MarkdownFiles } from "./Markdown.tsx";
-import { Highlighted } from "./ToolCard.tsx";
 
 function errorText(error: unknown): string {
 	const code = (error as { code?: string }).code;
@@ -50,108 +51,34 @@ function saveErrorText(error: unknown): string {
 
 const isConflict = (error: unknown) => (error as { code?: string }).code === "CONFLICT";
 
-/** Text areas report "\n" line breaks only, so CRLF files are edited as LF and converted back on save. */
-const toLf = (text: string) => text.replace(/\r\n?/g, "\n");
-
-/** The indentation Tab inserts: the file's own style when it has one, else a tab (two spaces for YAML). */
-function indentUnit(text: string, path: string): string {
-	if (/^\t/m.test(text)) return "\t";
-	const widths = [...text.matchAll(/^( +)\S/gm)].map((m) => m[1]?.length ?? 0);
-	const width = widths.length ? Math.min(...widths) : 0;
-	if (width === 2 || width === 4) return " ".repeat(width);
-	return /\.ya?ml$/i.test(path) ? "  " : "\t";
-}
-
-/** Insert text at the caret, keeping the browser's undo history when it can. */
-function insertAtCaret(area: HTMLTextAreaElement, text: string, onChange: (value: string) => void) {
-	if (document.execCommand("insertText", false, text)) return;
-	area.setRangeText(text, area.selectionStart, area.selectionEnd, "end");
-	onChange(area.value);
-}
-
-export function TextEditor({
-	value,
-	path,
-	onChange,
-	onSave,
-}: {
-	value: string;
-	path: string;
-	onChange: (value: string) => void;
-	onSave: () => void;
-}) {
-	const gutter = useRef<HTMLPreElement>(null);
-	const area = useRef<HTMLTextAreaElement>(null);
-	const lines = useMemo(() => Array.from({ length: value.split("\n").length }, (_, i) => i + 1).join("\n"), [value]);
-	const indent = useMemo(() => indentUnit(value, path), [value, path]);
-	useEffect(() => {
-		const el = area.current;
-		if (!el) return;
-		el.focus();
-		el.setSelectionRange(0, 0);
-	}, []);
-	const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-		if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "s") {
-			e.preventDefault();
-			onSave();
-		} else if (e.key === "Tab" && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
-			e.preventDefault();
-			insertAtCaret(e.currentTarget, indent, onChange);
-		}
-	};
-	return (
-		<div className="file-viewer-editor">
-			<pre ref={gutter} className="file-viewer-gutter" aria-hidden="true">
-				{lines}
-			</pre>
-			<textarea
-				ref={area}
-				value={value}
-				spellCheck={false}
-				autoCapitalize="off"
-				autoComplete="off"
-				autoCorrect="off"
-				wrap="off"
-				aria-label="文件内容"
-				onChange={(e) => onChange(e.target.value)}
-				onKeyDown={onKeyDown}
-				onScroll={(e) => {
-					if (gutter.current) gutter.current.scrollTop = e.currentTarget.scrollTop;
-				}}
-			/>
-		</div>
-	);
-}
-
 const MARKDOWN = /\.(md|markdown|mdx)$/i;
 const HTML = /\.html?$/i;
 
-export function TextView({ file }: { file: WorkspaceFileContent }) {
-	const text = file.text ?? "";
-	const lines = useMemo(() => {
-		const count = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-		return Array.from({ length: Math.max(count, 1) }, (_, i) => i + 1).join("\n");
-	}, [text]);
-	if (!text) return <div className="file-viewer-empty">空文件</div>;
+/** The path as VS Code's breadcrumbs show it: folders then the file name, which never shrinks away. */
+function Breadcrumbs({ path }: { path: string }) {
+	const parts = path.split(/[\\/]/).filter(Boolean);
+	const name = parts.pop() ?? path;
 	return (
-		<div className="file-viewer-code">
-			<pre className="file-viewer-gutter" aria-hidden="true">
-				{lines}
-			</pre>
-			<pre className="file-viewer-text">
-				<Highlighted code={text} language={languageForPath(file.path)} />
-			</pre>
-		</div>
+		<span className="file-viewer-breadcrumbs">
+			{parts.map((part, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: path segments repeat and never reorder.
+				<span key={index} className="file-viewer-crumb">
+					{part}
+				</span>
+			))}
+			<span className="file-viewer-crumb current">{name}</span>
+		</span>
 	);
 }
 
 /**
- * Preview of one workspace file: text with line numbers and syntax highlighting, rendered
- * Markdown / HTML, or an image. Text files that were read in full can be edited and saved back.
- * `onInsert` inserts the path into the composer when present (and closes the file after it
- * with `closeOnInsert`). The file name shows on its tab in `FilePreview`, so the viewer reports
- * unsaved edits through `onDirtyChange`; bumping `closeRequest` asks to close the file, which
- * first offers to save unsaved edits.
+ * One workspace file in the preview. Text opens in VS Code's editor (Monaco) with syntax
+ * highlighting and, when the file was read in full and its computer accepts edits, can be edited
+ * in place and saved with Ctrl/⌘+S. Markdown and HTML open rendered, with a source view to edit
+ * them; images show as images. `onInsert` inserts the path into the composer when present (and
+ * closes the file after it with `closeOnInsert`). The file name shows on its tab in `SidePanel`,
+ * so the viewer reports unsaved edits through `onDirtyChange`; bumping `closeRequest` asks to
+ * close the file, which first offers to save unsaved edits.
  */
 export function FileViewer({
 	workspaceId,
@@ -174,13 +101,19 @@ export function FileViewer({
 }) {
 	const store = useStore();
 	const [confirmed, setConfirmed] = useState(() => !isSensitiveFile(path));
+	/** The file as last read or saved; edits in progress live in the editor. */
 	const [file, setFile] = useState<WorkspaceFileContent>();
+	/** Bumped for every read, so the editor starts over with the file's new text. */
+	const [reads, setReads] = useState(0);
 	const [error, setError] = useState<unknown>();
 	const [authorizationPrompt, setAuthorizationPrompt] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [rendered, setRendered] = useState(true);
-	/** The text being edited; undefined while previewing. */
-	const [draft, setDraft] = useState<string>();
+	/** Markdown / HTML: the source editor stays mounted (with its edits) once it has been shown. */
+	const [sourceShown, setSourceShown] = useState(false);
+	/** The text the rendered view shows, taken from the editor when switching to it. */
+	const [renderedText, setRenderedText] = useState<string>();
+	const [dirty, setDirty] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string>();
 	const [conflict, setConflict] = useState(false);
@@ -188,6 +121,7 @@ export function FileViewer({
 	const [downloading, setDownloading] = useState(false);
 	const [authorizedPreviewPath, setAuthorizedPreviewPath] = useState<string>();
 	const request = useRef(0);
+	const editor = useRef<CodeEditorHandle>(null);
 
 	const load = useCallback(
 		async (authorizedPath?: string) => {
@@ -196,6 +130,11 @@ export function FileViewer({
 			setError(undefined);
 			setFile(undefined);
 			setAuthorizationPrompt(false);
+			setDirty(false);
+			setRenderedText(undefined);
+			setSaveError(undefined);
+			setConflict(false);
+			setClosePrompt(false);
 			try {
 				const result = await (authorizedPath
 					? store.authorizeFilePreview(workspaceId, path, authorizedPath)
@@ -204,6 +143,7 @@ export function FileViewer({
 						: store.readFile(workspaceId, path));
 				if (request.current === id) {
 					setFile(result);
+					setReads((n) => n + 1);
 					setAuthorizedPreviewPath(authorizedPath);
 				}
 			} catch (e) {
@@ -245,36 +185,36 @@ export function FileViewer({
 	const canAuthorize = !!authorizationPath && hostAuthorizesFilePreviews(previewHost, previewNode !== LOCAL_NODE);
 
 	const name = path.split(/[\\/]/).pop() || path;
-	const isMarkdown = MARKDOWN.test(path) && file?.kind === "text";
-	const isHtml = HTML.test(path) && file?.kind === "text" && !file.truncated;
+	const isText = file?.kind === "text";
+	const isMarkdown = MARKDOWN.test(path) && isText;
+	const isHtml = HTML.test(path) && isText && !file.truncated;
+	const renderable = isMarkdown || isHtml;
+	const showRendered = renderable && rendered;
 	// Paired computers on protocol 1.10+ accept edits; older ones are read-only from here.
-	const local = useCanManageWorkspace(workspaceId);
-	const editable = !fromMarkdown && local && file?.kind === "text" && !file.truncated;
-	const editing = draft !== undefined && !!file;
-	const original = useMemo(() => toLf(file?.text ?? ""), [file?.text]);
-	const dirty = editing && draft !== original;
+	const canManage = useCanManageWorkspace(workspaceId);
+	const editable = !fromMarkdown && canManage && isText && !file.truncated;
+	const readOnlyReason = !isText
+		? undefined
+		: fromMarkdown
+			? "这是从 Markdown 链接打开的只读预览"
+			: file.truncated
+				? "文件太大，只读取了开头部分，无法编辑"
+				: !canManage
+					? "那台电脑的 Pier 版本过旧，不支持远程编辑文件"
+					: undefined;
 
-	const startEditing = () => {
-		setDraft(original);
-		setSaveError(undefined);
-		setConflict(false);
-	};
-	const stopEditing = () => {
-		setDraft(undefined);
-		setSaveError(undefined);
-		setConflict(false);
-		setClosePrompt(false);
-	};
-
-	/** Write the draft; `force` skips the check that the file is unchanged on disk. */
+	/** Write the editor's text; `force` skips the check that the file is unchanged on disk. */
 	const save = async (force = false): Promise<boolean> => {
-		if (!file || draft === undefined || saving) return false;
-		const text = file.text?.includes("\r\n") ? draft.replace(/\n/g, "\r\n") : draft;
+		const handle = editor.current;
+		if (!file || !handle || !editable || saving) return false;
+		const text = handle.getValue();
+		const version = handle.version();
 		setSaving(true);
 		setSaveError(undefined);
 		try {
 			const result = await store.writeFile(workspaceId, path, text, force ? undefined : file.modifiedAt);
 			setFile({ ...file, text, size: result.size, modifiedAt: result.modifiedAt });
+			handle.markSaved(version);
 			setConflict(false);
 			setClosePrompt(false);
 			return true;
@@ -285,6 +225,17 @@ export function FileViewer({
 		} finally {
 			setSaving(false);
 		}
+	};
+	// Ctrl/⌘+S in the editor saves with the latest state.
+	const saveHandler = useRef(save);
+	saveHandler.current = save;
+	const onEditorSave = useCallback(() => void saveHandler.current(), []);
+
+	/** Drop unsaved edits (undoably, as VS Code's "Revert File"). */
+	const revert = () => {
+		editor.current?.revert(file?.text ?? "");
+		setSaveError(undefined);
+		setConflict(false);
 	};
 
 	const requestClose = () => {
@@ -305,6 +256,12 @@ export function FileViewer({
 		handledCloseRequest.current = closeRequest;
 		closeHandler.current();
 	}, [closeRequest]);
+
+	const showRenderedView = (next: boolean) => {
+		if (next) setRenderedText(editor.current?.getValue());
+		else setSourceShown(true);
+		setRendered(next);
+	};
 
 	const download = async () => {
 		if (!workspace || !previewDownloadPath || downloading) return;
@@ -397,7 +354,9 @@ export function FileViewer({
 				二进制文件，无法以文本显示
 			</div>
 		);
-	} else if (editing) {
+	} else {
+		const text = file.text ?? "";
+		const shownText = renderedText ?? text;
 		body = (
 			<>
 				{closePrompt ? (
@@ -422,14 +381,7 @@ export function FileViewer({
 				{conflict ? (
 					<div className="file-viewer-banner row">
 						<span>文件在打开后已被修改，保存会覆盖磁盘上的内容。</span>
-						<button
-							type="button"
-							className="ghost small"
-							onClick={() => {
-								stopEditing();
-								void load();
-							}}
-						>
+						<button type="button" className="ghost small" onClick={() => void load()}>
 							放弃修改并重新读取
 						</button>
 						<button type="button" className="primary small" disabled={saving} onClick={() => void save(true)}>
@@ -438,29 +390,37 @@ export function FileViewer({
 					</div>
 				) : null}
 				{saveError ? <div className="file-viewer-banner error">保存失败：{saveError}</div> : null}
-				<TextEditor value={draft} path={path} onChange={setDraft} onSave={() => void save()} />
-			</>
-		);
-	} else {
-		body = (
-			<>
 				{file.truncated ? (
-					<div className="file-viewer-banner">文件较大（{formatBytes(file.size)}），仅显示开头部分</div>
+					<div className="file-viewer-banner">文件较大（{formatBytes(file.size)}），仅显示开头部分，无法编辑</div>
 				) : null}
-				{isHtml && rendered ? (
-					<HtmlPreview html={file.text ?? ""} title={name} />
-				) : isMarkdown && rendered ? (
-					<div className="file-viewer-markdown">
-						<MarkdownFiles
-							workspaceId={workspaceId}
-							basePath={path.replace(/\\/g, "/").split("/").slice(0, -1).join("/")}
-						>
-							<Markdown text={file.text ?? ""} />
-						</MarkdownFiles>
+				{showRendered ? (
+					isHtml ? (
+						<HtmlPreview html={shownText} title={name} />
+					) : (
+						<div className="file-viewer-markdown">
+							<MarkdownFiles
+								workspaceId={workspaceId}
+								basePath={path.replace(/\\/g, "/").split("/").slice(0, -1).join("/")}
+							>
+								<Markdown text={shownText} />
+							</MarkdownFiles>
+						</div>
+					)
+				) : null}
+				{!renderable || sourceShown || !rendered ? (
+					<div className={`file-viewer-source${showRendered ? " hidden" : ""}`}>
+						<CodeEditor
+							key={reads}
+							ref={editor}
+							path={path}
+							value={text}
+							readOnly={!editable}
+							readOnlyReason={readOnlyReason}
+							onDirtyChange={setDirty}
+							onSave={onEditorSave}
+						/>
 					</div>
-				) : (
-					<TextView file={file} />
-				)}
+				) : null}
 			</>
 		);
 	}
@@ -469,7 +429,7 @@ export function FileViewer({
 		<div className="file-viewer">
 			<div className="file-viewer-toolbar">
 				<span className="file-viewer-meta" title={path}>
-					<span className="file-viewer-path">{path}</span>
+					<Breadcrumbs path={path} />
 					{file ? (
 						<span>
 							{formatBytes(file.size)} · 修改于 {relativeTime(file.modifiedAt)}
@@ -488,98 +448,95 @@ export function FileViewer({
 							<span className="file-viewer-action-label">打开所在文件夹</span>
 						</button>
 					) : null}
-					{editing ? (
+					{renderable ? (
+						<span className="segmented" role="tablist" aria-label="显示方式">
+							<button
+								type="button"
+								className={rendered ? "active" : ""}
+								role="tab"
+								aria-selected={rendered}
+								onClick={() => showRenderedView(true)}
+							>
+								预览
+							</button>
+							<button
+								type="button"
+								className={rendered ? "" : "active"}
+								role="tab"
+								aria-selected={!rendered}
+								onClick={() => showRenderedView(false)}
+							>
+								源码
+							</button>
+						</span>
+					) : null}
+					{isText && file.text !== undefined ? (
+						<CopyButton text={() => editor.current?.getValue() ?? file.text ?? ""} label="复制内容" />
+					) : null}
+					<CopyButton text={path} label="复制路径" iconOnly />
+					{file ? (
+						<button
+							type="button"
+							className="ghost icon"
+							title={
+								canDownload
+									? "下载到本机"
+									: previewDownload
+										? "当前 Pier 版本不支持下载预览文件，请先更新"
+										: "只能下载工作区内的文件，请将文件放入当前工作区"
+							}
+							disabled={!canDownload || downloading}
+							onClick={() => void download()}
+						>
+							{downloading ? <IconLoader size={14} className="spin" /> : <IconDownload size={14} />}
+						</button>
+					) : null}
+					{onInsert ? (
+						<button
+							type="button"
+							className="ghost icon"
+							title="插入路径到输入框"
+							onClick={() => {
+								onInsert();
+								if (closeOnInsert) requestClose();
+							}}
+						>
+							<IconMessagePlus size={14} />
+						</button>
+					) : null}
+					<button
+						type="button"
+						className="ghost icon"
+						title={dirty ? "有未保存的修改，请先保存或还原" : "重新读取"}
+						disabled={!confirmed || loading || dirty}
+						onClick={() => void load()}
+					>
+						<IconRefresh size={14} className={loading ? "spin" : undefined} />
+					</button>
+					{dirty ? (
 						<>
-							<span className="file-viewer-hint">{dirty ? "未保存" : "已保存"} · Ctrl/⌘+S 保存</span>
 							<button
 								type="button"
 								className="ghost small"
+								title="放弃未保存的修改（可撤销）"
 								disabled={saving}
-								onClick={() => {
-									if (dirty) setDraft(original);
-									else stopEditing();
-								}}
+								onClick={revert}
 							>
-								{dirty ? "撤销修改" : "完成"}
+								<IconUndo size={13} />
+								<span className="file-viewer-action-label">还原</span>
 							</button>
-							<button type="button" className="primary small" disabled={!dirty || saving} onClick={() => void save()}>
-								{saving ? <IconLoader size={13} className="spin" /> : null}
+							<button
+								type="button"
+								className="primary small"
+								title={`保存 (${SAVE_SHORTCUT})`}
+								disabled={saving}
+								onClick={() => void save()}
+							>
+								{saving ? <IconLoader size={13} className="spin" /> : <IconSave size={13} />}
 								保存
 							</button>
 						</>
-					) : (
-						<>
-							{isMarkdown || isHtml ? (
-								<span className="segmented" role="tablist" aria-label="显示方式">
-									<button
-										type="button"
-										className={rendered ? "active" : ""}
-										role="tab"
-										aria-selected={rendered}
-										onClick={() => setRendered(true)}
-									>
-										预览
-									</button>
-									<button
-										type="button"
-										className={rendered ? "" : "active"}
-										role="tab"
-										aria-selected={!rendered}
-										onClick={() => setRendered(false)}
-									>
-										源码
-									</button>
-								</span>
-							) : null}
-							{editable ? (
-								<button type="button" className="ghost small" title="编辑文件" onClick={startEditing}>
-									<IconPencil size={13} />
-									<span className="file-viewer-action-label">编辑</span>
-								</button>
-							) : null}
-							{file?.kind === "text" && file.text ? <CopyButton text={file.text} label="复制内容" /> : null}
-							<CopyButton text={path} label="复制路径" iconOnly />
-							{file ? (
-								<button
-									type="button"
-									className="ghost icon"
-									title={
-										canDownload
-											? "下载到本机"
-											: previewDownload
-												? "当前 Pier 版本不支持下载预览文件，请先更新"
-												: "只能下载工作区内的文件，请将文件放入当前工作区"
-									}
-									disabled={!canDownload || downloading}
-									onClick={() => void download()}
-								>
-									{downloading ? <IconLoader size={14} className="spin" /> : <IconDownload size={14} />}
-								</button>
-							) : null}
-							{onInsert ? (
-								<button
-									type="button"
-									className="ghost icon"
-									title="插入路径到输入框"
-									onClick={() => {
-										onInsert();
-										if (closeOnInsert) requestClose();
-									}}
-								>
-									<IconMessagePlus size={14} />
-								</button>
-							) : null}
-							<button
-								type="button"
-								className="ghost icon"
-								title="重新读取"
-								disabled={!confirmed || loading}
-								onClick={() => void load()}
-							>
-								<IconRefresh size={14} className={loading ? "spin" : undefined} />
-							</button>
-						</>
-					)}
+					) : null}
 				</span>
 			</div>
 			<div className="file-viewer-body">{body}</div>
