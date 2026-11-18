@@ -15,8 +15,8 @@ import { DEFAULT_ALLOWED_ORIGINS, startLocalGateway } from "./gateway/local-gate
 import { PIER_HOST_VERSION, PierHost } from "./host.ts";
 import { applyLoginShellPath } from "./login-shell-path.ts";
 import { defaultPierDir, runtimeFilePath } from "./paths.ts";
-import { installCodemodeWasmRedirect } from "./pi/codemode-wasm.ts";
-import { checkImageSupport, installPhotonWasmRedirect } from "./pi/photon-wasm.ts";
+import { checkPi } from "./pi/check.ts";
+import { dropForeignPiPackageDir, PiLoader } from "./pi/sdk.ts";
 import { createPtyTerminals } from "./pty-terminals.ts";
 import { checkP2PSupport } from "./remote/p2p.ts";
 import { StdioShell } from "./shell.ts";
@@ -53,7 +53,8 @@ Options:
                       before its first stdin message already see them
   --no-login-shell-path
                       Do not ask the login shell for its PATH in sidecar mode
-  --check-images      Resize a sample image through pi (Photon), print the result, and exit
+  --check-pi          Load the installed pi, resize a sample image through it (Photon),
+                      print the result, and exit
   --check-p2p         Open a local WebRTC data channel (peer-to-peer support), print the
                       result, and exit
   -h, --help          Show this help
@@ -61,6 +62,9 @@ Options:
 Environment:
   PIER_LOCAL_TOKEN    Local token to require (default: random per start)
   PIER_RELAY_TOKEN    Access token for --relay
+  PIER_PI_PATH        The pi to use: a pi command or pi's package directory (default: pi on
+                      PATH, or pi's own installer location). pi is the user's own installation
+                      (curl -fsSL https://pi.dev/install.sh | sh, or npm), loaded at runtime
 `;
 
 let runningHost: PierHost | undefined;
@@ -73,10 +77,9 @@ function log(message: string): void {
 }
 
 async function main(): Promise<void> {
-	// Load Photon's wasm from the bundled assets, not the build machine's path; without it pi
-	// drops every image.
-	installPhotonWasmRedirect();
-	installCodemodeWasmRedirect();
+	// Not inherited by pi, its tools and terminals: see dropForeignPiPackageDir.
+	const dropped = dropForeignPiPackageDir();
+	if (dropped) writeLog(`ignoring PI_PACKAGE_DIR=${dropped}: assets of an older Pier, not a pi installation`);
 	const { values } = parseArgs({
 		options: {
 			port: { type: "string" },
@@ -93,6 +96,8 @@ async function main(): Promise<void> {
 			"watch-stdin": { type: "boolean" },
 			"shell-terminals": { type: "boolean" },
 			"no-login-shell-path": { type: "boolean" },
+			"check-pi": { type: "boolean" },
+			// The name before pi became the user's own installation.
 			"check-images": { type: "boolean" },
 			"check-p2p": { type: "boolean" },
 			help: { type: "boolean", short: "h" },
@@ -110,8 +115,8 @@ async function main(): Promise<void> {
 		setTimeout(() => process.exit(), 100).unref();
 		return;
 	}
-	if (values["check-images"]) {
-		const result = await checkImageSupport();
+	if (values["check-pi"] || values["check-images"]) {
+		const result = await checkPi(new PiLoader({ log: writeLog }));
 		process.stdout.write(`${JSON.stringify(result)}\n`);
 		process.exitCode = result.ok ? 0 : 1;
 		return;
@@ -146,7 +151,7 @@ async function main(): Promise<void> {
 		...(shell ? { shell } : { updater: createStandaloneUpdater(pierDir) }),
 		...(terminals ? { terminals } : {}),
 		localToken: token,
-		env: values["agent-dir"] ? { agentDir: values["agent-dir"] } : {},
+		env: { loader: new PiLoader({ log }), ...(values["agent-dir"] ? { agentDir: values["agent-dir"] } : {}) },
 		log: writeLog,
 		remote: {
 			...(values["no-remote"] ? { enabled: false } : {}),
@@ -172,7 +177,11 @@ async function main(): Promise<void> {
 	if (loginPath) {
 		const added = await loginPath;
 		if (added === undefined) log("could not read the login shell's PATH; using the inherited PATH");
-		else if (added.length) log(`added ${added.length} PATH entries from the login shell`);
+		else if (added.length) {
+			log(`added ${added.length} PATH entries from the login shell`);
+			// pi may be installed in one of them (npm under nvm, ~/.local/bin, Homebrew).
+			if (!host.env.loaded) void host.env.ready().catch(() => undefined);
+		}
 	}
 
 	const ready = {
@@ -189,7 +198,8 @@ async function main(): Promise<void> {
 		writePrivateFile(runtimeFile, `${JSON.stringify({ ...ready, startedAt: new Date().toISOString() }, null, 2)}\n`);
 	}
 	process.stdout.write(`${JSON.stringify(ready)}\n`);
-	log(`listening on ${gateway.url} (pi agent dir: ${host.env.agentDir})`);
+	const pi = host.env.version ? `pi ${host.env.version}` : (host.env.state().reason ?? "pi not loaded");
+	log(`listening on ${gateway.url} (${pi}; pi agent dir: ${host.env.agentDir})`);
 
 	let stopping = false;
 	const stop = async (reason: string) => {

@@ -23,7 +23,7 @@ import {
 	TOKEN_KEY_B,
 	TOTP,
 } from "./fake-newapi.ts";
-import { TOKEN } from "./helpers.ts";
+import { TOKEN, testPiLoader } from "./helpers.ts";
 
 interface Harness {
 	modelsPath: string;
@@ -43,6 +43,7 @@ async function startHarness(): Promise<Harness> {
 	const modelRuntime = await ModelRuntime.create({ credentials, modelsPath, refreshOnCreate: false });
 	const settings = SettingsManager.inMemory({});
 	const env = await PiEnvironment.create({
+		loader: testPiLoader(),
 		agentDir,
 		modelsPath,
 		modelRuntime,

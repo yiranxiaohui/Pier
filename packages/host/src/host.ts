@@ -8,6 +8,7 @@ import {
 	type AccountLine,
 	type AgentConfigRuntime,
 	type AgentConfigScope,
+	type AgentInstallationResult,
 	type AppUpdateStatus,
 	type EventFrame,
 	type ExtensionReloadSummary,
@@ -69,18 +70,21 @@ import {
 import { PeerManager, type PeerManagerOptions } from "./peers/peers.ts";
 import { addPeerOverSsh, type SshAddHooks } from "./peers/ssh/add.ts";
 import { AccountManager } from "./pi/account.ts";
-import { PI_VERSION, PiEnvironment, type PiEnvironmentOptions } from "./pi/environment.ts";
+import { PiEnvironment, type PiEnvironmentOptions } from "./pi/environment.ts";
 import { ExtensionManager, type ExtensionTarget } from "./pi/extensions.ts";
+import { PiInstaller, type PiInstallerOptions } from "./pi/installer.ts";
 import { NewApiManager } from "./pi/newapi.ts";
 import { PackageCatalog, type PackageCatalogOptions } from "./pi/package-catalog.ts";
 import { PiRuntime } from "./pi/pi-runtime.ts";
 import { ProviderManager } from "./pi/providers.ts";
+import { PI_PATH_OVERRIDE, PiLoader } from "./pi/sdk.ts";
 import { PiSettingsFiles } from "./pi/settings-files.ts";
 import { LocalPortForwards } from "./ports/forwards.ts";
 import { HostPortSampler } from "./ports/listening.ts";
 import { RemoteAccess, type RemoteAccessOptions } from "./remote/remote-access.ts";
 import { AgentConfigFiles } from "./runtimes/agent-config.ts";
 import { AgentInstaller, type AgentInstallerOptions } from "./runtimes/installation.ts";
+import { configureInstallationPath } from "./runtimes/installation-path.ts";
 import { McpManager } from "./runtimes/mcp.ts";
 import { testMcp } from "./runtimes/mcp-client.ts";
 import { SkillManager } from "./runtimes/skills.ts";
@@ -108,6 +112,26 @@ import { transferWorkspacePath } from "./workspace-path-transfers.ts";
 import { WorkspaceUploads } from "./workspace-uploads.ts";
 
 export const PIER_HOST_VERSION = "0.3.3";
+
+/** Methods that need the pi SDK: model providers, the default model and pi packages. */
+const PI_METHODS: ReadonlySet<MethodName> = new Set<MethodName>([
+	"provider.list",
+	"provider.login",
+	"provider.loginRespond",
+	"provider.loginCancel",
+	"provider.logout",
+	"provider.saveCustom",
+	"provider.removeCustom",
+	"provider.probeModels",
+	"model.setDefault",
+	"extension.list",
+	"extension.install",
+	"extension.remove",
+	"extension.update",
+	"extension.checkUpdates",
+	"extension.setEnabled",
+	"extension.delete",
+]);
 
 function agentPathOverride(runtime: AgentConfigRuntime): string {
 	return runtime === "codex" ? "PIER_CODEX_PATH" : "PIER_CLAUDE_PATH";
@@ -184,6 +208,8 @@ export interface PierHostOptions {
 	resourceHome?: string;
 	/** Installer dependencies for tests; production always downloads official native releases. */
 	agentInstaller?: Pick<AgentInstallerOptions, "fetch" | "probe" | "homeDirectory" | "configurePath">;
+	/** pi's installer (tests: a fake command runner). */
+	piInstaller?: Pick<PiInstallerOptions, "fetch" | "run" | "platform">;
 	browser?: BrowserOptions;
 	remoteBrowser?: RemoteBrowserOptions;
 	/**
@@ -570,6 +596,7 @@ export class PierHost implements RequestHandler {
 	readonly skills: SkillManager;
 	readonly mcp: McpManager;
 	readonly agentInstaller: AgentInstaller;
+	readonly piInstaller: PiInstaller;
 	readonly peers: PeerManager;
 	private readonly diagnostics = new DiagnosticLog();
 	private readonly log: (message: string) => void;
@@ -661,6 +688,7 @@ export class PierHost implements RequestHandler {
 		});
 		this.extensions = new ExtensionManager({
 			agentDir: env.agentDir,
+			sdk: () => env.ready(),
 			trashDir: extensionTrashDir(this.pierDir),
 			onProgress: (progress) => this.broadcast({ type: "extension.progress", ...progress }),
 			log,
@@ -679,6 +707,31 @@ export class PierHost implements RequestHandler {
 				this.pool.runtime(runtime).installationChanged?.();
 				this.broadcast({ type: "runtime.changed", runtime });
 			},
+		});
+		this.piInstaller = new PiInstaller({
+			...(installationHome ? { home: installationHome } : {}),
+			configurePath: (bin) =>
+				(options.agentInstaller?.configurePath ?? configureInstallationPath)(bin, {
+					home: installationHome ?? homedir(),
+				}),
+			...options.piInstaller,
+			locate: () => env.loader.locate(),
+			log,
+			// A pi installed while the Host runs is loaded now; an updated one after a restart.
+			onInstalled: async () => {
+				await env.ready().catch(() => undefined);
+				this.broadcast({ type: "runtime.changed", runtime: "pi" });
+			},
+		});
+		env.onLoaded(() => {
+			log(`pi ${env.version} loaded`);
+			void this.providers
+				.fillCapabilities()
+				.catch(() => 0)
+				.finally(() => {
+					this.broadcast({ type: "runtime.changed", runtime: "pi" });
+					this.broadcast({ type: "provider.changed" });
+				});
 		});
 		this.packageCatalog = new PackageCatalog({ userAgent: pierUserAgent(), log, ...options.packageCatalog });
 		this.settings = new PiSettingsFiles(env.agentDir);
@@ -773,7 +826,10 @@ export class PierHost implements RequestHandler {
 	}
 
 	static async create(options: PierHostOptions): Promise<PierHost> {
-		const env = options.env instanceof PiEnvironment ? options.env : await PiEnvironment.create(options.env ?? {});
+		const env =
+			options.env instanceof PiEnvironment
+				? options.env
+				: await PiEnvironment.create({ loader: new PiLoader({ log: options.log }), ...options.env });
 		const host = new PierHost(options, env);
 		await host.providers.fillCapabilities().catch(() => 0);
 		host.pool.startSweeper();
@@ -790,7 +846,7 @@ export class PierHost implements RequestHandler {
 			version: PIER_HOST_VERSION,
 			protocolVersion: PROTOCOL_VERSION,
 			platform: platform(),
-			piVersion: PI_VERSION,
+			piVersion: this.env.version ?? "",
 			agentDir: this.env.agentDir,
 			...(this.terminals.supported ? { terminals: true } : {}),
 		};
@@ -927,6 +983,9 @@ export class PierHost implements RequestHandler {
 					...(detail ? { detail } : {}),
 				});
 			}
+			// pi installed while the Host runs is loaded on first use; without pi these methods fail with
+			// a message that says how to install it.
+			if (PI_METHODS.has(method)) await this.env.ready();
 			const handler = this.handlers[method] as (ctx: HandlerContext, params: unknown) => unknown;
 			const result = await handler({ connection, after: (fn) => after.push(fn) }, parsed.data);
 			return { response: { type: "res", id: frame.id, ok: true, result: result ?? {} }, after };
@@ -937,6 +996,18 @@ export class PierHost implements RequestHandler {
 			}
 			return response;
 		}
+	}
+
+	/** pi's installation status: the job, the loaded pi, and a newer pi on disk waiting for a restart. */
+	private async piInstallation(): Promise<AgentInstallationResult> {
+		const agent = await this.pool.runtime("pi").info();
+		const location = this.env.state().location;
+		const installed = location.state === "found" ? location.installation.version : undefined;
+		return {
+			installation: this.piInstaller.status(),
+			agent,
+			...(this.env.version && installed && installed !== this.env.version ? { installedVersion: installed } : {}),
+		};
 	}
 
 	private requireWorkspace(workspaceId: string): WorkspaceInfo {
@@ -950,6 +1021,8 @@ export class PierHost implements RequestHandler {
 	 * given in the meantime wins; when no title comes back the prompt stays the title.
 	 */
 	private titleSession(session: ManagedSession, text: string): void {
+		// Titles use pi's default model.
+		if (!this.env.loaded) return;
 		summarizeTitle(this.env, session.summary().cwd, text)
 			.then(async (title) => {
 				if (!title || this.shuttingDown || this.pool.get(session.id) !== session || session.summary().name) return;
@@ -1490,11 +1563,14 @@ export class PierHost implements RequestHandler {
 				sessions: await this.pool.list(this.requireWorkspace(params.workspaceId)),
 			}),
 			"runtime.list": async () => ({ runtimes: await this.pool.runtimeInfos() }),
-			"runtime.installStatus": async (_ctx, params) => ({
-				installation: this.agentInstaller.status(params.runtime),
-				agent: await this.pool.runtime(params.runtime).info(params.refresh),
-				autoUpdate: this.config.agentUpdate(params.runtime).enabled,
-			}),
+			"runtime.installStatus": async (_ctx, params) => {
+				if (params.runtime === "pi") return this.piInstallation();
+				return {
+					installation: this.agentInstaller.status(params.runtime),
+					agent: await this.pool.runtime(params.runtime).info(params.refresh),
+					autoUpdate: this.config.agentUpdate(params.runtime).enabled,
+				};
+			},
 			"runtime.setAutoUpdate": (_ctx, { runtime, enabled }) => {
 				this.pool.runtime(runtime);
 				this.config.setAgentUpdate(runtime, { enabled });
@@ -1503,6 +1579,22 @@ export class PierHost implements RequestHandler {
 				return { enabled };
 			},
 			"runtime.install": async (ctx, params) => {
+				if (params.runtime === "pi") {
+					if (process.env[PI_PATH_OVERRIDE])
+						throw new PierProtocolError(
+							"CONFLICT",
+							`当前使用 ${PI_PATH_OVERRIDE} 指定的 pi，请在那里更新，或移除此环境变量后再使用 Pier 安装`,
+						);
+					this.piInstaller.start(params.source);
+					const device = ctx.connection.device;
+					if (device)
+						this.broadcastLocal({
+							type: "host.notice",
+							level: "info",
+							message: `${device.name} 正在远程安装或更新 pi`,
+						});
+					return this.piInstallation();
+				}
 				const agent = this.pool.runtime(params.runtime);
 				const override = agentPathOverride(params.runtime);
 				if (process.env[override])
@@ -1947,6 +2039,7 @@ export class PierHost implements RequestHandler {
 		this.peers.shutdown();
 		this.terminals.shutdown();
 		await this.agentInstaller.shutdown();
+		await this.piInstaller.shutdown();
 		await this.uploads.shutdown();
 		await this.remote.shutdown();
 		await this.pool.disposeAll();

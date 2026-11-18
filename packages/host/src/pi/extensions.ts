@@ -12,12 +12,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import {
-	CONFIG_DIR_NAME,
+import type {
 	DefaultPackageManager,
-	type PackageSource,
-	type ProgressEvent,
-	type ResolvedResource,
+	PackageSource,
+	ProgressEvent,
+	ResolvedResource,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -29,6 +28,7 @@ import {
 	type ExtensionUpdateInfo,
 	PierProtocolError,
 } from "@pier/protocol";
+import { PI_CONFIG_DIR_NAME, type PiSdk } from "./sdk.ts";
 
 const RESOURCE_TYPES: readonly ExtensionResourceType[] = ["extensions", "skills", "prompts", "themes"];
 
@@ -47,6 +47,8 @@ export interface ExtensionProgress {
 
 export interface ExtensionManagerOptions {
 	agentDir: string;
+	/** The loaded pi SDK, loading pi first when needed (throws when pi is not installed). */
+	sdk: () => Promise<PiSdk>;
 	/** Deleted resource files and directories go here. */
 	trashDir: string;
 	onProgress?: (event: ExtensionProgress) => void;
@@ -168,7 +170,8 @@ export class ExtensionManager {
 
 	constructor(private readonly options: ExtensionManagerOptions) {}
 
-	private context(target?: ExtensionTarget): Context {
+	private async context(target?: ExtensionTarget): Promise<Context> {
+		const { SettingsManager, DefaultPackageManager } = (await this.options.sdk()).agent;
 		const cwd = target?.path ?? this.options.agentDir;
 		const settings = SettingsManager.create(cwd, this.options.agentDir, { projectTrusted: target !== undefined });
 		const packages = new DefaultPackageManager({ cwd, agentDir: this.options.agentDir, settingsManager: settings });
@@ -191,7 +194,7 @@ export class ExtensionManager {
 	}
 
 	private baseDir(ctx: Context, scope: ExtensionScope): string {
-		return scope === "project" ? join(ctx.cwd, CONFIG_DIR_NAME) : this.options.agentDir;
+		return scope === "project" ? join(ctx.cwd, PI_CONFIG_DIR_NAME) : this.options.agentDir;
 	}
 
 	private scopeSettings(ctx: Context, scope: ExtensionScope): Settings {
@@ -274,7 +277,7 @@ export class ExtensionManager {
 	}
 
 	async list(target?: ExtensionTarget): Promise<ExtensionListResult> {
-		const ctx = this.context(target);
+		const ctx = await this.context(target);
 		const resources = await this.resolveAll(ctx);
 		return {
 			agentDir: this.options.agentDir,
@@ -285,7 +288,7 @@ export class ExtensionManager {
 	}
 
 	async checkUpdates(target?: ExtensionTarget): Promise<ExtensionUpdateInfo[]> {
-		const ctx = this.context(target);
+		const ctx = await this.context(target);
 		try {
 			const updates = await ctx.packages.checkForAvailableUpdates();
 			return updates.map((u) => ({ source: u.source, name: u.displayName, kind: u.type, scope: u.scope }));
@@ -314,7 +317,7 @@ export class ExtensionManager {
 	install(source: string, scope: ExtensionScope, target?: ExtensionTarget): Promise<ExtensionPackageInfo | undefined> {
 		return this.exclusive(async () => {
 			const normalized = this.normalizeSource(source);
-			const ctx = this.context(scope === "project" ? target : undefined);
+			const ctx = await this.context(scope === "project" ? target : undefined);
 			this.requireScope(ctx, scope);
 			this.assertSettingsReadable(ctx);
 			const before = new Set(this.packageInfo(ctx).map((p) => `${p.scope}\n${p.source}`));
@@ -340,7 +343,7 @@ export class ExtensionManager {
 
 	remove(source: string, scope: ExtensionScope, target?: ExtensionTarget): Promise<boolean> {
 		return this.exclusive(async () => {
-			const ctx = this.context(scope === "project" ? target : undefined);
+			const ctx = await this.context(scope === "project" ? target : undefined);
 			this.requireScope(ctx, scope);
 			this.assertSettingsReadable(ctx);
 			const configured = (this.scopeSettings(ctx, scope).packages ?? []).some(
@@ -363,7 +366,7 @@ export class ExtensionManager {
 
 	update(source: string | undefined, target?: ExtensionTarget): Promise<void> {
 		return this.exclusive(async () => {
-			const ctx = this.context(target);
+			const ctx = await this.context(target);
 			try {
 				await ctx.packages.update(source);
 			} catch (error) {
@@ -395,7 +398,7 @@ export class ExtensionManager {
 		target?: ExtensionTarget,
 	): Promise<ExtensionResourceInfo> {
 		return this.exclusive(async () => {
-			const ctx = this.context(target);
+			const ctx = await this.context(target);
 			this.assertSettingsReadable(ctx);
 			const { info, raw } = await this.requireResource(ctx, type, path);
 			if (info.enabled !== enabled) {
@@ -503,7 +506,7 @@ export class ExtensionManager {
 	/** Resolves to the scope of the deleted resource. */
 	delete(path: string, target?: ExtensionTarget, type: ExtensionResourceType = "extensions"): Promise<ExtensionScope> {
 		return this.exclusive(async () => {
-			const ctx = this.context(target);
+			const ctx = await this.context(target);
 			this.assertSettingsReadable(ctx);
 			const { info, raw } = await this.requireResource(ctx, type, path);
 			const action = this.deleteTarget(ctx, info, raw);

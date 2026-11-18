@@ -1,9 +1,4 @@
-import {
-	type AgentSession,
-	type AgentSessionEvent,
-	type AgentSessionRuntime,
-	SessionManager,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { stripImageHints } from "@pier/chat-state";
 import {
 	type AgentRuntimeCapabilities,
@@ -167,7 +162,7 @@ export class PiManagedSession extends ManagedSession {
 		this.guard.setPath(session.sessionFile);
 
 		await session.bindExtensions({
-			uiContext: createUiContext(this.bridge),
+			uiContext: createUiContext(this.bridge, this.piOptions.env.sdk().agent.initTheme),
 			mode: "rpc",
 			commandContextActions: {
 				waitForIdle: () => session.waitForIdle(),
@@ -243,7 +238,7 @@ export class PiManagedSession extends ManagedSession {
 			load: async (subagent) => {
 				const file = this.subagentFiles.get(subagent.id);
 				if (!file) return undefined;
-				const manager = SessionManager.open(file);
+				const manager = this.piOptions.env.readSessionFile(file);
 				return manager.buildSessionContext().messages as unknown as TranscriptMessage[];
 			},
 		};

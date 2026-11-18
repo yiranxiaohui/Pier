@@ -545,9 +545,10 @@ it("starts installation over the protocol, survives a disconnected client and re
 		expect((await observer.request("runtime.list")).runtimes.find((r) => r.id === "claude-code")?.executable).toBe(
 			result.agent.executable,
 		);
-		await expect(observer.request("runtime.install", { runtime: "pi" as AgentConfigRuntime })).rejects.toMatchObject({
-			code: "BAD_REQUEST",
-		});
+		// pi updates itself (`pi update`); there is no background updater for it.
+		await expect(
+			observer.request("runtime.setAutoUpdate", { runtime: "pi" as AgentConfigRuntime, enabled: false }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		await expect(
 			observer.request("runtime.install", { runtime: "claude-code", source: "ghfast" }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });

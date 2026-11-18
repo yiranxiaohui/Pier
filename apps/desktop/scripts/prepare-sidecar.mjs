@@ -3,15 +3,14 @@
  * Build the Pier Host sidecar for the desktop app.
  *
  *   src-tauri/binaries/pier-host-<target-triple>[.exe]   Tauri `externalBin`
- *   src-tauri/pi-assets/                                 pi runtime assets (Tauri resource)
  *
- * At runtime the shell points `PI_PACKAGE_DIR` at the bundled `pi-assets` directory.
+ * pi is not bundled: the Host loads the user's own pi installation at runtime.
  *
  * Usage: node scripts/prepare-sidecar.mjs [--target <rust-target-triple>]
  * The triple defaults to $TAURI_ENV_TARGET_TRIPLE, then to the host triple from `rustc -vV`.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -58,15 +57,13 @@ try {
 	);
 
 	const binaries = join(tauriDir, "binaries");
-	const assets = join(tauriDir, "pi-assets");
 	rmSync(binaries, { recursive: true, force: true });
-	rmSync(assets, { recursive: true, force: true });
+	// Builds before pi became the user's own installation also staged pi's assets here.
+	rmSync(join(tauriDir, "pi-assets"), { recursive: true, force: true });
 	mkdirSync(binaries, { recursive: true });
-	mkdirSync(assets, { recursive: true });
 
 	renameSync(join(staging, exeName), join(binaries, `pier-host-${triple}${windows ? ".exe" : ""}`));
-	for (const entry of readdirSync(staging)) renameSync(join(staging, entry), join(assets, entry));
-	console.log(`Prepared sidecar pier-host-${triple} and pi assets in ${tauriDir}`);
+	console.log(`Prepared sidecar pier-host-${triple} in ${tauriDir}`);
 } finally {
 	rmSync(staging, { recursive: true, force: true });
 }

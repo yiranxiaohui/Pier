@@ -180,12 +180,17 @@ function AgentPicker({
 	const ref = useOutsideClick(open, () => setOpen(false));
 
 	const current = runtimes.find((r) => r.id === runtime);
-	// A runtime that went away (CLI uninstalled, older host) falls back to pi.
+	const pi = runtimes.find((r) => r.id === "pi");
+	// A runtime that went away (CLI uninstalled, older host) falls back to pi, or to another agent
+	// when pi is not installed either.
 	useEffect(() => {
-		if (runtime !== "pi" && runtimes.length && !current?.available) store.setNewChatRuntime(workspace.id, "pi");
-	}, [runtime, runtimes, current, store, workspace.id]);
+		if (!runtimes.length || current?.available) return;
+		const fallback = pi?.available ? "pi" : runtimes.find((r) => r.available)?.id;
+		if (fallback && fallback !== runtime) store.setNewChatRuntime(workspace.id, fallback);
+	}, [runtime, runtimes, current, pi, store, workspace.id]);
 
-	if (!runtimes.some((r) => r.id !== "pi" && r.available)) return null;
+	// Only pi: nothing to choose. Without pi the chip stays, to offer installing it.
+	if (pi?.available !== false && !runtimes.some((r) => r.id !== "pi" && r.available)) return null;
 	return (
 		<div className="dropdown" ref={ref}>
 			<button
@@ -209,12 +214,12 @@ function AgentPicker({
 								type="button"
 								key={r.id}
 								className={`dropdown-item${selected ? " selected" : ""}`}
-								disabled={!r.available && r.id !== "claude-code" && r.id !== "codex"}
+								disabled={!r.available && !installable(r.id)}
 								title={r.available ? (r.executable ?? r.name) : r.reason}
 								onClick={() => {
 									setOpen(false);
-									if (!r.available && (r.id === "claude-code" || r.id === "codex")) {
-										store.openSettings(r.id === "codex" ? "codex" : "claude", node);
+									if (!r.available && installable(r.id)) {
+										store.openSettings(r.id === "codex" ? "codex" : r.id === "pi" ? "pi" : "claude", node);
 										return;
 									}
 									store.setNewChatRuntime(workspace.id, r.id);
@@ -225,9 +230,7 @@ function AgentPicker({
 										<AgentIcon runtime={r.id} size={14} />
 										{r.name}
 										{r.version ? <span className="mini-tag">{r.version}</span> : null}
-										{!r.available && (r.id === "claude-code" || r.id === "codex") ? (
-											<span className="mini-tag">安装</span>
-										) : null}
+										{!r.available && installable(r.id) ? <span className="mini-tag">安装</span> : null}
 									</span>
 									<span className="muted">{r.available ? agentDescription(r.id) : (r.reason ?? "不可用")}</span>
 								</span>
@@ -241,10 +244,15 @@ function AgentPicker({
 	);
 }
 
+/** Agents Pier can install from the settings page. */
+function installable(id: string): boolean {
+	return id === "claude-code" || id === "codex" || id === "pi";
+}
+
 function agentDescription(id: string): string {
 	switch (id) {
 		case "pi":
-			return "Pier 内置的 pi，使用在 Pier 中配置的模型与扩展";
+			return "这台电脑上安装的 pi，使用在 Pier 中配置的模型与扩展";
 		case "claude-code":
 			return "这台电脑上安装的 Claude Code，使用它自己的登录与配置";
 		case "codex":

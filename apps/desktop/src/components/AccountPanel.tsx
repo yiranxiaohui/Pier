@@ -737,7 +737,7 @@ function InUse({ label = "正在使用" }: { label?: string }) {
 	);
 }
 
-/** Add the group as a provider of the built-in pi, with every model the token can use. */
+/** Add the group as a provider of pi, with every model the token can use. */
 function PiRelayRow({
 	entry,
 	overview,
@@ -773,7 +773,7 @@ function PiRelayRow({
 					<div className="muted small">
 						{provider
 							? `已添加为服务商「${provider.name}」· ${provider.availableCount || provider.modelCount} 个模型；更新会重新读取令牌可用的模型。`
-							: `读取令牌可用的全部模型，添加为 Pier 内置 pi 的服务商「${name}」，可以在「模型与服务商」中查看和编辑。`}
+							: `读取令牌可用的全部模型，添加为 pi 的服务商「${name}」，可以在「模型与服务商」中查看和编辑。`}
 					</div>
 				</div>
 				<div className="row-actions">

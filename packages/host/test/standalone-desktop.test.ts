@@ -42,7 +42,7 @@ describe("unified Pier launch mode", () => {
 		"--help",
 		"--version",
 		"--watch-stdin",
-		"--check-images",
+		"--check-pi",
 	])("keeps %s usable with a graphical display", (command) => {
 		expect(launchMode([command], { DISPLAY: ":0" }, true)).toBe("host");
 	});

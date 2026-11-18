@@ -73,7 +73,7 @@ const AGENT_PAGES: SectionDef[] = [
 		label: "pi",
 		icon: IconPi,
 		keywords:
-			"pi 配置 settings settings.json 配置文件 思考 压缩 重试 超时 代理 proxy shell 工具 tools 传输 缓存 主题 终端 json 编辑",
+			"pi 配置 安装 更新 版本 install update settings settings.json 配置文件 思考 压缩 重试 超时 代理 proxy shell 工具 tools 传输 缓存 主题 终端 json 编辑",
 		online: true,
 	},
 	{
@@ -184,7 +184,7 @@ const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	workspaces: "管理项目目录，为每个工作区选择合适的工具审批策略。",
 	extensions: "发现与管理 pi 扩展，为工作流程添加更多能力。",
 	resources: "统一管理 Agent 的技能与 MCP 服务器。",
-	pi: "调整 pi 的模型、工具与运行偏好。",
+	pi: "安装或更新 pi，调整它的模型、工具与运行偏好。",
 	claude: "管理 Claude Code 的模型、权限与运行偏好。",
 	codex: "管理 Codex 的服务商、审批与运行偏好。",
 	logs: "查看 Host 的运行记录，定位连接与启动问题。",
@@ -246,7 +246,7 @@ function RemoteGeneralSettings() {
 					)}
 				</SettingRow>
 				{versions.length ? (
-					<SettingRow title="版本" description="那台电脑上的 Pier、内置 pi 与协议版本。">
+					<SettingRow title="版本" description="那台电脑上的 Pier、pi 与协议版本。">
 						<span className="setting-value">{versions.join(" · ")}</span>
 					</SettingRow>
 				) : null}
@@ -465,7 +465,7 @@ function LocalGeneralSettings() {
 	const versions = [
 		`Pier v${useAppState((s) => s.update.currentVersion)}`,
 		host.version ? `Host v${host.version}` : "",
-		hostInfo ? `pi ${hostInfo.piVersion}` : "",
+		hostInfo?.piVersion ? `pi ${hostInfo.piVersion}` : "",
 	].filter(Boolean);
 	return (
 		<>
@@ -487,7 +487,7 @@ function LocalGeneralSettings() {
 							</button>
 						) : null}
 					</SettingRow>
-					<SettingRow title="版本" description="桌面端、Pier Host 与内置 pi 的版本。">
+					<SettingRow title="版本" description="桌面端、Pier Host 与 pi 的版本（pi 是这台电脑上你自己安装的版本）。">
 						<span className="setting-value">{versions.join(" · ")}</span>
 					</SettingRow>
 					{hostInfo?.agentDir ? (

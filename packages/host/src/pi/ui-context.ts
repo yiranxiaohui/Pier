@@ -1,6 +1,6 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import { initTheme } from "@earendil-works/pi-coding-agent";
 import type { UiBridge } from "../ui-bridge.ts";
+import type { PiAgentModule } from "./sdk.ts";
 
 const THEME_KEY = Symbol.for("@earendil-works/pi-coding-agent:theme");
 let themeInitialized = false;
@@ -17,14 +17,14 @@ const plainTheme = new Proxy(
  * Extensions may style text through `ctx.ui.theme` even without a terminal. pi keeps
  * its theme in a global that is only set by `initTheme()`, so initialize it once.
  */
-function currentTheme(): Theme {
+function currentTheme(initTheme: PiAgentModule["initTheme"]): Theme {
 	const globals = globalThis as unknown as Record<symbol, Theme | undefined>;
 	if (!globals[THEME_KEY] && !themeInitialized) {
 		themeInitialized = true;
 		try {
 			initTheme("dark");
 		} catch {
-			// Theme assets are missing (e.g. a sidecar built without them); fall back below.
+			// The theme files of this pi installation could not be read; fall back below.
 		}
 	}
 	return globals[THEME_KEY] ?? plainTheme;
@@ -36,7 +36,7 @@ function currentTheme(): Theme {
  * Dialogs and fire-and-forget calls are forwarded to clients; terminal-only
  * features degrade to no-ops the same way pi's RPC mode does.
  */
-export function createUiContext(bridge: UiBridge): ExtensionUIContext {
+export function createUiContext(bridge: UiBridge, initTheme: PiAgentModule["initTheme"]): ExtensionUIContext {
 	const ui: ExtensionUIContext = {
 		select: async (title, options, opts) => {
 			const response = await bridge.request(
@@ -87,7 +87,7 @@ export function createUiContext(bridge: UiBridge): ExtensionUIContext {
 		setEditorComponent: () => {},
 		getEditorComponent: () => undefined,
 		get theme() {
-			return currentTheme();
+			return currentTheme(initTheme);
 		},
 		getAllThemes: () => [],
 		getTheme: () => undefined,

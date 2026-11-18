@@ -177,11 +177,9 @@ jobs:
               print("Native language: \(preferences) -> \(expected)")
           }
           SWIFT
-          # Pier.app ships pi's assets as a resource; the desktop passes them through PI_PACKAGE_DIR.
-          PI_PACKAGE_DIR="$app/Contents/Resources/pi-assets" \
-            node packages/host/scripts/smoke-sidecar.mjs "$app/Contents/MacOS/pier-host" "${{ needs.verify.outputs.version }}"
-          PI_PACKAGE_DIR="$app/Contents/Resources/pi-assets" \
-            node packages/host/scripts/smoke-mcp.mjs "$app/Contents/MacOS/pier-host"
+          # pi is the user's own installation; the smoke tests load the repository's pi into the signed sidecar.
+          node packages/host/scripts/smoke-sidecar.mjs "$app/Contents/MacOS/pier-host" "${{ needs.verify.outputs.version }}"
+          node packages/host/scripts/smoke-mcp.mjs "$app/Contents/MacOS/pier-host"
 
       # The bundles ship the sidecar that beforeBuildCommand prepared; smoke-test that exact binary
       # (macOS tests it inside the signed .app above).
@@ -191,10 +189,8 @@ jobs:
           tauri=apps/desktop/src-tauri
           exe=$(ls "$tauri"/binaries/pier-host-* | head -1)
           [ -f "$exe" ] || { echo "::error::No sidecar in $tauri/binaries"; exit 1; }
-          PI_PACKAGE_DIR="$tauri/pi-assets" \
-            node packages/host/scripts/smoke-sidecar.mjs "$exe" "${{ needs.verify.outputs.version }}"
-          PI_PACKAGE_DIR="$tauri/pi-assets" \
-            node packages/host/scripts/smoke-mcp.mjs "$exe"
+          node packages/host/scripts/smoke-sidecar.mjs "$exe" "${{ needs.verify.outputs.version }}"
+          node packages/host/scripts/smoke-mcp.mjs "$exe"
 
       - name: Verify the ARM64 installers and packaged sidecar
         if: matrix.platform == 'linux-arm64'
@@ -207,12 +203,10 @@ jobs:
           (cd unpacked-appimage && "$appimage" --appimage-extract > /dev/null)
           appdir=unpacked-appimage/squashfs-root
           exe="$appdir/usr/bin/pier-host"
-          assets=$(find "$appdir" -type d -name pi-assets -print -quit)
-          [ -n "$assets" ] || { echo "::error::No pi assets in the AppImage"; exit 1; }
           cmp "$tauri/binaries/pier-host-aarch64-unknown-linux-gnu" "$exe"
           ldd "$exe"
-          PI_PACKAGE_DIR="$assets" node packages/host/scripts/smoke-sidecar.mjs "$exe" "${{ needs.verify.outputs.version }}"
-          PI_PACKAGE_DIR="$assets" node packages/host/scripts/smoke-mcp.mjs "$exe"
+          node packages/host/scripts/smoke-sidecar.mjs "$exe" "${{ needs.verify.outputs.version }}"
+          node packages/host/scripts/smoke-mcp.mjs "$exe"
 
       - name: Verify Linux command and upgrade compatibility
         if: runner.os == 'Linux'

@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-/** Verify the release executable alone, with no Node, Bun, bash, curl, tar or adjacent assets. */
+/**
+ * Verify the release executable alone, with no Node, Bun, bash, curl, tar or adjacent assets.
+ * pi is the user's own installation: the executable loads it (PIER_PI_PATH, or this repository's
+ * development dependency) without Node, and the Host still starts when there is none.
+ */
 import { execFileSync, spawn } from "node:child_process";
 import {
 	chmodSync,
@@ -14,8 +18,13 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 const source = resolve(process.argv[2]);
+const piPath = resolve(
+	process.env.PIER_PI_PATH ||
+		fileURLToPath(new URL("../../../node_modules/@earendil-works/pi-coding-agent", import.meta.url)),
+);
 const version = process.argv[3];
 const root = mkdtempSync(join(tmpdir(), "pier-single-smoke-"));
 let host;
@@ -39,7 +48,14 @@ try {
 		PI_CODING_AGENT_DIR: join(root, "agent"),
 		PI_CODING_AGENT_SESSION_DIR: join(root, "sessions"),
 	};
-	for (const key of ["DISPLAY", "WAYLAND_DISPLAY", "PI_PACKAGE_DIR", "PIER_LOCAL_TOKEN", "PIER_RELAY_TOKEN"])
+	for (const key of [
+		"DISPLAY",
+		"WAYLAND_DISPLAY",
+		"PI_PACKAGE_DIR",
+		"PIER_PI_PATH",
+		"PIER_LOCAL_TOKEN",
+		"PIER_RELAY_TOKEN",
+	])
 		delete env[key];
 	const run = (binary, args, input) =>
 		execFileSync(binary, args, { env, input, encoding: "utf8", timeout: 60_000, stdio: ["pipe", "pipe", "pipe"] });
@@ -52,8 +68,16 @@ try {
 	}
 	if (existsSync(join(state, "runtime/desktop"))) throw new Error("Headless commands extracted the desktop");
 	if (!run(executable, ["--headless", "--help"]).includes("Usage: pier run")) throw new Error("Headless alias failed");
-	const image = JSON.parse(run(executable, ["--check-images"]).trim());
-	if (!image.ok || !image.wasm.startsWith(state)) throw new Error("Embedded Photon failed");
+	const pi = JSON.parse(
+		execFileSync(executable, ["--check-pi"], {
+			env: { ...env, PIER_PI_PATH: piPath },
+			encoding: "utf8",
+			timeout: 60_000,
+			stdio: ["pipe", "pipe", "pipe"],
+		}).trim(),
+	);
+	if (!pi.ok) throw new Error(`Loading pi failed: ${pi.error}`);
+	if (existsSync(join(state, "runtime/resources"))) throw new Error("pi assets were unpacked");
 	run(executable, ["install", "--user", "--no-start"]);
 	const installed = join(prefix, "bin/pier");
 	const service = join(root, "config/systemd/user/pier.service");
@@ -87,7 +111,7 @@ try {
 	run(installed, ["uninstall", "--purge"]);
 	if (existsSync(state)) throw new Error("Explicit purge failed");
 	console.log(
-		`single-file smoke OK: ${version}; embedded images, native install, headless startup, built-in CLI pairing, uninstall/data retention and explicit purge; no external runtime, scripts or assets`,
+		`single-file smoke OK: ${version}; pi loaded from its installation (images through Photon), native install, headless startup without pi, built-in CLI pairing, uninstall/data retention and explicit purge; no external runtime, scripts or assets`,
 	);
 } finally {
 	if (host && host.exitCode === null) host.kill("SIGKILL");

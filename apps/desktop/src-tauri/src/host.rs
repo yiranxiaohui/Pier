@@ -263,11 +263,6 @@ impl HostManager {
                 None => command.env_remove(key),
             };
         }
-        if std::env::var_os("PI_PACKAGE_DIR").is_none() {
-            if let Some(assets) = self.pi_assets_dir() {
-                command.env("PI_PACKAGE_DIR", assets);
-            }
-        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -275,12 +270,6 @@ impl HostManager {
             command.creation_flags(CREATE_NO_WINDOW);
         }
         Ok(command)
-    }
-
-    /// Bundled pi runtime assets (see `scripts/prepare-sidecar.mjs`).
-    fn pi_assets_dir(&self) -> Option<PathBuf> {
-        let dir = self.app.path().resource_dir().ok()?.join("pi-assets");
-        dir.join("package.json").exists().then_some(dir)
     }
 
     fn read_stdout(&self, generation: u64, stdout: impl Read) {

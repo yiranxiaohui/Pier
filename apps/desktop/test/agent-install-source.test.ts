@@ -45,5 +45,7 @@ describe("agent download routes", () => {
 		}
 		expect(agentInstallSourceInfo("claude-code", "official")).toEqual({ name: "官方", host: "downloads.claude.ai" });
 		expect(agentInstallSourceInfo("codex", "ghfast")).toEqual({ name: "GHFast", host: "ghfast.top" });
+		expect(agentInstallSourceInfo("pi", "official")).toEqual({ name: "官方", host: "pi.dev" });
+		expect(agentInstallSourceInfo("pi", "npmmirror").host).toBe("registry.npmmirror.com");
 	});
 });

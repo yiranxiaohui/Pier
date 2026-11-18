@@ -3,17 +3,19 @@
  * skills, context files, models) using an in-memory session so nothing is persisted.
  *
  *   cd packages/host && bunx tsx spikes/sidecar-check.ts [cwd]
- *   bun build --compile spikes/sidecar-check.ts --outfile /tmp/sidecar-check && /tmp/sidecar-check [cwd]
+ *   bun build --compile --compile-autoload-package-json spikes/sidecar-check.ts --outfile /tmp/sidecar-check && /tmp/sidecar-check [cwd]
+ *
+ * pi is loaded from the user's installation (PIER_PI_PATH, or the pi command).
  *
  * An extension file passed via PIER_SPIKE_EXTENSION is loaded in addition to discovery,
  * to prove runtime TypeScript loading (jiti) works inside a compiled binary.
  */
-import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { PiEnvironment } from "../src/pi/environment.ts";
 
 const cwd = process.argv[2] ?? process.cwd();
 const started = Date.now();
 const env = await PiEnvironment.create();
+const { SessionManager } = (await env.ready()).agent;
 const runtime = await env.createRuntime({ cwd, sessionManager: SessionManager.inMemory(cwd), extensions: () => [] });
 const session = runtime.session;
 await session.bindExtensions({ mode: "rpc" });

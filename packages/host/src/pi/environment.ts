@@ -1,35 +1,28 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type Api, clampThinkingLevel, getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
-import {
-	type AgentSession,
-	type AgentSessionRuntime,
-	type CreateAgentSessionRuntimeFactory,
-	createAgentSessionFromServices,
-	createAgentSessionRuntime,
-	createAgentSessionServices,
-	createCodemodeExtension,
-	createMcpExtension,
-	createToolSearchExtension,
-	getAgentDir,
-	type InlineExtension,
-	type LoadedMcpConfig,
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type {
+	AgentSession,
+	AgentSessionRuntime,
+	CreateAgentSessionRuntimeFactory,
+	InlineExtension,
+	LoadedMcpConfig,
 	ModelRuntime,
-	VERSION as PI_VERSION,
-	type SessionInfo,
+	SessionInfo,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { ModelInfo, ThinkingLevel } from "@pier/protocol";
+import { type ModelInfo, PierProtocolError, type ThinkingLevel } from "@pier/protocol";
+import { PiLoader, type PiSdk, type PiState, piAgentDir } from "./sdk.ts";
 
 /** pi's default thinking level when settings name none (`DEFAULT_THINKING_LEVEL`). */
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
-export { PI_VERSION };
-
 export interface PiEnvironmentOptions {
 	/** pi agent directory. Defaults to pi's own resolution (`~/.pi/agent` or `PI_CODING_AGENT_DIR`). */
 	agentDir?: string;
+	/** Where the pi SDK comes from. Defaults to the user's pi installation (see `sdk.ts`). */
+	loader?: PiLoader;
 	/** Shared model/auth runtime. Defaults to one backed by `<agentDir>/auth.json` and `models.json`. */
 	modelRuntime?: ModelRuntime;
 	/** models.json edited by Pier's provider settings. Defaults to `<agentDir>/models.json`. Must match the runtime's. */
@@ -63,39 +56,116 @@ function expandHome(path: string): string {
 
 /**
  * Adapter over the pi SDK. All direct SDK calls for session storage, runtime creation,
- * and models live here so SDK upgrades are contained.
+ * and models live here so SDK changes are contained.
+ *
+ * The SDK comes from the user's pi installation and may be missing: the agent directory and
+ * the files in it are always available, everything else needs `ready()` (or a loaded pi) and
+ * throws a `CONFLICT` error that says how to install pi otherwise.
  */
 export class PiEnvironment {
 	readonly agentDir: string;
 	readonly modelsPath: string;
-	readonly modelRuntime: ModelRuntime;
+	readonly loader: PiLoader;
 	private readonly options: PiEnvironmentOptions;
 	private mcpConfig: ((cwd: string) => LoadedMcpConfig) | undefined;
+	private runtime: ModelRuntime | undefined;
+	private readying: Promise<PiSdk> | undefined;
+	/** Why pi's model runtime could not be created, after pi itself loaded. */
+	private runtimeError: string | undefined;
+	private readonly loadedListeners = new Set<(sdk: PiSdk) => void>();
 
 	setMcpConfig(load: (cwd: string) => LoadedMcpConfig): void {
 		this.mcpConfig = load;
 	}
 
-	private constructor(options: PiEnvironmentOptions, agentDir: string, modelRuntime: ModelRuntime) {
+	private constructor(options: PiEnvironmentOptions, agentDir: string, loader: PiLoader) {
 		this.options = options;
 		this.agentDir = agentDir;
 		this.modelsPath = options.modelsPath ?? join(agentDir, "models.json");
-		this.modelRuntime = modelRuntime;
+		this.loader = loader;
 	}
 
+	/** An environment; pi is loaded right away when it is installed (failures are reported later). */
 	static async create(options: PiEnvironmentOptions = {}): Promise<PiEnvironment> {
-		const agentDir = options.agentDir ?? getAgentDir();
-		const modelRuntime =
-			options.modelRuntime ??
-			(await ModelRuntime.create({
-				authPath: join(agentDir, "auth.json"),
-				modelsPath: options.modelsPath ?? join(agentDir, "models.json"),
-			}));
-		return new PiEnvironment(options, agentDir, modelRuntime);
+		const env = new PiEnvironment(options, options.agentDir ?? piAgentDir(), options.loader ?? new PiLoader());
+		await env.ready().catch(() => undefined);
+		return env;
+	}
+
+	/** Call `listener` when pi gets loaded after start-up (e.g. installed while the Host runs). */
+	onLoaded(listener: (sdk: PiSdk) => void): () => void {
+		this.loadedListeners.add(listener);
+		return () => this.loadedListeners.delete(listener);
+	}
+
+	/** Load pi (once) and its model runtime. Throws when pi is not installed or cannot be used. */
+	ready(): Promise<PiSdk> {
+		const sdk = this.loader.loaded;
+		if (sdk && this.runtime) return Promise.resolve(sdk);
+		this.readying ??= (async () => {
+			const loaded = await this.loader.load();
+			if (!this.runtime) {
+				try {
+					this.runtime =
+						this.options.modelRuntime ??
+						(await loaded.agent.ModelRuntime.create({
+							authPath: join(this.agentDir, "auth.json"),
+							modelsPath: this.modelsPath,
+						}));
+					this.runtimeError = undefined;
+				} catch (error) {
+					this.runtimeError = `pi ${loaded.version} 无法读取模型与凭据：${error instanceof Error ? error.message : String(error)}`;
+					throw new PierProtocolError("CONFLICT", this.runtimeError);
+				}
+				for (const listener of this.loadedListeners) {
+					try {
+						listener(loaded);
+					} catch {
+						// Listeners must not break loading.
+					}
+				}
+			}
+			return loaded;
+		})().finally(() => {
+			this.readying = undefined;
+		});
+		return this.readying;
+	}
+
+	/** True once pi and its model runtime are loaded. */
+	get loaded(): boolean {
+		return this.loader.loaded !== undefined && this.runtime !== undefined;
+	}
+
+	/** The version of the loaded pi. */
+	get version(): string | undefined {
+		return this.loaded ? this.loader.loaded?.version : undefined;
+	}
+
+	/** The loaded pi SDK; throws when pi has not been loaded (see `ready()`). */
+	sdk(): PiSdk {
+		const sdk = this.loader.loaded;
+		if (sdk && this.runtime) return sdk;
+		throw this.unavailable();
+	}
+
+	/** Why pi cannot be used, as a protocol error. */
+	unavailable(): Error {
+		return new PierProtocolError("CONFLICT", this.state().reason ?? "pi 尚未加载，请稍后重试");
+	}
+
+	state(): PiState {
+		const state = this.loader.state();
+		return state.sdk && !this.runtime && this.runtimeError ? { ...state, reason: this.runtimeError } : state;
+	}
+
+	get modelRuntime(): ModelRuntime {
+		if (!this.runtime || !this.loader.loaded) throw this.unavailable();
+		return this.runtime;
 	}
 
 	settingsFor(cwd: string): SettingsManager {
-		return this.options.settingsManager?.(cwd) ?? SettingsManager.create(cwd, this.agentDir);
+		return this.options.settingsManager?.(cwd) ?? this.sdk().agent.SettingsManager.create(cwd, this.agentDir);
 	}
 
 	/** Settings used for global values such as the default model (project settings do not apply). */
@@ -113,19 +183,24 @@ export class PiEnvironment {
 	}
 
 	listSessions(cwd: string): Promise<SessionInfo[]> {
-		return SessionManager.list(cwd, this.sessionDirFor(cwd));
+		return this.sdk().agent.SessionManager.list(cwd, this.sessionDirFor(cwd));
 	}
 
 	findSessionPath(cwd: string, sessionId: string): string | undefined {
-		return SessionManager.findById(cwd, sessionId, this.sessionDirFor(cwd));
+		return this.sdk().agent.SessionManager.findById(cwd, sessionId, this.sessionDirFor(cwd));
 	}
 
 	newSessionManager(cwd: string): SessionManager {
-		return SessionManager.create(cwd, this.sessionDirFor(cwd));
+		return this.sdk().agent.SessionManager.create(cwd, this.sessionDirFor(cwd));
 	}
 
 	openSessionManager(path: string, cwd: string): SessionManager {
-		return SessionManager.open(path, this.sessionDirFor(cwd));
+		return this.sdk().agent.SessionManager.open(path, this.sessionDirFor(cwd));
+	}
+
+	/** A session file opened read-only (e.g. a subagent's conversation). */
+	readSessionFile(path: string): SessionManager {
+		return this.sdk().agent.SessionManager.open(path);
 	}
 
 	/**
@@ -152,6 +227,7 @@ export class PiEnvironment {
 		if (!file || !session.sessionManager.isPersisted()) throw new Error("Only persisted sessions can be forked");
 		const cwd = session.sessionManager.getCwd();
 		const sessionDir = session.sessionManager.getSessionDir();
+		const { SessionManager } = this.sdk().agent;
 		if (!targetLeafId) {
 			const sessionManager = SessionManager.create(cwd, sessionDir);
 			sessionManager.newSession({ parentSession: file });
@@ -163,6 +239,14 @@ export class PiEnvironment {
 	}
 
 	async createRuntime(request: RuntimeRequest): Promise<AgentSessionRuntime> {
+		const {
+			createAgentSessionFromServices,
+			createAgentSessionRuntime,
+			createAgentSessionServices,
+			createCodemodeExtension,
+			createMcpExtension,
+			createToolSearchExtension,
+		} = (await this.ready()).agent;
 		const isolated = this.options.isolated === true;
 		const extra = this.options.extraResources ?? {};
 		const loadMcpConfig = this.mcpConfig;
@@ -219,13 +303,14 @@ export class PiEnvironment {
 	}
 
 	async listModels(): Promise<ModelInfo[]> {
+		await this.ready();
 		const models = await this.modelRuntime.getAvailable();
 		return models.map((model) => this.modelInfo(model));
 	}
 
 	/** `model` as clients see it, with its provider's display name. */
 	modelInfo(model: ModelLike): ModelInfo {
-		return toModelInfo(model, this.modelRuntime.getProvider(model.provider)?.name);
+		return toModelInfo(this.sdk(), model, this.modelRuntime.getProvider(model.provider)?.name);
 	}
 
 	/**
@@ -252,7 +337,7 @@ export class PiEnvironment {
 			DEFAULT_THINKING_LEVEL;
 		return {
 			model: this.modelInfo(model),
-			thinkingLevel: clampThinkingLevel(model, level === "ultra" ? "max" : level) as ThinkingLevel,
+			thinkingLevel: this.sdk().ai.clampThinkingLevel(model, level === "ultra" ? "max" : level) as ThinkingLevel,
 		};
 	}
 }
@@ -277,7 +362,7 @@ interface ModelLike {
 	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
 }
 
-export function toModelInfo(model: ModelLike, providerName?: string): ModelInfo {
+export function toModelInfo(sdk: Pick<PiSdk, "ai">, model: ModelLike, providerName?: string): ModelInfo {
 	const reasoning = model.reasoning === true;
 	return {
 		provider: model.provider,
@@ -287,7 +372,7 @@ export function toModelInfo(model: ModelLike, providerName?: string): ModelInfo 
 		reasoning,
 		input: [...(model.input ?? ["text"])],
 		...(typeof model.contextWindow === "number" ? { contextWindow: model.contextWindow } : {}),
-		thinkingLevels: getSupportedThinkingLevels({
+		thinkingLevels: sdk.ai.getSupportedThinkingLevels({
 			reasoning,
 			...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
 		} as Model<Api>) as ThinkingLevel[],

@@ -17,6 +17,7 @@ import {
 	AgentConfigRuntimeSchema,
 	AgentConfigScopeSchema,
 	type AgentInstallationResult,
+	AgentInstallRuntimeSchema,
 	AgentInstallSourceSchema,
 	type AgentRuntimeInfo,
 	ApprovalPolicySchema,
@@ -488,13 +489,14 @@ export const MethodParamsSchemas = {
 
 	/** Agent runtimes the host knows and whether they can run sessions (1.22). */
 	"runtime.list": z.object({}).optional(),
-	/** Native CLI installation and progress on the Host computer (1.32). */
-	"runtime.installStatus": z.object({ runtime: AgentConfigRuntimeSchema, refresh: z.boolean().optional() }),
+	/** Agent installation and progress on the Host computer (1.32; `pi` 1.61). */
+	"runtime.installStatus": z.object({ runtime: AgentInstallRuntimeSchema, refresh: z.boolean().optional() }),
 	/**
-	 * Starts an asynchronous install/update of the latest official native CLI. `source` (1.50) picks
-	 * a download route the runtime accepts; it defaults to `official`.
+	 * Starts an asynchronous install/update of the latest official release. `source` (1.50) picks
+	 * a download route the runtime accepts; it defaults to `official`. `pi` (1.61) runs
+	 * `pi update --self`, or pi's official installer when pi is not installed.
 	 */
-	"runtime.install": z.object({ runtime: AgentConfigRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
+	"runtime.install": z.object({ runtime: AgentInstallRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
 	"runtime.setAutoUpdate": z.object({ runtime: AgentConfigRuntimeSchema, enabled: z.boolean() }),
 
 	"session.list": z.object({ workspaceId: Id }),

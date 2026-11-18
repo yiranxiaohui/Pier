@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import {
 	type AuthMethod,
 	type AuthNotice,
@@ -173,7 +172,7 @@ export interface ProviderManagerOptions {
  */
 export class ProviderManager {
 	private readonly flows = new Map<string, AuthFlow>();
-	private readonly builtinIds: ReadonlySet<string> = new Set(getBuiltinProviders());
+	private builtinCache: { sdk: object; ids: ReadonlySet<string> } | undefined;
 	private chain: Promise<unknown> = Promise.resolve();
 
 	constructor(
@@ -183,6 +182,13 @@ export class ProviderManager {
 
 	private get runtime() {
 		return this.env.modelRuntime;
+	}
+
+	/** Providers of pi's built-in catalog (needs a loaded pi). */
+	private get builtinIds(): ReadonlySet<string> {
+		const sdk = this.env.sdk();
+		if (this.builtinCache?.sdk !== sdk) this.builtinCache = { sdk, ids: new Set(sdk.builtinProviders()) };
+		return this.builtinCache.ids;
 	}
 
 	/** Run config edits one at a time. */

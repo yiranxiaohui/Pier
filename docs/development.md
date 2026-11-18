@@ -9,7 +9,7 @@ M0–M2（Host 核心、桌面端 MVP）已完成；M3（手机端 MVP，局域�
 | 包 | 说明 |
 |---|---|
 | `packages/protocol` | 协议 schema（zod）、类型、`PROTOCOL_VERSION` |
-| `packages/host` | Pier Host：工作区配置、会话池、Agent 运行时适配层（pi SDK、Claude Code、Codex）、UI 桥接、`pier-approval` 审批扩展、pi 扩展包管理、EventLog、本地 WebSocket Gateway、sidecar 入口 |
+| `packages/host` | Pier Host：工作区配置、会话池、Agent 运行时适配层（运行时加载的用户 pi SDK、Claude Code、Codex）、UI 桥接、`pier-approval` 审批扩展、pi 扩展包管理、EventLog、本地 WebSocket Gateway、sidecar 入口 |
 | `packages/crypto` | Noise XX / IK（X25519、ChaCha20‑Poly1305、SHA‑256，纯 JS）、加密通道帧、配对链接、性能测试 |
 | `packages/client` | 通用客户端（握手、请求关联、自动重连、按 seq 恢复）、加密 WebSocket 与配对，以及调试 CLI `pier-cli` |
 | `packages/chat-state` | 快照 + 事件 → 聊天视图状态的纯逻辑 reducer、会话控制器与斜杠命令解析执行（桌面端与手机端共用） |
@@ -93,7 +93,7 @@ bun run --cwd apps/mobile web                 # 在浏览器中“添加电脑 �
 
 ## Sidecar
 
-构建桌面 sidecar 及旁边的 pi 运行时资源（输出到 `packages/host/bin/`）：
+构建桌面 sidecar（输出到 `packages/host/bin/`；pi 不在其中，运行时加载用户自己安装的 pi）：
 
 ```bash
 bun run build:sidecar                            # 当前平台
@@ -111,11 +111,15 @@ packages/host/bin/pier-host --help
 
 1. 更新所有版本号，并在 `CHANGELOG.md` 中新增 `## v<版本> — <日期>` 小节；合并到 `main`。
 2. 在 `main` 的该提交上打 tag 并推送：`git tag -a v<版本> -m "Pier v<版本>" && git push origin v<版本>`。
-3. `.github/workflows/release.yml` 会校验 tag、版本号以及该提交是否在 `main` 上，然后运行完整检查；接着在各平台 runner 上用 `tauri build` 打包桌面端安装包（deb / AppImage / dmg / NSIS；macOS 包为 ad-hoc 签名并校验签名，未公证；其他平台未签名），并用 `packages/host/scripts/smoke-sidecar.mjs` 冒烟测试安装包内置的 sidecar；Linux x64 / arm64 runner 还会用 `packages/host/scripts/build-host-release.mjs` 构建独立 Host 压缩包（包含 `pier-cli`、pi 资源和服务管理脚本），在没有 DISPLAY / WAYLAND_DISPLAY 的环境中进行冒烟测试；同时用 `expo prebuild` + Gradle 构建 Android APK（arm64-v8a / armeabi-v7a / x86_64）；最后创建 GitHub Release，附带桌面端安装包、更新包及其签名、独立 Host 压缩包、`latest.json`、Android APK、`latest-android.json` 和 `SHA256SUMS.txt`，发布说明取自 CHANGELOG。版本号带 `-` 后缀（如 `0.1.0-rc.1`）时标记为 prerelease。
+3. `.github/workflows/release.yml` 会校验 tag、版本号以及该提交是否在 `main` 上，然后运行完整检查；接着在各平台 runner 上用 `tauri build` 打包桌面端安装包（deb / AppImage / dmg / NSIS；macOS 包为 ad-hoc 签名并校验签名，未公证；其他平台未签名），并用 `packages/host/scripts/smoke-sidecar.mjs` 冒烟测试安装包内置的 sidecar；Linux x64 / arm64 runner 还会用 `packages/host/scripts/build-host-release.mjs` 构建 Linux 单文件 Pier（内置 CLI、服务管理与桌面 AppImage），在没有 DISPLAY / WAYLAND_DISPLAY 的环境中进行冒烟测试；同时用 `expo prebuild` + Gradle 构建 Android APK（arm64-v8a / armeabi-v7a / x86_64）；最后创建 GitHub Release，附带桌面端安装包、更新包及其签名、独立 Host 压缩包、`latest.json`、Android APK、`latest-android.json` 和 `SHA256SUMS.txt`，发布说明取自 CHANGELOG。版本号带 `-` 后缀（如 `0.1.0-rc.1`）时标记为 prerelease。
 
 打 tag 之前可以先在 `main` 上手动触发一次试运行：`gh workflow run release.yml --ref main`。它会构建并冒烟测试全部产物（上传为 workflow artifacts），但跳过 tag 校验和发布。
 
-**跟进 pi 版本**：pi SDK 编译在 Pier Host 里，`packages/host/package.json` 把所有 pi 包固定在同一个精确版本。`.github/workflows/pi-update.yml` 每天检查 npm 上的最新 pi（也可以手动触发并指定版本：`gh workflow run pi-update.yml -f version=<x.y.z>`），有新版本时用 `packages/host/scripts/pi-update.mjs` 改好版本号、刷新 `bun.lock`，推送到 `deps/pi-<版本>` 分支并开 PR；PR 说明列出这期间 pi 的 CHANGELOG，破坏性变更放在最前面，旧的 pi 更新 PR 会被关闭。它用默认的 `GITHUB_TOKEN` 开 PR 时，会在该分支上手动触发 CI（这种 PR 不会自动触发 `pull_request`），需要在仓库「Settings → Actions → General」中开启「Allow GitHub Actions to create and approve pull requests」；也可以配置 secret `PI_UPDATE_TOKEN`（有 contents 与 pull requests 写权限的 fine-grained token），用它开 PR 并走正常的 PR CI。CI 通过、确认破坏性变更不影响 Pier 后合并，再按上面的流程发一个补丁版本，用户就会通过应用内更新拿到新的 pi。关闭某个 pi 更新 PR 而保留分支，可以跳过这个版本。
+**pi 版本**：Pier 不再编译、固定或随版本发布 pi。和 Claude Code、Codex 一样，pi 是用户自己的安装（pi 官方安装程序、npm、bun 等），用户用 `pi update` 自己更新；Host 在运行时从这份安装加载 pi 的 SDK（`packages/host/src/pi/sdk.ts`）。因此：
+
+- Host 代码不能以值的形式静态导入 `@earendil-works/*` 包，否则打包时会把一份 pi 编译进 sidecar；只能 `import type`，运行时通过 `PiEnvironment.sdk()` / `ready()` 取得已加载的模块。`bun build --compile` 需要 `--compile-autoload-package-json`，编译后的 Host 才能从磁盘解析 pi 的依赖。
+- `packages/host/package.json` 的 `devDependencies` 中的 pi 版本只用于类型检查和测试（测试通过 `test/helpers.ts` 的 `testPiLoader()` 使用这份 pi）。`MIN_PI_VERSION`（`sdk.ts`）是 Pier 能使用的最旧 pi；开始依赖更新的 pi 接口时，同时升级开发依赖和 `MIN_PI_VERSION`。更新的 pi 改了 Pier 用到的接口时，加载会报出缺少的接口，`runtime.list` 中 pi 显示为不可用。
+- 本地运行 Host（`bun run host`、`pier-host`）会使用这台电脑上安装的 pi；版本过旧或想用仓库里的 pi 时，设置 `PIER_PI_PATH=$PWD/node_modules/@earendil-works/pi-coding-agent`。`pier-host --check-pi` 加载 pi 并用它缩放一张图片，打印找到的版本与位置。冒烟测试（`smoke-sidecar.mjs` 等）默认使用仓库开发依赖中的 pi。
 
 **更新签名**：`tauri.conf.json` 开启了 `createUpdaterArtifacts`，桌面端打包时会用仓库 secrets `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 为更新包（AppImage、deb、macOS `.app.tar.gz`、NSIS 安装包）生成 `.sig`；缺少 secret 时打包直接失败。`updater-manifest` job 用 `apps/desktop/scripts/updater-manifest.mjs` 把这些签名汇总成 `latest.json`（发布说明同样取自 CHANGELOG），随 Release 一起发布；已安装的应用通过 `releases/latest/download/latest.json` 获取更新，因此 prerelease 不会推送给用户。对应的公钥写在 `tauri.conf.json` 的 `plugins.updater.pubkey` 中。私钥一旦丢失，已安装的版本将无法再校验新版本，只能让用户手动重装；轮换密钥时，要先用旧私钥签名发布一个内置新公钥的版本，之后的版本再改用新私钥签名。同一个 job 还用 `apps/mobile/scripts/android-update-manifest.mjs` 生成 `latest-android.json`（版本、发布说明、APK 下载地址、大小与 SHA-256 / MD5），供 Android App 通过 `releases/latest/download/latest-android.json` 检查更新。
 

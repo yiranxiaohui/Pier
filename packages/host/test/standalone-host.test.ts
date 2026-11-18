@@ -11,9 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { prepareResources } from "../src/standalone/resources.ts";
 import {
 	findInstallation,
 	type Installation,
@@ -348,33 +346,5 @@ describe.skipIf(process.platform !== "linux")("standalone remote update worker",
 		expect(existsSync(join(f.root, "active"))).toBe(true);
 		expect(readFileSync(join(f.state, "config.json"), "utf8")).toBe("paired-devices-kept");
 		expect(existsSync(directory)).toBe(false);
-	});
-});
-
-describe("embedded resources", () => {
-	it("unpacks binary resources once and reuses the complete immutable bundle", () => {
-		const f = fixture();
-		const archive = join(f.root, "resources.gz");
-		writeFileSync(
-			archive,
-			gzipSync(
-				JSON.stringify({
-					"package.json": Buffer.from('{"version":"1.0.0"}').toString("base64"),
-					"theme/dark.json": Buffer.from("theme").toString("base64"),
-					"photon_rs_bg.wasm": Buffer.from([0, 1, 255]).toString("base64"),
-				}),
-			),
-		);
-		const directory = prepareResources(archive, f.state);
-		expect(readFileSync(join(directory, "photon_rs_bg.wasm"))).toEqual(Buffer.from([0, 1, 255]));
-		expect(readFileSync(join(directory, "theme/dark.json"), "utf8")).toBe("theme");
-		expect(prepareResources(archive, f.state)).toBe(directory);
-	});
-	it("rejects an archive path that escapes the private resource directory", () => {
-		const f = fixture();
-		const archive = join(f.root, "resources.gz");
-		writeFileSync(archive, gzipSync(JSON.stringify({ "../../outside": Buffer.from("bad").toString("base64") })));
-		expect(() => prepareResources(archive, f.state)).toThrow("Invalid embedded resource path");
-		expect(existsSync(join(f.state, "outside"))).toBe(false);
 	});
 });

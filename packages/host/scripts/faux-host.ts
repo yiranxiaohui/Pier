@@ -22,6 +22,8 @@
  * `--fake-codex` instead offers a scripted Codex (the test fixture, no tokens) whose prompts with
  * "delegate" start sub-agents ("delegate slow team" paces two of them, "delegate-hold" runs one
  * until it is stopped).
+ * `--no-pi` starts without pi, as on a computer where it is not installed yet; installing it from
+ * Settings → Agent 配置 → pi runs a scripted installer and then loads the development pi.
  * `--demo-terminals` lets clients open terminals (`terminal.*`, for the remote terminal UI):
  * a real `bash` through `script(1)` on Linux (no resizing), a line-echo shell elsewhere. State
  * lives in a temporary directory that is removed on exit.
@@ -37,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai";
 import { type AppUpdateStatus, PROTOCOL_VERSION } from "@pier/protocol";
 import { PIER_HOST_VERSION } from "../src/host.ts";
+import { PiLoader, type PiLocation } from "../src/pi/sdk.ts";
 import type {
 	AppShell,
 	ShellMethod,
@@ -44,7 +47,7 @@ import type {
 	ShellTerminalHandlers,
 	ShellTerminalOptions,
 } from "../src/shell.ts";
-import { startTestHost, TOKEN } from "../test/helpers.ts";
+import { startTestHost, TOKEN, testPiSdk } from "../test/helpers.ts";
 
 type Context = { messages: Array<{ role: string; content?: unknown }> };
 
@@ -294,10 +297,33 @@ const resources = sampleResources();
 const remoteAddress = flag("--remote-address");
 const relayUrl = flag("--relay");
 const accountSite = flag("--account-site");
+// `--no-pi`: pi is missing until it is "installed" (scripted installer output, then the dev pi).
+let piLocation: PiLocation = { state: "missing" };
+const noPi = process.argv.includes("--no-pi")
+	? {
+			piLoader: new PiLoader({ locate: () => piLocation, load: async () => testPiSdk() }),
+			piInstaller: {
+				fetch: async () => new Response("#!/bin/sh\n"),
+				run: async ({ onLine }: { onLine: (line: string) => void }) => {
+					for (const line of ["Downloading managed installer release metadata", "Installing managed Pi dependencies"]) {
+						onLine(line);
+						await sleep(1500);
+					}
+					const sdk = testPiSdk();
+					piLocation = {
+						state: "found",
+						installation: { packageDir: sdk.packageDir, version: sdk.version, command: "/home/demo/.local/bin/pi" },
+					};
+					return 0;
+				},
+			},
+		}
+	: {};
 const fakeCodexDir = process.argv.includes("--fake-codex")
 	? mkdtempSync(join(tmpdir(), "pier-fake-codex-"))
 	: undefined;
 const t = await startTestHost({
+	...noPi,
 	...(accountSite ? { accountSite } : {}),
 	// `--agents`: also offer the Claude Code and Codex CLIs installed on this computer.
 	...(process.argv.includes("--agents") ? { agents: {} } : {}),

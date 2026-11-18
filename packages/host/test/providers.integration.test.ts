@@ -12,7 +12,7 @@ import { PierHost } from "../src/host.ts";
 import { PiEnvironment } from "../src/pi/environment.ts";
 import { mergeCustomProvider, modelBaseUrl, stripJsonComments, toCustomProvider } from "../src/pi/models-json.ts";
 import { detectNewApiModelApi } from "../src/pi/newapi.ts";
-import { Recorder, TOKEN } from "./helpers.ts";
+import { Recorder, TOKEN, testPiLoader } from "./helpers.ts";
 
 const SECRET = "sk-test-SECRET-0123456789";
 
@@ -37,6 +37,7 @@ async function startHarness(initialModelsJson?: unknown): Promise<Harness> {
 	const modelRuntime = await ModelRuntime.create({ credentials, modelsPath, refreshOnCreate: false });
 	const settings = SettingsManager.inMemory({});
 	const env = await PiEnvironment.create({
+		loader: testPiLoader(),
 		agentDir,
 		modelsPath,
 		modelRuntime,

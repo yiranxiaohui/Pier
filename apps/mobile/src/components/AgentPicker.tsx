@@ -21,7 +21,7 @@ function agentIcon(id: AgentRuntimeId): IconName {
 function agentDescription(id: AgentRuntimeId): string {
 	switch (id) {
 		case "pi":
-			return "Pier 内置，使用在 Pier 中配置的模型与扩展";
+			return "电脑上安装的 pi，使用在 Pier 中配置的模型与扩展";
 		case "claude-code":
 			return "电脑上的 Claude Code，使用它自己的登录与配置";
 		case "codex":

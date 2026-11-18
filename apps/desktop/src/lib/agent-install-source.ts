@@ -1,15 +1,16 @@
 import { UPDATE_ROUTES } from "@pier/client";
-import { AGENT_INSTALL_SOURCES, type AgentConfigRuntime, type AgentInstallSource } from "@pier/protocol";
+import { AGENT_INSTALL_SOURCES, type AgentInstallRuntime, type AgentInstallSource } from "@pier/protocol";
 
 /** `localStorage[STORAGE_KEY]`: the download route chosen for each computer and agent. */
 const STORAGE_KEY = "pier.agentInstallSources";
 
 /** The name and download host of a route, as shown in the route picker. */
 export function agentInstallSourceInfo(
-	runtime: AgentConfigRuntime,
+	runtime: AgentInstallRuntime,
 	source: AgentInstallSource,
 ): { name: string; host: string } {
 	if (source === "official") {
+		if (runtime === "pi") return { name: "官方", host: "pi.dev" };
 		return runtime === "codex"
 			? { name: "GitHub 直连", host: "github.com" }
 			: { name: "官方", host: "downloads.claude.ai" };
@@ -31,13 +32,13 @@ function readSources(): Record<string, unknown> {
 }
 
 /** The saved route of an agent on a computer; routes the agent no longer offers fall back to the default. */
-export function readAgentInstallSource(node: string, runtime: AgentConfigRuntime): AgentInstallSource {
+export function readAgentInstallSource(node: string, runtime: AgentInstallRuntime): AgentInstallSource {
 	const saved = readSources()[JSON.stringify([node, runtime])];
 	const sources = AGENT_INSTALL_SOURCES[runtime];
 	return sources.find((source) => source === saved) ?? sources[0] ?? "official";
 }
 
-export function saveAgentInstallSource(node: string, runtime: AgentConfigRuntime, source: AgentInstallSource): void {
+export function saveAgentInstallSource(node: string, runtime: AgentInstallRuntime, source: AgentInstallSource): void {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...readSources(), [JSON.stringify([node, runtime])]: source }));
 	} catch {

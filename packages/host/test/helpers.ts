@@ -1,6 +1,8 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as piAi from "@earendil-works/pi-ai";
 import {
 	type AssistantMessage,
 	fauxAssistantMessage,
@@ -9,17 +11,44 @@ import {
 	fauxToolCall,
 	InMemoryCredentialStore,
 } from "@earendil-works/pi-ai";
+import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
+import * as piAgent from "@earendil-works/pi-coding-agent";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { PierClient, type PierClientOptions } from "@pier/client";
 import type { EventFrame } from "@pier/protocol";
 import { startLocalGateway } from "../src/gateway/local-gateway.ts";
 import { PierHost, type PierHostOptions } from "../src/host.ts";
 import { PiEnvironment, type PiEnvironmentOptions } from "../src/pi/environment.ts";
+import { PiLoader, type PiSdk } from "../src/pi/sdk.ts";
 
 export { fauxAssistantMessage, fauxText, fauxToolCall };
 export type FauxStep = Parameters<ReturnType<typeof fauxProvider>["setResponses"]>[0][number];
 
 export const TOKEN = "test-token-0123456789abcdef";
+
+/** pi's package directory in the development dependencies. */
+export const DEV_PI_PACKAGE_DIR = dirname(
+	dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"))),
+);
+
+/**
+ * The pi SDK of the development dependency, made of the same module instances the tests import
+ * (the Host loads the user's pi installation instead).
+ */
+export function testPiSdk(): PiSdk {
+	return {
+		version: piAgent.VERSION,
+		packageDir: DEV_PI_PACKAGE_DIR,
+		agent: piAgent,
+		ai: piAi,
+		builtinProviders: getBuiltinProviders,
+	};
+}
+
+/** A loader that never looks for pi on this machine. */
+export function testPiLoader(): PiLoader {
+	return new PiLoader({ sdk: testPiSdk() });
+}
 
 export interface TestHost {
 	root: string;
@@ -40,6 +69,8 @@ export async function startTestHost(
 		 * packages) instead of in-memory settings with discovery disabled.
 		 */
 		fileSettings?: boolean;
+		/** Where pi comes from; defaults to the development dependency, always loaded. */
+		piLoader?: PiLoader;
 	} = {},
 ): Promise<TestHost> {
 	// macOS's temporary directory may be reached through the system /var symlink.
@@ -67,6 +98,7 @@ export async function startTestHost(
 		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "faux", defaultModel: "faux-1" }));
 	}
 	const env = await PiEnvironment.create({
+		loader: options.piLoader ?? testPiLoader(),
 		agentDir,
 		modelRuntime,
 		...(options.fileSettings
@@ -78,7 +110,13 @@ export async function startTestHost(
 		sessionDir: join(root, "sessions"),
 		...(options.extraResources ? { extraResources: options.extraResources } : {}),
 	});
-	const { tokensPerSecond: _ignored, extraResources: _extra, fileSettings: _file, ...hostOptions } = options;
+	const {
+		tokensPerSecond: _ignored,
+		extraResources: _extra,
+		fileSettings: _file,
+		piLoader: _piLoader,
+		...hostOptions
+	} = options;
 	const host = await PierHost.create({
 		pierDir: join(root, "pier"),
 		env,
@@ -92,6 +130,16 @@ export async function startTestHost(
 			homeDirectory: join(root, "home"),
 			configurePath: async () => {}, // Never change the test runner's shell profiles or Windows registry.
 			...hostOptions.agentInstaller,
+		},
+		// Never run pi's installer or `pi update` on the test machine.
+		piInstaller: {
+			fetch: async () => {
+				throw new Error("network disabled in tests");
+			},
+			run: async () => {
+				throw new Error("commands disabled in tests");
+			},
+			...hostOptions.piInstaller,
 		},
 	});
 	const gateway = await startLocalGateway(host);

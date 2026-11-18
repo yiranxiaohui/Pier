@@ -12,7 +12,9 @@ export function useHostStatus(): { online: boolean; dot: "ok" | "bad" | "wait"; 
 	const hostInfo = useAppState((s) => s.localHostInfo);
 	const online = host.state === "ready" && connection === "open";
 	const text = online
-		? `已连接 · pi ${hostInfo?.piVersion ?? ""}`
+		? hostInfo?.piVersion
+			? `已连接 · pi ${hostInfo.piVersion}`
+			: "已连接 · 未安装 pi"
 		: connection === "reconnecting"
 			? "正在重连…"
 			: host.state === "failed"

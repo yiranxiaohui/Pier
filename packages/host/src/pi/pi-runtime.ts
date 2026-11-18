@@ -2,10 +2,10 @@ import type { AgentRuntimeInfo, ModelInfo, ThinkingLevel, WorkspaceInfo } from "
 import { PierProtocolError } from "@pier/protocol";
 import type { ManagedSession, ManagedSessionOptions } from "../managed-session.ts";
 import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
-import { PI_VERSION, type PiEnvironment } from "./environment.ts";
+import type { PiEnvironment } from "./environment.ts";
 import { PI_CAPABILITIES, PiManagedSession } from "./pi-session.ts";
 
-/** The built-in pi runtime (pi SDK). */
+/** pi, run in-process through the SDK of the user's pi installation (see `sdk.ts`). */
 export class PiRuntime implements AgentRuntime {
 	readonly id = "pi";
 	readonly name = "pi";
@@ -13,11 +13,36 @@ export class PiRuntime implements AgentRuntime {
 
 	constructor(readonly env: PiEnvironment) {}
 
+	/** Load pi if it can be; false when it is not installed or cannot be used. */
+	private available(): Promise<boolean> {
+		return this.env.ready().then(
+			() => true,
+			() => false,
+		);
+	}
+
 	async info(): Promise<AgentRuntimeInfo> {
-		return { id: this.id, name: this.name, available: true, version: PI_VERSION, capabilities: this.capabilities };
+		// pi installed while the Host runs is picked up here, when clients list the agents again.
+		await this.available();
+		const state = this.env.state();
+		const installation = state.location.state === "found" ? state.location.installation : undefined;
+		const executable =
+			installation?.command ?? (state.location.state === "invalid" ? state.location.command : undefined);
+		const base = { id: this.id, name: this.name, capabilities: this.capabilities };
+		const version = this.env.version;
+		if (version) return { ...base, available: true, version, ...(executable ? { executable } : {}) };
+		return {
+			...base,
+			available: false,
+			reason: state.reason ?? "pi 尚未加载",
+			...(installation ? { version: installation.version } : {}),
+			...(executable ? { executable } : {}),
+		};
 	}
 
 	async listSessions(workspace: WorkspaceInfo): Promise<StoredSession[]> {
+		// Without pi its sessions cannot be read; they show up again once pi is installed.
+		if (!(await this.available())) return [];
 		const infos = await this.env.listSessions(workspace.path);
 		return infos.map((info) => ({
 			id: info.id,
@@ -36,13 +61,15 @@ export class PiRuntime implements AgentRuntime {
 		return { ...options, env: this.env };
 	}
 
-	create(options: ManagedSessionOptions): Promise<ManagedSession> {
+	async create(options: ManagedSessionOptions): Promise<ManagedSession> {
+		await this.env.ready();
 		const sessionManager = this.env.newSessionManager(options.workspace().path);
 		return PiManagedSession.start(this.sessionOptions(options), sessionManager);
 	}
 
-	open(options: ManagedSessionOptions, stored: StoredSession): Promise<ManagedSession> {
+	async open(options: ManagedSessionOptions, stored: StoredSession): Promise<ManagedSession> {
 		if (!stored.path) throw new PierProtocolError("NOT_FOUND", "Session file not found");
+		await this.env.ready();
 		const sessionManager = this.env.openSessionManager(stored.path, options.workspace().path);
 		return PiManagedSession.start(this.sessionOptions(options), sessionManager);
 	}
@@ -54,6 +81,7 @@ export class PiRuntime implements AgentRuntime {
 		options: ManagedSessionOptions,
 	): Promise<ForkResult> {
 		if (!(source instanceof PiManagedSession)) throw new PierProtocolError("BAD_REQUEST", "Not a pi session");
+		await this.env.ready();
 		let forked: ReturnType<PiEnvironment["forkSessionManager"]>;
 		try {
 			forked = this.env.forkSessionManager(source.session, entryId, position);
@@ -65,10 +93,12 @@ export class PiRuntime implements AgentRuntime {
 	}
 
 	async listModels(): Promise<ModelInfo[]> {
+		if (!(await this.available())) return [];
 		return this.env.listModels();
 	}
 
 	async newSessionDefaults(cwd: string): Promise<{ model?: ModelInfo; thinkingLevel: ThinkingLevel }> {
+		if (!(await this.available())) return { thinkingLevel: "off" };
 		return this.env.newSessionDefaults(cwd);
 	}
 

@@ -5,6 +5,7 @@ import type {
 	AgentConfigResult,
 	AgentConfigRuntime,
 	AgentConfigScope,
+	AgentInstallRuntime,
 	AgentInstallSource,
 	AgentRuntimeId,
 	AgentRuntimeInfo,
@@ -379,6 +380,11 @@ export interface AppState {
 	settingsSyncedAt?: number | undefined;
 	/** Model providers and credentials of `settingsNode` (undefined until loaded). */
 	providers?: ProviderListResult | undefined;
+	/**
+	 * Why `settingsNode`'s providers could not be read, e.g. pi is not installed there (since
+	 * protocol 1.61 pi is the user's own installation). Cleared once they are read.
+	 */
+	providersError?: string | undefined;
 	/** This computer's model providers (the "no models" hints of the main window). */
 	localProviders?: ProviderListResult | undefined;
 	auth?: AuthFlowState;
@@ -991,6 +997,7 @@ export class PierStore {
 							settingsNode: LOCAL_NODE,
 							settingsSync: s.settingsSync + 1,
 							providers: s.localProviders,
+							providersError: undefined,
 							settingsSyncedAt: undefined,
 							extensionProgress: undefined,
 						}
@@ -1664,11 +1671,14 @@ export class PierStore {
 			if (this.clients.get(node) !== client) return false;
 			this.set((s) => ({
 				...(node === LOCAL_NODE ? { localProviders: providers } : {}),
-				...(node === s.settingsNode ? { providers, settingsSyncedAt: Date.now() } : {}),
+				...(node === s.settingsNode ? { providers, providersError: undefined, settingsSyncedAt: Date.now() } : {}),
 			}));
 			return true;
 		} catch (error) {
-			if (report || (node === this.state.settingsNode && this.state.settings === "models")) {
+			// Without providers on screen the models page shows the error itself (e.g. pi is missing).
+			const inline = this.clients.get(node) === client && node === this.state.settingsNode && !this.state.providers;
+			if (inline) this.set({ providersError: errorText(error) });
+			else if (report || (node === this.state.settingsNode && this.state.settings === "models")) {
 				const where = node === LOCAL_NODE ? "" : `${this.nodeName(node)} 的`;
 				this.toast("error", `读取${where}模型配置失败：${errorText(error)}`);
 			}
@@ -2057,8 +2067,9 @@ export class PierStore {
 
 	// ---- Claude Code and Codex configuration files ----------------------------------------
 
+	/** `pi` needs protocol 1.61. */
 	async getAgentInstallation(
-		runtime: AgentConfigRuntime,
+		runtime: AgentInstallRuntime,
 		refresh = false,
 	): Promise<MethodResult<"runtime.installStatus">> {
 		const client = this.settingsClient;
@@ -2074,7 +2085,7 @@ export class PierStore {
 
 	/** `source` needs protocol 1.50; older Hosts always download from the official route. */
 	async installAgent(
-		runtime: AgentConfigRuntime,
+		runtime: AgentInstallRuntime,
 		source?: AgentInstallSource,
 	): Promise<MethodResult<"runtime.install">> {
 		const client = this.settingsClient;
@@ -3316,6 +3327,7 @@ export class PierStore {
 			settingsSyncing: false,
 			settingsSyncedAt: undefined,
 			providers: target === LOCAL_NODE ? s.localProviders : undefined,
+			providersError: undefined,
 			extensionProgress: undefined,
 		}));
 		if (target !== LOCAL_NODE && this.state.nodes[target]?.connection !== "open") this.retryNode(target);

@@ -643,7 +643,8 @@ class Cli {
 		const hostParts = [
 			host?.hostName ?? "host",
 			host?.version ? `Pier ${host.version}` : "",
-			`pi ${host?.piVersion ?? "?"}`,
+			// "" since 1.61: pi is the user's own installation and this host has none (see /agents).
+			host?.piVersion === "" ? "no pi" : `pi ${host?.piVersion ?? "?"}`,
 		];
 		const pairs: Array<[string, string]> = [
 			[

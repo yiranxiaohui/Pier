@@ -285,7 +285,7 @@ Pier/
 
 | 风险 | 对策 |
 |---|---|
-| pi SDK API 变动 | 锁定版本；所有 pi 调用集中在 `packages/host/src/pi/` 适配层；升级时跑集成测试 |
+| pi SDK API 变动 | pi 是用户自己的安装，Host 运行时加载（`sdk.ts`，最低版本 `MIN_PI_VERSION`，加载时检查必需接口）；所有 pi 调用集中在 `packages/host/src/pi/` 适配层；用开发依赖中的 pi 跑集成测试 |
 | 多运行时能力不一致（Claude Code / Codex 的会话、审批、压缩模型各不相同） | 协议只暴露公共能力，运行时差异通过能力声明呈现；每个运行时独立适配层与集成测试 |
 | 单文件打包后扩展（运行时加载 TS）无法工作 | M0 Spike 1 优先验证；备选内置 Node 运行时 |
 | iOS 后台会挂起 WebSocket | 不依赖后台长连接：回到前台用 `sinceSeq` 补发，后台靠推送 |

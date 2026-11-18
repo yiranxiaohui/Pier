@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { type ExtensionScope, PierProtocolError, type PiSettingsFile } from "@pier/protocol";
 import lockfile from "proper-lockfile";
+import { PI_CONFIG_DIR_NAME } from "./sdk.ts";
 
 /** One change of `settings.update`: set `value` at `path`, or remove the key when `value` is undefined. */
 export interface SettingsChange {
@@ -92,7 +92,7 @@ export class PiSettingsFiles {
 	pathFor(scope: ExtensionScope, workspacePath?: string): string {
 		if (scope === "user") return join(this.agentDir, "settings.json");
 		if (!workspacePath) throw new PierProtocolError("BAD_REQUEST", "Project scope needs a workspaceId");
-		return join(workspacePath, CONFIG_DIR_NAME, "settings.json");
+		return join(workspacePath, PI_CONFIG_DIR_NAME, "settings.json");
 	}
 
 	read(scope: ExtensionScope, workspacePath?: string): PiSettingsFile {

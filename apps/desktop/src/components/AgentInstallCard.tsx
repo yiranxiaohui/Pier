@@ -1,8 +1,8 @@
 import {
 	AGENT_INSTALL_SOURCES,
-	type AgentConfigRuntime,
 	type AgentInstallationResult,
 	type AgentInstallationStatus,
+	type AgentInstallRuntime,
 } from "@pier/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_CONFIG_META } from "../lib/agent-config.ts";
@@ -31,8 +31,15 @@ const LABELS: Record<AgentInstallationStatus["state"], string> = {
 	error: "安装失败",
 };
 
-export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
+/** pi runs the official installer or `pi update`, without download progress. */
+const PI_LABELS: Partial<Record<AgentInstallationStatus["state"], string>> = {
+	checking: "正在检查 pi…",
+	installing: "正在安装或更新 pi…",
+};
+
+export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) {
 	const store = useStore();
+	const pi = runtime === "pi";
 	const target = useSettingsTarget();
 	const version = useAppState((s) => s.agentConfigVersion);
 	const [data, setData] = useState<AgentInstallationResult>();
@@ -44,10 +51,12 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 	// Recent byte counts of a running download, so the card can show its speed.
 	const samples = useRef<DownloadSample[]>([]);
 	const [rate, setRate] = useState<number>();
-	const supported = hostSpeaksMinor(target.hostInfo, 32);
-	const supportsAutoUpdate = hostSpeaksMinor(target.hostInfo, 56);
+	// Hosts before 1.61 have pi built in and update it with Pier.
+	const supported = hostSpeaksMinor(target.hostInfo, pi ? 61 : 32);
+	// pi updates itself (`pi update`); a running Host keeps the pi it loaded until it restarts.
+	const supportsAutoUpdate = !pi && hostSpeaksMinor(target.hostInfo, 56);
 	// Hosts before 1.50 only download from the official route.
-	const routes = hostSpeaksMinor(target.hostInfo, 50);
+	const routes = hostSpeaksMinor(target.hostInfo, pi ? 61 : 50);
 	const [source, setSource] = useState(() => readAgentInstallSource(target.node, runtime));
 	const identity = `${target.node}:${runtime}`;
 	const identityRef = useRef(identity);
@@ -56,12 +65,13 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 	const busy = starting || (status !== undefined && !["idle", "ready", "error"].includes(status.state));
 	// Choosing another route restarts a download that is still slow, but never a running installation.
 	const switchable =
+		!pi &&
 		routes &&
 		!starting &&
 		status?.source !== undefined &&
 		status.source !== source &&
 		(status.state === "checking" || status.state === "downloading");
-	const name = AGENT_CONFIG_META[runtime].name;
+	const name = pi ? "pi" : AGENT_CONFIG_META[runtime].name;
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: switching computers or agents clears their previous status.
 	useEffect(() => {
@@ -133,6 +143,7 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 	}, [store, runtime, identity, routes, source]);
 
 	async function setAutoUpdate(enabled: boolean) {
+		if (runtime === "pi") return;
 		setSavingAutoUpdate(true);
 		setError(undefined);
 		try {
@@ -152,13 +163,16 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 	const downloading = status?.state === "downloading";
 	const working = status !== undefined && !["idle", "ready", "error"].includes(status.state);
 	const versionText = status?.version
-		? `目标版本 v${status.version}${status.source && routes ? ` · 线路：${agentInstallSourceInfo(runtime, status.source).name}` : ""}`
+		? `${pi ? "版本" : "目标版本"} v${status.version}${status.source && routes ? ` · 线路：${agentInstallSourceInfo(runtime, status.source).name}` : ""}`
 		: undefined;
+	const stateLabel = status ? ((pi ? PI_LABELS[status.state] : undefined) ?? LABELS[status.state]) : "";
 	const executable = data?.agent.executable;
 	// Both POSIX shells and PowerShell accept single-quoted paths, with different quote escaping.
 	const windows = target.hostInfo?.platform === "win32";
 	const quoted = executable ? `'${executable.replaceAll("'", windows ? "''" : "'\\''")}'` : "";
-	const login = executable ? `${windows ? "& " : ""}${quoted}${runtime === "codex" ? " login" : ""}` : undefined;
+	const login = executable && !pi ? `${windows ? "& " : ""}${quoted}${runtime === "codex" ? " login" : ""}` : undefined;
+	const installedVersion = pi ? data?.installedVersion : undefined;
+	const canRestart = target.local && store.bridgeKind === "tauri";
 
 	return (
 		<SettingsGroup title="安装与更新">
@@ -168,13 +182,17 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 						data?.agent.available
 							? `${name}${data.agent.version ? ` v${data.agent.version}` : " · 已安装"}`
 							: data
-								? `${name} · 未安装`
+								? `${name}${data.agent.version ? ` v${data.agent.version} · 不可用` : " · 未安装"}`
 								: name
 					}
 					description={
-						supported
-							? `在${target.local ? "本机" : target.name}安装官方最新原生版本，无需 Node.js。Pier 与外部终端共用；安装后请重新打开终端。`
-							: "请先更新这台电脑上的 Pier，以支持应用内安装和更新。"
+						pi
+							? supported
+								? `Pier 使用${target.local ? "本机" : target.name}上你自己安装的 pi，与终端里的 pi 是同一份，版本由你管理。没有 pi 时运行 pi 的官方安装程序，已安装时运行 pi update；需要 Node.js 22.19 或更新版本及 npm。更新后重启 Pier Host 生效。`
+								: "这台电脑上的 Pier 内置了 pi，随 Pier 一起更新。更新 Pier 后可以改用自己安装的 pi。"
+							: supported
+								? `在${target.local ? "本机" : target.name}安装官方最新原生版本，无需 Node.js。Pier 与外部终端共用；安装后请重新打开终端。`
+								: "请先更新这台电脑上的 Pier，以支持应用内安装和更新。"
 					}
 				>
 					<button
@@ -216,13 +234,36 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 						/>
 					</SettingRow>
 				) : null}
+				{pi && data && !data.agent.available && data.agent.reason && (data.agent.version || data.agent.executable) ? (
+					// A pi was found but cannot be used (too old, not an npm installation, failed to load).
+					<SettingRow title="无法使用这个 pi" description={data.agent.reason} />
+				) : null}
+				{installedVersion ? (
+					<SettingRow
+						title={`已安装 pi v${installedVersion}`}
+						description={
+							canRestart
+								? "Host 仍在使用启动时加载的 pi，重启 Pier Host 后生效（运行中的会话会中断）。"
+								: `Host 仍在使用启动时加载的 pi，重启${target.local ? "" : `${target.name}上的`} Pier 后生效。`
+						}
+					>
+						{canRestart ? (
+							<button type="button" onClick={() => store.restartHost()}>
+								<IconRefresh size={14} />
+								重启 Host
+							</button>
+						) : null}
+					</SettingRow>
+				) : null}
 				{routes ? (
 					<SettingRow
 						title="下载线路"
 						description={
-							runtime === "codex"
-								? "加速线路转发 GitHub 上的官方发行包，版本与 SHA-256 校验值仍从 GitHub 官方获取。"
-								: "npmmirror 镜像提供与官方相同的原生程序，适合国内网络；版本与 SHA-256 校验值仍从官方获取。"
+							pi
+								? "npmmirror 镜像提供 pi 依赖的 npm 包，适合国内网络；pi 的安装程序与版本信息仍从 pi.dev 获取。"
+								: runtime === "codex"
+									? "加速线路转发 GitHub 上的官方发行包，版本与 SHA-256 校验值仍从 GitHub 官方获取。"
+									: "npmmirror 镜像提供与官方相同的原生程序，适合国内网络；版本与 SHA-256 校验值仍从官方获取。"
 						}
 					>
 						<Select
@@ -243,17 +284,15 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 				{status && status.state !== "idle" ? (
 					<SettingRow
 						title={
-							<span role="status">
-								{downloading && percent !== undefined ? `正在下载 ${percent}%` : LABELS[status.state]}
-							</span>
+							<span role="status">{downloading && percent !== undefined ? `正在下载 ${percent}%` : stateLabel}</span>
 						}
 						description={
 							status.state === "error" ? (
-								status.error
+								<span className="agent-install-error">{status.error}</span>
 							) : working ? (
 								<>
 									<InstallProgress status={status} percent={percent} rate={rate} />
-									{versionText}
+									{status.detail ? <span className="mono">{status.detail}</span> : versionText}
 								</>
 							) : (
 								versionText

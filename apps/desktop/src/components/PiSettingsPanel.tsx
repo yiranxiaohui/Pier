@@ -10,6 +10,7 @@ import {
 	unhandledKeys,
 } from "../lib/pi-settings.ts";
 import { useAppState, useSettingsTarget, useSettingsWorkspaces, useStore } from "../lib/store.tsx";
+import { AgentInstallCard } from "./AgentInstallCard.tsx";
 import { ConfigGroups, FieldRow, TextFileEditor } from "./ConfigFields.tsx";
 import { IconAlert, IconBraces, IconLoader, IconRefresh, IconSearch, IconSliders, IconX } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
@@ -232,6 +233,7 @@ export function PiSettings() {
 				<code>.pi/settings.json</code>{" "}
 				覆盖全局中的同名项。修改会立即写入文件，空闲的会话随后重新加载；默认工具、传输方式等少数设置只对新会话生效。
 			</p>
+			<AgentInstallCard runtime="pi" />
 
 			<SettingsGroup>
 				<SettingsCard>

@@ -2,18 +2,22 @@
 /**
  * Smoke-test a compiled pier-host sidecar: start it with throwaway pi/Pier directories,
  * read the `pier.ready` line, speak the protocol over WebSocket (hello, workspace, session
- * via the pi SDK inside the binary), then close stdin and expect a clean exit. Finally run
- * `--check-images` and expect pi to resize an image with the Photon wasm shipped next to the
- * binary or in PI_PACKAGE_DIR (not the build machine's node_modules path baked into it), and
- * `--check-p2p` and expect a local WebRTC data channel (werift inside the binary) to work.
+ * through the pi SDK the binary loads from the pi installation), then close stdin and expect a
+ * clean exit. Finally run `--check-pi` and expect pi to load and resize an image with its
+ * Photon wasm, the same with no usable pi to fail cleanly, and `--check-p2p` and expect a local
+ * WebRTC data channel (werift inside the binary) to work.
+ *
+ * pi is the user's own installation; the binary loads it at runtime. The test uses
+ * `PIER_PI_PATH` when set, otherwise the pi of this repository's development dependencies.
  *
  * Usage: node scripts/smoke-sidecar.mjs <path-to-pier-host> [expected-version]
  */
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 const exe = resolve(process.argv[2] ?? "");
 const expectedVersion = process.argv[3];
@@ -21,6 +25,11 @@ if (!process.argv[2] || !existsSync(exe)) {
 	console.error("Usage: smoke-sidecar.mjs <path-to-pier-host> [expected-version]");
 	process.exit(2);
 }
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const piPath = resolve(process.env.PIER_PI_PATH || join(repo, "node_modules/@earendil-works/pi-coding-agent"));
+const piPackage = realpathSync(existsSync(join(piPath, "package.json")) ? piPath : join(piPath, "..", ".."));
+const piVersion = JSON.parse(readFileSync(join(piPackage, "package.json"), "utf8")).version;
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "pier-smoke-")));
 const pierDir = join(root, "pier");
@@ -37,6 +46,7 @@ const child = spawn(exe, ["--watch-stdin", "--pier-dir", pierDir], {
 	stdio: ["pipe", "pipe", "pipe"],
 	env: {
 		...process.env,
+		PIER_PI_PATH: piPath,
 		PI_CODING_AGENT_DIR: join(root, "agent"),
 		PI_CODING_AGENT_SESSION_DIR: join(root, "sessions"),
 	},
@@ -101,7 +111,10 @@ async function main() {
 		client: { name: "smoke", version: "0" },
 		token: ready.token,
 	});
-	if (hello.host.piVersion === "0.0.0") fail("pi assets missing next to the binary (piVersion 0.0.0)");
+	if (hello.host.piVersion !== piVersion) fail(`loaded pi ${hello.host.piVersion || "(none)"}, expected ${piVersion}`);
+	const { runtimes } = await request("runtime.list", {});
+	const pi = runtimes.find((r) => r.id === "pi");
+	if (!pi?.available) fail(`pi runtime unavailable: ${pi?.reason ?? "missing"}`);
 	const { workspace: ws } = await request("workspace.add", { path: workspace });
 	const { session } = await request("session.create", { workspaceId: ws.id, name: "smoke" });
 	await request("session.subscribe", { sessionId: session.id });
@@ -121,10 +134,11 @@ async function main() {
 	if (code !== 0) fail(`pier-host exited with code ${code} signal ${signal}`);
 	if (existsSync(join(pierDir, "run", "host.json"))) fail("runtime file was not removed on shutdown");
 
-	const images = checkImages();
+	const checked = checkPi();
+	checkWithoutPi();
 	const p2p = checkP2P();
 	console.log(
-		`smoke OK: pier-host ${ready.version} (protocol ${ready.protocolVersion}, pi ${hello.host.piVersion}, ${hello.host.platform}; images via ${images.wasm}; p2p data channel in ${p2p.ms} ms)`,
+		`smoke OK: pier-host ${ready.version} (protocol ${ready.protocolVersion}, pi ${hello.host.piVersion} from ${checked.pi.packageDir}, ${hello.host.platform}; p2p data channel in ${p2p.ms} ms)`,
 	);
 }
 
@@ -145,36 +159,41 @@ function checkP2P() {
 	return result;
 }
 
-/** pi must resize images with the bundled Photon wasm, or it silently drops every attachment. */
-function checkImages() {
+/** pi must load from its installation and resize images with its Photon wasm, or it drops every attachment. */
+function checkPi() {
 	let output;
 	try {
-		output = execFileSync(exe, ["--check-images"], {
+		output = execFileSync(exe, ["--check-pi"], {
 			encoding: "utf8",
 			timeout: 60_000,
-			env: { ...process.env, PIER_DIR: pierDir, PI_CODING_AGENT_DIR: join(root, "agent") },
+			env: { ...process.env, PIER_PI_PATH: piPath, PIER_DIR: pierDir, PI_CODING_AGENT_DIR: join(root, "agent") },
 		});
 	} catch (error) {
-		fail(`--check-images failed: ${error.stdout || error.message}`);
+		fail(`--check-pi failed: ${error.stdout || error.message}`);
 	}
 	const result = JSON.parse(output.trim().split("\n").at(-1));
-	if (!result.ok) fail(`pi cannot resize images: ${result.error}`);
-	const bundleDirs = [process.env.PI_PACKAGE_DIR, dirname(exe)].filter(Boolean).map((dir) => resolve(dir));
-	const inBundle = (file) =>
-		bundleDirs.some((dir) => {
-			const rel = relative(dir, resolve(file));
-			return rel === "photon_rs_bg.wasm";
-		});
-	const embedded =
-		process.argv.includes("--standalone") &&
-		result.wasm &&
-		/^[a-f0-9]{64}\/photon_rs_bg\.wasm$/.test(
-			relative(join(pierDir, "runtime/resources"), resolve(result.wasm)).replaceAll("\\", "/"),
-		);
-	if (!result.wasm || (!inBundle(result.wasm) && !embedded)) {
-		fail(`Photon wasm was not loaded from the bundle (${result.wasm ?? "build machine path"})`);
-	}
+	if (!result.ok) fail(`pi cannot run in the binary: ${result.error}`);
+	if (result.pi?.packageDir !== piPackage) fail(`pi loaded from ${result.pi?.packageDir}, expected ${piPackage}`);
 	return result;
+}
+
+/** Without a usable pi the binary reports why instead of crashing. */
+function checkWithoutPi() {
+	const empty = join(root, "no-pi");
+	mkdirSync(empty, { recursive: true });
+	let output = "";
+	try {
+		output = execFileSync(exe, ["--check-pi"], {
+			encoding: "utf8",
+			timeout: 60_000,
+			env: { ...process.env, PIER_PI_PATH: empty, PIER_DIR: pierDir },
+		});
+		fail("--check-pi succeeded without pi");
+	} catch (error) {
+		output = error.stdout ?? "";
+	}
+	const result = JSON.parse(String(output).trim().split("\n").at(-1) || "{}");
+	if (result.ok !== false || !result.error) fail(`--check-pi without pi: unexpected output ${output}`);
 }
 
 main()

@@ -12,7 +12,6 @@ import {
 	statSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import {
 	PierProtocolError,
 	type ResourceList,
@@ -24,6 +23,7 @@ import {
 } from "@pier/protocol";
 import type { ExtensionManager, ExtensionTarget } from "../pi/extensions.ts";
 import type { AgentConfigFiles } from "./agent-config.ts";
+import { parseFrontmatter } from "./frontmatter.ts";
 import { checkRevision, object, revision, strings, writeText } from "./resource-files.ts";
 
 interface SkillRoot {

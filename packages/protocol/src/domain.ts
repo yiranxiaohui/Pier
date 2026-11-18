@@ -614,6 +614,10 @@ export interface HostInfo {
 	version: string;
 	protocolVersion: string;
 	platform: string;
+	/**
+	 * Version of the pi the host has loaded. Since 1.61 pi is the user's own installation, not
+	 * part of Pier: `""` when it is not installed (or too old to load); see `runtime.list`.
+	 */
 	piVersion: string;
 	agentDir: string;
 	/**
@@ -1310,36 +1314,52 @@ export const AgentConfigRuntimeSchema = z.enum(["claude-code", "codex"]);
 export type AgentConfigRuntime = z.infer<typeof AgentConfigRuntimeSchema>;
 
 /**
- * Download routes of the native CLI installer (1.50). `official` downloads from Anthropic or GitHub;
+ * Agents Pier installs and updates on the Host computer: Claude Code and Codex (1.32) from their
+ * native releases, pi (1.61) through pi's own installer and `pi update`.
+ */
+export const AgentInstallRuntimeSchema = z.enum(["claude-code", "codex", "pi"]);
+export type AgentInstallRuntime = z.infer<typeof AgentInstallRuntimeSchema>;
+
+/**
+ * Download routes of the agent installer (1.50). `official` downloads from Anthropic or GitHub;
  * `npmmirror` fetches Claude Code's npm package and the others relay Codex's GitHub release. Every
- * route is verified against the official SHA-256.
+ * route is verified against the official SHA-256. For pi (1.61) `npmmirror` makes npm install pi's
+ * packages from npmmirror; pi's installer and versions still come from pi.dev.
  */
 export const AgentInstallSourceSchema = z.enum(["official", "npmmirror", "ghfast", "gh-proxy", "ghproxy"]);
 export type AgentInstallSource = z.infer<typeof AgentInstallSourceSchema>;
 
 /** Routes each runtime accepts, the default first. */
-export const AGENT_INSTALL_SOURCES: Record<AgentConfigRuntime, readonly AgentInstallSource[]> = {
+export const AGENT_INSTALL_SOURCES: Record<AgentInstallRuntime, readonly AgentInstallSource[]> = {
 	"claude-code": ["official", "npmmirror"],
 	codex: ["official", "ghfast", "gh-proxy", "ghproxy"],
+	pi: ["official", "npmmirror"],
 };
 
-/** A native CLI installation on the Host computer (1.32). Jobs survive client disconnects. */
+/** An agent installation on the Host computer (1.32). Jobs survive client disconnects. */
 export interface AgentInstallationStatus {
-	runtime: AgentConfigRuntime;
+	runtime: AgentInstallRuntime;
 	state: "idle" | "checking" | "downloading" | "verifying" | "installing" | "ready" | "error";
 	/** The route of the current or last job (1.50). */
 	source?: AgentInstallSource;
 	version?: string;
 	downloadedBytes?: number;
 	totalBytes?: number;
+	/** The last line the installer printed while `installing` (pi, 1.61). */
+	detail?: string;
 	error?: string;
 }
 
 export interface AgentInstallationResult {
 	installation: AgentInstallationStatus;
 	agent: AgentRuntimeInfo;
-	/** Host preference for background updates of this runtime (1.56, default on). */
+	/** Host preference for background updates of this runtime (1.56, default on; not for pi). */
 	autoUpdate?: boolean;
+	/**
+	 * pi only (1.61): the version installed on disk when it differs from the pi the Host has
+	 * loaded (`agent.version`). It takes effect when the Host restarts.
+	 */
+	installedVersion?: string;
 }
 
 /**

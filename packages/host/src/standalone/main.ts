@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeCliExit, exitCli } from "../../../client/src/cli-exit.ts";
@@ -5,12 +6,11 @@ import { hostRunning, startCliHost } from "./cli-host.ts";
 import { shellCompletion } from "./completion.ts";
 import { type DesktopImage, launchDesktop } from "./desktop.ts";
 import { launchMode } from "./mode.ts";
-import { prepareResources } from "./resources.ts";
 import { standaloneExecutable } from "./self.ts";
 import { findInstallation, installHost, serviceCommand, uninstallHost, updateHost } from "./service.ts";
 import { applyServiceUpdate } from "./update-worker.ts";
 
-export async function runStandalone(archive: string, version: string, desktop?: DesktopImage): Promise<void> {
+export async function runStandalone(version: string, desktop?: DesktopImage): Promise<void> {
 	const args = process.argv.slice(2);
 	const command = args[0];
 	if (command === "--apply-service-update") {
@@ -78,7 +78,8 @@ export async function runStandalone(archive: string, version: string, desktop?: 
 		return;
 	}
 	if (command === "--autostart") throw new Error("No graphical display available for desktop autostart");
-	process.env.PI_PACKAGE_DIR = prepareResources(archive, stateDir);
+	// Builds before pi became the user's own installation unpacked pi's assets here.
+	rmSync(join(stateDir, "runtime", "resources"), { recursive: true, force: true });
 	standaloneExecutable.path = process.execPath;
 	standaloneExecutable.version = version;
 	standaloneExecutable.installed = installed !== undefined;

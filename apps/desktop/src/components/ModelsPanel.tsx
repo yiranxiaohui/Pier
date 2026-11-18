@@ -339,6 +339,24 @@ function ProviderList({ onCustom }: { onCustom: (provider?: ProviderInfo) => voi
 	const store = useStore();
 	const target = useSettingsTarget();
 	const providers = useAppState((s) => s.providers);
+	const providersError = useAppState((s) => s.providersError);
+	if (!providers && providersError) {
+		// pi is the user's own installation: without it there are no providers to configure yet.
+		return (
+			<div className="banner error inline models-error">
+				<IconAlert size={15} />
+				<span>{providersError}</span>
+				{/\bpi\b/.test(providersError) ? (
+					<button type="button" className="ghost" onClick={() => store.openSettings("pi", target.node)}>
+						安装或更新 pi
+					</button>
+				) : null}
+				<button type="button" className="ghost" onClick={() => void store.loadProviders()}>
+					重新读取
+				</button>
+			</div>
+		);
+	}
 	if (!providers) return <p className="muted">正在读取模型配置…</p>;
 	const configured = providers.providers.filter((p) => p.status.configured || p.stored || p.custom);
 	const others = providers.providers.filter((p) => !configured.includes(p));

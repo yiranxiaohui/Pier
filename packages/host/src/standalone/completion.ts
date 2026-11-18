@@ -35,7 +35,7 @@ export const PIER_OPTIONS: Readonly<Record<string, readonly string[]>> = {
 		"--no-mdns",
 		"--relay",
 		"--no-p2p",
-		"--check-images",
+		"--check-pi",
 		"--check-p2p",
 		"--help",
 	],

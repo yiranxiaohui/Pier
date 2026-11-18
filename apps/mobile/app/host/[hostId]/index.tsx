@@ -332,10 +332,11 @@ export default function HostScreen() {
 		}
 	};
 	const newSession = async (workspace: WorkspaceInfo) => {
-		// Let the user pick the agent when the computer can run more than pi.
+		// Let the user pick the agent when the computer can run more than one. pi is the user's own
+		// installation (1.61), so the only one may be another agent.
 		const runtimes = await store.availableRuntimes();
 		if (runtimes.length < 2) {
-			await createSession(workspace.id);
+			await createSession(workspace.id, runtimes[0]?.id);
 			return;
 		}
 		setPicker({ workspace, runtimes });

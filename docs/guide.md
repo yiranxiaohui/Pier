@@ -42,7 +42,7 @@ chmod +x pier
 ./pier cli                # 只连接正在运行的服务，不会启动服务
 ```
 
-在终端中直接运行 `pier` 时，CLI 连接同一状态目录中正在运行的服务（`pier install` 安装的服务、桌面版或 `pier run`）；没有时在后台为这个终端启动一个服务，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。需要退出终端后继续运行时，使用 `pier install` 或 `pier run`。在 CLI 中依次输入 `/remote on`、`/pair`；手机 App 点「添加电脑」扫描终端中的二维码，也可粘贴配对链接，然后在 CLI 输入 `/pair yes` 确认。二维码保留完整留白边框；终端太窄时会提示所需列数，可拉宽窗口或缩小字体后重新输入 `/pair`，高度不够时可向上滚动查看。输出重定向到文件或管道时只显示链接。单文件包含运行时、CLI、pi 资源、Photon WASM 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
+在终端中直接运行 `pier` 时，CLI 连接同一状态目录中正在运行的服务（`pier install` 安装的服务、桌面版或 `pier run`）；没有时在后台为这个终端启动一个服务，退出 CLI（`/quit`、Ctrl+C 或关闭终端）时一并停止，日志写入状态目录（默认 `~/.pier`）的 `logs/cli-host.log`。需要退出终端后继续运行时，使用 `pier install` 或 `pier run`。在 CLI 中依次输入 `/remote on`、`/pair`；手机 App 点「添加电脑」扫描终端中的二维码，也可粘贴配对链接，然后在 CLI 输入 `/pair yes` 确认。二维码保留完整留白边框；终端太窄时会提示所需列数，可拉宽窗口或缩小字体后重新输入 `/pair`，高度不够时可向上滚动查看。输出重定向到文件或管道时只显示链接。单文件包含运行时、CLI 及桌面 AppImage，无需另外下载 Host、安装 Node、Bun 或编译工具。pi 不在其中：pi 会话使用这台电脑上你自己安装的 pi（见「Agent → pi」）。服务模式不加载 GTK / WebKit，不需要图形桌面；界面模式自动解包运行内置 AppImage，无需 FUSE，仍需系统具有可用的图形会话及 AppImage 所需基础运行库。资源首次使用时准备到 Pier 自己的状态目录，之后复用；服务模式不会解包界面。Release 中的 `SHA256SUMS.txt` 可用于核对下载文件。
 
 CLI 启动时显示连接的主机、Pier 与 pi 版本、工作区和可用的 Agent；输入行上方的分隔线标出工作区、会话、Agent、模型与思考等级和上下文占用，输入 `/` 时实时列出匹配的命令及说明，按 Tab 有多个候选时也列在输入行上方；列出命令或候选时可用 ↑/↓ 选择（`❯` 标出），按 Tab 或 Enter 填入输入行，选中的命令无需其他参数时 Enter 直接执行，Esc 取消选择。`/agents`、`/sessions`、`/models`、`/ws`、`/fork` 以及不带参数的 `/open`、`/model`、`/thinking`、`/ws use`、`/revoke` 会打开可用 ↑/↓ 选择、输入文字筛选的列表，Enter 执行对应操作（如 `/agents` 用选中的 Agent 新建会话），Esc 取消；`/agents` 等列表命令按 Esc 时改为打印编号列表。Agent 提出选择题时，`/answer` 不带参数也可用方向键选择。回复以 `●` 开头，按终端宽度折行并渲染 Markdown（标题、粗体、行内代码、列表、引用、代码块、表格）；工具调用显示为 `● bash(ls -la)`，下方 `⎿` 预览输出的前几行，编辑文件时显示带颜色的增删行。Agent 运行时显示动画、耗时和排队数，按 Esc 或 Ctrl+C 中断；Ctrl+C 也会清空已输入的内容，在空行上连按两次退出。审批、提问与配对请求以带边框的卡片显示。颜色遵循 `NO_COLOR` / `FORCE_COLOR`；输出重定向到管道或文件时不使用颜色、动画和 Markdown 渲染，逐行输出结果。
 
@@ -145,9 +145,17 @@ Linux 单文件统一以 `pier-v<版本>-linux-<架构>` 发布。v0.2.57 是最
 
 ## Agent
 
+### pi
+
+pi 不再内置在 Pier 中，也不再由 Pier 固定版本：和 Claude Code、Codex 一样，Pier 使用这台电脑上你自己安装的 pi，版本由你管理。Pier Host 启动时从这份安装加载 pi，与终端里的 `pi` 共用会话、模型与凭据、扩展、技能和 `~/.pi/agent/settings.json`。Pier 需要 pi 1.5.2 或更新的版本。
+
+- **安装**：在「设置 → Agent 配置 → pi → 安装与更新」点击「安装」，Pier 会在所选电脑上运行 pi 的官方安装程序（从 pi.dev 下载），在 `~/.local/bin` 建立 `pi` 命令并把该目录加入用户 `PATH`，重新打开终端即可运行 `pi`；安装完成后无需重启 Pier，pi 会话立即可用。也可以自己在终端安装：`curl -fsSL https://pi.dev/install.sh | sh`（Windows：`powershell -c "irm https://pi.dev/install.ps1 | iex"`）或 `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`，Pier 会自动找到它。pi 需要 Node.js 22.19 或更新版本及 npm；Pier 的安装程序在没有终端的环境中运行，不会代为安装 Node.js。「下载线路」可选官方或 npmmirror 国内镜像（npm 从 registry.npmmirror.com 下载 pi 的包）。
+- **更新**：pi 自己管理更新，在终端运行 `pi update`，或在同一页面点击「更新到最新版本」（Pier 会运行 `pi update`）。Pier Host 继续使用启动时加载的 pi，重启 Host 后才使用新版本；页面会提示已安装的新版本，本机可直接点「重启 Host」。pi 没有后台自动更新。
+- **找不到 pi 时**：新建会话的 Agent 选择框中 pi 标为「安装」，点击打开安装页；「模型与服务商」与「扩展」页面同样提示先安装 pi。pi 的会话文件仍保留在 `~/.pi/agent/sessions`，装好 pi 后重新出现。Pier 依次查找 `PIER_PI_PATH`（`pi` 命令或 pi 的包目录）、`PATH` 和常见安装目录中的 `pi`、pi 官方安装程序的默认位置；npm、bun、pnpm 全局安装与 Nix 安装都能识别。pi 官方发布的单文件二进制无法被 Pier 加载，请改用安装程序或 npm 安装。
+
 ### Claude Code 与 Codex
 
-**后台自动更新**默认开启。在「设置 → Agent 配置 → Claude Code / Codex → 安装与更新」可为所选电脑上的每个 Agent 单独关闭。Host 启动一分钟后检查一次，之后每六小时检查一次，客户端离线时照常运行。发现已安装的 Agent 有更新的正式版时，Host 会沿用上次手动安装的下载线路（初始为官方），校验后发布到用户级公共命令目录。通过系统包管理器安装的 CLI 也可被检测到，更新后的公共命令优先供 Pier 和新终端使用。显式指定 `PIER_CLAUDE_PATH` 或 `PIER_CODEX_PATH` 的 Agent 跳过后台更新。关闭后仍可手动更新；内置 pi 随 Pier 发布。
+**后台自动更新**默认开启。在「设置 → Agent 配置 → Claude Code / Codex → 安装与更新」可为所选电脑上的每个 Agent 单独关闭。Host 启动一分钟后检查一次，之后每六小时检查一次，客户端离线时照常运行。发现已安装的 Agent 有更新的正式版时，Host 会沿用上次手动安装的下载线路（初始为官方），校验后发布到用户级公共命令目录。通过系统包管理器安装的 CLI 也可被检测到，更新后的公共命令优先供 Pier 和新终端使用。显式指定 `PIER_CLAUDE_PATH` 或 `PIER_CODEX_PATH` 的 Agent 跳过后台更新。关闭后仍可手动更新。pi 没有后台自动更新，见下文。
 
 **应用内安装与更新**：在「设置 → Agent 配置 → Claude Code / Codex → 安装与更新」点击「安装」或「更新到最新版本」，Pier 会下载官方最新原生程序、核对 SHA-256 并验证版本，无需访问官网下载安装包，也不需要先装 Node.js。支持 Windows、macOS、Linux 的 x64 / arm64，在选择其他电脑的设置时会安装到那台电脑上（需要协议 1.32）。「下载线路」可为每台电脑分别选择：Claude Code 支持官方（downloads.claude.ai）与 npmmirror 国内镜像，Codex 支持 GitHub 直连与 GHFast / GH-Proxy / GHProxy 加速；版本和 SHA-256 校验值仍从官方获取（需要协议 1.50）。下载缓慢时换一条线路，再点「切换线路重新下载」即可中止当前下载并按新线路重新开始。页面显示当前版本、下载进度和失败原因；断开客户端连接不会中止安装，重新打开页面可继续查看。公共命令安装在 `~/.local/bin`（Windows 为 `%USERPROFILE%\.local\bin`），程序保存在 `~/.local/share/claude/versions` / `~/.local/share/codex/versions`；Pier 与外部终端共用安装。安装会更新公共命令入口并把该目录放到用户 `PATH` 前面，重新打开终端后即可运行 `claude` / `codex`，退出 Pier 后仍可使用。Unix 更新 shell 配置（Bash、Zsh、Fish）；Windows 更新用户环境变量。已有配置、凭据和会话继续保留。旧版 `~/.pier/agents`（或 `PIER_DIR/agents`）安装仍可使用，点击「更新到最新版本」即可迁移，即使已是最新版也会迁移。显式设置的 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH` 仍优先，使用它们时需先移除环境变量才能改用公共安装。下载、验证或替换命令失败时保留旧版，安装成功无需重启 Pier。已有 Codex 会话沿用之前的进程，关闭这些会话后再创建会话使用新版；Windows 若提示程序被占用，请关闭对应 Agent 会话与外部终端中的 Agent 后重试。
 

@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Started by the pi update workflow on its branches (see pi-update.yml).
   workflow_dispatch:
 
 permissions:

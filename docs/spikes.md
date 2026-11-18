@@ -1,5 +1,7 @@
 # M0 技术验证（Spikes）
 
+> 历史记录：pi 已不再编译进 sidecar（协议 1.61），Host 在运行时加载用户自己安装的 pi（见 `packages/host/src/pi/sdk.ts`），下文关于 pi 资源、`PI_PACKAGE_DIR` 与 Photon wasm 重定向的内容只适用于之前的版本。
+>
 > 记录日期：2026-09-28。环境：Ubuntu x86_64，Node 24.21，Bun 1.4.2，pi SDK `@earendil-works/pi-coding-agent` 0.87.1。
 
 ## 结论速览
@@ -49,6 +51,8 @@ pi 在 Bun 二进制中通过 `dirname(process.execPath)` 查找这些资源；�
 
 ## Spike 2：Tauri 启动 sidecar
 
+> 历史记录：pi 已不再编译进 sidecar（协议 1.61），Host 在运行时加载用户自己安装的 pi（见 `packages/host/src/pi/sdk.ts`），下文关于 pi 资源、`PI_PACKAGE_DIR` 与 Photon wasm 重定向的内容只适用于之前的版本。
+>
 > 记录日期：2026-09-28。环境：Ubuntu 26.04 x86_64，Tauri 2.12，WebKitGTK 2.52，Rust 1.98。
 
 ### 做法
@@ -99,6 +103,8 @@ usr/share/applications/Pier.desktop
 
 ## Spike 3：Expo 加密性能
 
+> 历史记录：pi 已不再编译进 sidecar（协议 1.61），Host 在运行时加载用户自己安装的 pi（见 `packages/host/src/pi/sdk.ts`），下文关于 pi 资源、`PI_PACKAGE_DIR` 与 Photon wasm 重定向的内容只适用于之前的版本。
+>
 > 记录日期：2026-09-28。Expo SDK 57（React Native 0.86.3，Hermes），`@noble/curves` / `@noble/ciphers` / `@noble/hashes` 2.4。
 
 ### 做法
