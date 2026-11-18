@@ -104,7 +104,7 @@ import {
 import { transferWorkspacePath } from "./workspace-path-transfers.ts";
 import { WorkspaceUploads } from "./workspace-uploads.ts";
 
-export const PIER_HOST_VERSION = "0.3.1";
+export const PIER_HOST_VERSION = "0.3.2";
 
 function agentPathOverride(runtime: AgentConfigRuntime): string {
 	return runtime === "codex" ? "PIER_CODEX_PATH" : "PIER_CLAUDE_PATH";
