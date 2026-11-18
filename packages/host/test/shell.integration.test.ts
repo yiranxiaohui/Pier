@@ -29,7 +29,10 @@ class FakeShell {
 	/** host → shell (the host's stdout). */
 	readonly fromHost = new PassThrough();
 	readonly requests: string[] = [];
-	answer: (method: ShellMethod) => { ok: true; result: unknown } | { ok: false; error: string } = () => ({
+	answer: (
+		method: ShellMethod | "update.setMirror",
+		params?: { prefix: string },
+	) => { ok: true; result: unknown } | { ok: false; error: string } = () => ({
 		ok: true,
 		result: IDLE,
 	});
@@ -44,10 +47,15 @@ class FakeShell {
 				const line = this.buffer.slice(0, newline);
 				this.buffer = this.buffer.slice(newline + 1);
 				newline = this.buffer.indexOf("\n");
-				const message = JSON.parse(line) as { type: string; id: string; method: ShellMethod };
+				const message = JSON.parse(line) as {
+					type: string;
+					id: string;
+					method: ShellMethod | "update.setMirror";
+					params?: { prefix: string };
+				};
 				if (message.type !== SHELL_REQUEST) continue;
 				this.requests.push(message.method);
-				this.send({ type: SHELL_RESPONSE, id: message.id, ...this.answer(message.method) });
+				this.send({ type: SHELL_RESPONSE, id: message.id, ...this.answer(message.method, message.params) });
 			}
 		});
 	}
@@ -190,6 +198,7 @@ describe("update.* (the desktop app's updater through the host)", () => {
 		fake.pushStatus(IDLE);
 		expect((await events.waitForType("update.status")).event.status).toEqual(IDLE);
 		expect(await client.request("update.status")).toEqual(IDLE);
+		await expectCode(client.request("update.setMirror", { prefix: "" }), "UNSUPPORTED");
 
 		fake.answer = () => ({ ok: true, result: { ...IDLE, state: "available", version: "0.3.0" } });
 		expect(await client.request("update.check")).toMatchObject({ state: "available", version: "0.3.0" });
@@ -270,12 +279,25 @@ describe("update.* (the desktop app's updater through the host)", () => {
 
 			if (standalone)
 				expect(await remote.request("update.check")).toMatchObject({ state: "available", version: "0.3.0" });
-			else fake.pushStatus({ ...IDLE, state: "available", version: "0.3.0" });
+			else fake.pushStatus({ ...IDLE, mirrorPrefix: "", state: "available", version: "0.3.0" });
 			// Status events reach paired computers too.
 			await remoteEvents.waitFor(
 				(f) => f.event.type === "update.status" && (f.event.status as AppUpdateStatus).state === "available",
 			);
 
+			expect((await remote.request("update.status")).mirrorPrefix).toBe("");
+			await expectCode(remote.request("update.setMirror", { prefix: "http://invalid.test" }), "BAD_REQUEST");
+			fake.answer = (method, params) => {
+				expect(method).toBe("update.setMirror");
+				const status = { ...IDLE, mirrorPrefix: params?.prefix };
+				fake.pushStatus(status);
+				return { ok: true, result: status };
+			};
+			expect((await remote.request("update.setMirror", { prefix: "https://mirror.example" })).mirrorPrefix).toBe(
+				"https://mirror.example/",
+			);
+			expect((await bDesktop.request("update.status")).mirrorPrefix).toBe("https://mirror.example/");
+			expect((await aDesktop.request("update.status")).mirrorPrefix).toBeUndefined();
 			const from = bEvents.mark();
 			fake.answer = () => ({
 				ok: true,
@@ -290,6 +312,7 @@ describe("update.* (the desktop app's updater through the host)", () => {
 
 			const audit = readFileSync(join(b.root, "pier", "audit.log"), "utf8");
 			expect(audit).toContain('"event":"update.install"');
+			expect(audit).toContain('"event":"update.setMirror"');
 		},
 	);
 });

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { normalizeUpdateMirror } from "@pier/client";
 import { keyFingerprint } from "@pier/crypto";
 import {
 	type AccountLine,
@@ -273,6 +274,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"extension.setEnabled",
 	"extension.delete",
 	"update.install",
+	"update.setMirror",
 	"runtime.install",
 	"runtime.setAutoUpdate",
 	"speech.configure",
@@ -1306,6 +1308,22 @@ export class PierHost implements RequestHandler {
 
 			"update.status": () => this.updateStatus(),
 			"update.check": () => this.updateRequest("update.check"),
+			"update.setMirror": async (_ctx, { prefix }) => {
+				const updater = this.updater;
+				if (
+					!updater?.setMirror ||
+					updater.updateStatus?.mirrorPrefix === undefined ||
+					updater.updateStatus.state === "unsupported"
+				) {
+					throw new PierProtocolError("UNSUPPORTED", "这台电脑上的 Pier 不支持远程修改更新线路");
+				}
+				try {
+					prefix = normalizeUpdateMirror(prefix);
+				} catch (error) {
+					throw new PierProtocolError("BAD_REQUEST", (error as Error).message);
+				}
+				return updater.setMirror(prefix);
+			},
 			"update.install": async (ctx) => {
 				const status = await this.updateRequest("update.install");
 				const device = ctx.connection.device;

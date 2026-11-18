@@ -173,6 +173,7 @@ class DemoShell implements AppShell {
 		state: "idle",
 		currentVersion: PIER_HOST_VERSION,
 		autoCheck: true,
+		mirrorPrefix: "",
 		downloaded: 0,
 	};
 	private readonly listeners = new Set<(status: AppUpdateStatus) => void>();
@@ -270,6 +271,13 @@ class DemoShell implements AppShell {
 			this.set({ state: "error", error: "安装更新失败：演示模式不会真正安装" });
 		})();
 		return status;
+	}
+
+	async setMirror(mirrorPrefix: string): Promise<AppUpdateStatus> {
+		if (this.status.state === "downloading" || this.status.state === "installing") throw new Error("更新正在进行");
+		this.set({ mirrorPrefix });
+		void this.check();
+		return this.status;
 	}
 
 	close(): void {}

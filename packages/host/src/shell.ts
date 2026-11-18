@@ -72,6 +72,7 @@ export interface AppUpdater {
 	onUpdateStatus(listener: (status: AppUpdateStatus) => void): () => void;
 	/** Check or begin installation; resolves with the current status. */
 	request(method: ShellMethod): Promise<AppUpdateStatus>;
+	setMirror?(prefix: string): Promise<AppUpdateStatus>;
 	close(): void;
 }
 
@@ -144,6 +145,7 @@ export function parseUpdateStatus(raw: unknown): AppUpdateStatus | undefined {
 	const lastChecked = count(value.lastChecked);
 	if (lastChecked !== undefined) status.lastChecked = lastChecked;
 	if (value.installNeedsAuth === true) status.installNeedsAuth = true;
+	if (typeof value.mirrorPrefix === "string") status.mirrorPrefix = value.mirrorPrefix;
 	return status;
 }
 
@@ -210,7 +212,18 @@ export class StdioShell implements AppShell {
 	}
 
 	async request(method: ShellMethod): Promise<AppUpdateStatus> {
-		const status = parseUpdateStatus(await this.call(method, undefined, this.timeoutMs));
+		return this.updateCall(method);
+	}
+
+	setMirror(prefix: string): Promise<AppUpdateStatus> {
+		return this.updateCall("update.setMirror", { prefix });
+	}
+
+	private async updateCall(
+		method: ShellMethod | "update.setMirror",
+		params?: { prefix: string },
+	): Promise<AppUpdateStatus> {
+		const status = parseUpdateStatus(await this.call(method, params, this.timeoutMs));
 		if (!status) throw new Error("The desktop app sent an invalid update status");
 		return status;
 	}

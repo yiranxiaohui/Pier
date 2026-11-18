@@ -278,6 +278,8 @@ export const MethodParamsSchemas = {
 	"update.status": z.object({}).optional(),
 	/** Check for a new release now. */
 	"update.check": z.object({}).optional(),
+	/** Save the route on this computer and recheck the release (1.59). */
+	"update.setMirror": z.object({ prefix: z.string().trim().max(4096) }),
 	/**
 	 * Download and install the newest release (checking first when needed), then restart Pier on
 	 * that computer. Resolves once the install started; the host and every connection to it go
@@ -1053,6 +1055,7 @@ export interface MethodResults {
 	"host.packageManagers": PackageManagerDetection;
 	"update.status": AppUpdateStatus;
 	"update.check": AppUpdateStatus;
+	"update.setMirror": AppUpdateStatus;
 	"update.install": AppUpdateStatus;
 	"workspace.list": { workspaces: WorkspaceInfo[] };
 	"workspace.add": { workspace: WorkspaceInfo };

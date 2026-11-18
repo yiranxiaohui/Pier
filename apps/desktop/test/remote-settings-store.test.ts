@@ -1,5 +1,6 @@
 /* biome-ignore-all lint/complexity/useLiteralKeys: Seed private store state without changing its public API. */
 import type { PierClient } from "@pier/client";
+import type { AppUpdateStatus } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../src/lib/bridge.ts";
 import { LOCAL_NODE, PierStore } from "../src/lib/store.tsx";
@@ -25,6 +26,30 @@ function setup() {
 }
 
 describe("remote settings routing", () => {
+	it("keeps a saved peer route when a check on its previous route replies late", async () => {
+		const { store, local } = setup();
+		const previous: AppUpdateStatus = {
+			state: "idle",
+			downloaded: 0,
+			autoCheck: false,
+			currentVersion: "1",
+			mirrorPrefix: "",
+		};
+		const saved = { ...previous, mirrorPrefix: "https://peer.example/" };
+		let finish!: (status: AppUpdateStatus) => void;
+		const check = new Promise<AppUpdateStatus>((resolve) => {
+			finish = resolve;
+		});
+		const request = vi.fn((method: string) => (method === "update.setMirror" ? Promise.resolve(saved) : check));
+		store["clients"].set("peer", { request } as unknown as PierClient);
+		store["patchPeerUpdate"]("peer", { status: previous });
+		const pending = store.checkPeerUpdate("peer");
+		expect(await store.setPeerUpdateMirror("peer", saved.mirrorPrefix)).toBe(true);
+		finish(previous);
+		await pending;
+		expect(store.getState().peerUpdates.peer?.status).toEqual(saved);
+		expect(local).not.toHaveBeenCalled();
+	});
 	it("reads only the explicitly selected host and never overwrites local device state", async () => {
 		const { store, bridge, local, peer } = setup();
 		const localState = {
@@ -59,6 +84,7 @@ describe("remote settings routing", () => {
 		store["patchNode"]("peer", { connection: "reconnecting" });
 		await expect(store.remoteOverview("peer")).rejects.toThrow("未连接");
 		await expect(store.hostLogs("peer")).rejects.toThrow("未连接");
+		expect(await store.setPeerUpdateMirror("peer", "")).toBe(false);
 		expect(peer).not.toHaveBeenCalled();
 		expect(local).not.toHaveBeenCalled();
 	});

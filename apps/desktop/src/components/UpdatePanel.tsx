@@ -448,11 +448,20 @@ function RemoteUpdateSettings() {
 			</SettingsCard>
 			<SettingsGroup title="更新">
 				<SettingsCard>
+					{status &&
+						status.state !== "unsupported" &&
+						(status.mirrorPrefix !== undefined ? (
+							<UpdateRouteSettings
+								key={node}
+								current={status.mirrorPrefix}
+								busy={working}
+								onSave={(prefix) => store.setPeerUpdateMirror(node, prefix)}
+							/>
+						) : (
+							<SettingRow title="更新线路" description="升级这台远程电脑上的 Pier 后，即可查看和修改线路。" />
+						))}
 					{status && status.state !== "unsupported" ? (
-						<SettingRow
-							title="自动检查更新"
-							description="开启后，那台电脑上的 Pier 启动时及每 6 小时检查一次。这一开关和更新线路只能在那台电脑上修改。"
-						>
+						<SettingRow title="自动检查更新" description="开启后，那台电脑上的 Pier 启动时及每 6 小时检查一次。">
 							<span className="setting-value">{status.autoCheck ? "已开启" : "已关闭"}</span>
 						</SettingRow>
 					) : null}
@@ -467,24 +476,39 @@ function RemoteUpdateSettings() {
 	);
 }
 
-function UpdateRouteSettings() {
-	const store = useStore();
-	const update = useAppState((s) => s.update);
-	const current = update.mirrorPrefix ?? "";
+function UpdateRouteSettings({
+	current,
+	busy,
+	onSave,
+}: {
+	current: string;
+	busy: boolean;
+	onSave(prefix: string): Promise<boolean>;
+}) {
 	const selected = UPDATE_ROUTES.find((route) => route.prefix === current)?.id ?? "custom";
 	const [prefix, setPrefix] = useState(current);
 	const [editing, setEditing] = useState(false);
-	const busy = update.state === "downloading" || update.state === "installing";
+	const [saving, setSaving] = useState(false);
+	const disabled = busy || saving;
+
+	async function save(value: string) {
+		setSaving(true);
+		try {
+			if (await onSave(value)) setEditing(false);
+		} finally {
+			setSaving(false);
+		}
+	}
 
 	useEffect(() => setPrefix(current), [current]);
 
 	return (
 		<>
-			<SettingRow title="更新线路" description="检查更新和下载安装包都使用所选线路，自动检查也会沿用此设置。">
+			<SettingRow title="更新线路" description="这台电脑会使用所选线路检查更新和下载安装包。">
 				<Select
 					ariaLabel="更新线路"
 					value={editing ? "custom" : selected}
-					disabled={busy}
+					disabled={disabled}
 					options={[
 						...UPDATE_ROUTES.map((route) => ({
 							value: route.id,
@@ -498,8 +522,7 @@ function UpdateRouteSettings() {
 						} else {
 							const route = UPDATE_ROUTES.find((route) => route.id === value);
 							if (!route) return;
-							setEditing(false);
-							void store.setUpdateMirror(route.prefix);
+							void save(route.prefix);
 						}
 					}}
 				/>
@@ -514,9 +537,7 @@ function UpdateRouteSettings() {
 						className="update-route-form"
 						onSubmit={(event) => {
 							event.preventDefault();
-							void store.setUpdateMirror(prefix).then((saved) => {
-								if (saved) setEditing(false);
-							});
+							void save(prefix);
 						}}
 					>
 						<input
@@ -524,10 +545,10 @@ function UpdateRouteSettings() {
 							aria-label="更新加速地址"
 							placeholder="https://mirror.example/"
 							value={prefix}
-							disabled={busy}
+							disabled={disabled}
 							onChange={(event) => setPrefix(event.target.value)}
 						/>
-						<button type="submit" disabled={busy || !prefix.trim()}>
+						<button type="submit" disabled={disabled || !prefix.trim()}>
 							保存并检查
 						</button>
 					</form>
@@ -687,7 +708,13 @@ function LocalUpdateSettings() {
 			</SettingsCard>
 			<SettingsGroup title="更新">
 				<SettingsCard>
-					{update.state !== "unsupported" ? <UpdateRouteSettings /> : null}
+					{update.state !== "unsupported" ? (
+						<UpdateRouteSettings
+							current={update.mirrorPrefix ?? ""}
+							busy={working}
+							onSave={(prefix) => store.setUpdateMirror(prefix)}
+						/>
+					) : null}
 					{update.state !== "unsupported" ? (
 						<SettingRow title="自动检查更新" description="启动时及每 6 小时检查一次，发现新版本时提醒你。">
 							<Switch

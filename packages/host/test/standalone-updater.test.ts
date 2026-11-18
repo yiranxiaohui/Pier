@@ -46,6 +46,33 @@ function response(url: string, body: string, status = 200) {
 }
 
 describe("standalone updater", () => {
+	it("persists each route and discards a superseded check, even when it finishes late", async () => {
+		const { config } = fixture();
+		let finish!: (release: { tag: string }) => void;
+		const latest = vi
+			.fn()
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			)
+			.mockResolvedValue({ tag: "v1.2.0" });
+		const value = updater({ version: "1.0.0", config, latest });
+		const old = value.request("update.check");
+		await value.setMirror("https://mirror.example");
+		finish({ tag: "v1.1.0" });
+		await old;
+		expect(value.updateStatus).toMatchObject({ version: "1.2.0", mirrorPrefix: "https://mirror.example/" });
+		expect(latest.mock.calls[0]?.[0].aborted).toBe(true);
+		expect(latest.mock.calls[1]?.[1]).toBe("https://mirror.example/");
+		value.close();
+		const restarted = updater({ version: "1.0.0", config, latest });
+		expect(restarted.updateStatus.mirrorPrefix).toBe("https://mirror.example/");
+		await expect(restarted.setMirror("file:///invalid")).rejects.toThrow();
+		await restarted.setMirror("");
+		expect(restarted.updateStatus.mirrorPrefix).toBe("");
+	});
 	it("explains unsupported installations and never fetches", async () => {
 		const latest = vi.fn();
 		const value = updater({ version: "1.0.0", unsupported: "请先安装服务", latest });
@@ -86,6 +113,7 @@ describe("standalone updater", () => {
 		expect(download).toHaveBeenCalledTimes(1);
 		expect(states).toContain("downloading:10");
 		expect(value.updateStatus.state).toBe("installing");
+		await expect(value.setMirror("https://mirror.example")).rejects.toThrow("切换线路");
 		expect(await value.request("update.install")).toMatchObject({ state: "installing" });
 		value.close();
 		// Ownership was handed off: Host shutdown must not delete the helper's release.
@@ -173,6 +201,26 @@ describe("standalone updater", () => {
 });
 
 describe("standalone Release trust boundary", () => {
+	it("routes the manifest and binary through the mirror, verifies the independent GitHub digest", async () => {
+		const { root } = fixture();
+		const binary = "corrupt binary";
+		const mirror = "https://mirror.example/proxy/";
+		const base = "https://github.com/yiranxiaohui/Pier/releases";
+		const name = `pier-v1.0.1-linux-${process.arch}`;
+		const api = "https://api.github.com/repos/yiranxiaohui/Pier/releases/latest";
+		const files = new Map([
+			[`${mirror}${base}/latest/download/latest.json`, JSON.stringify({ version: "1.0.1", notes: "notes" })],
+			[api, JSON.stringify({ tag_name: "v1.0.1", assets: [{ name, digest: `sha256:${"a".repeat(64)}` }] })],
+			[`${mirror}${base}/download/v1.0.1/${name}`, binary],
+		]);
+		const fetch = vi.fn(async (url: string) => response(url, files.get(url) ?? "", files.has(url) ? 200 : 404));
+		vi.stubGlobal("fetch", fetch);
+		expect(await latestStandaloneRelease(undefined, mirror)).toEqual({ tag: "v1.0.1", notes: "notes" });
+		await expect(downloadStandaloneRelease("v1.0.1", join(root, "pier"), { mirrorPrefix: mirror })).rejects.toThrow(
+			"checksum mismatch",
+		);
+		expect(fetch.mock.calls.map(([url]) => url)).toEqual([...files.keys()]);
+	});
 	it("accepts only official stable metadata and ignores arbitrary asset URLs", async () => {
 		const fetch = vi.fn(async (url: string) =>
 			response(

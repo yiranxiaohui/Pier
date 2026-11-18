@@ -3516,9 +3516,16 @@ export class PierStore {
 	async checkPeerUpdate(node: string, quiet = false): Promise<void> {
 		const client = this.openPeerClient(node);
 		if (!client || this.state.peerUpdates[node]?.busy) return;
+		const previous = this.state.peerUpdates[node]?.status;
 		this.patchPeerUpdate(node, { busy: "check" });
 		try {
 			const status = await client.request("update.check", {}, { timeoutMs: 120_000 });
+			const current = this.state.peerUpdates[node]?.status;
+			if (
+				this.openPeerClient(node) !== client ||
+				(current !== previous && current?.mirrorPrefix !== status.mirrorPrefix)
+			)
+				return;
 			this.patchPeerUpdate(node, { status });
 			if (status.state === "error" && !quiet) {
 				this.toast("error", `${this.nodeName(node)}：${status.error ?? "检查更新失败"}`);
@@ -3527,6 +3534,22 @@ export class PierStore {
 			if (!quiet) this.toast("error", `${this.nodeName(node)} 检查更新失败：${errorText(error)}`);
 		} finally {
 			this.patchPeerUpdate(node, { busy: undefined });
+		}
+	}
+
+	async setPeerUpdateMirror(node: string, prefix: string): Promise<boolean> {
+		const client = this.openPeerClient(node);
+		if (!client) return false;
+		const previous = this.state.peerUpdates[node]?.status;
+		try {
+			const status = await client.request("update.setMirror", { prefix });
+			if (this.openPeerClient(node) !== client) return false;
+			// A newer status event may already have arrived as the host rechecks the route.
+			if (this.state.peerUpdates[node]?.status === previous) this.patchPeerUpdate(node, { status });
+			return true;
+		} catch (error) {
+			this.toast("error", `${this.nodeName(node)} 保存更新线路失败：${errorText(error)}`);
+			return false;
 		}
 	}
 

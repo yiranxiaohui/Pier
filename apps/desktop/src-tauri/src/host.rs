@@ -391,6 +391,10 @@ impl HostManager {
             return;
         };
         let updates = updates.inner().clone();
+        let prefix = value
+            .pointer("/params/prefix")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let manager = self.clone();
         tauri::async_runtime::spawn(async move {
             let result = match method.as_str() {
@@ -398,12 +402,17 @@ impl HostManager {
                     manager.push_log("[pier] 远程请求：检查更新".into());
                     Ok(updates.check().await)
                 }
+                "update.setMirror" => prefix
+                    .as_deref()
+                    .ok_or_else(|| "缺少更新线路".to_string())
+                    .and_then(|prefix| updates.set_mirror(prefix)),
                 "update.install" => {
                     manager.push_log("[pier] 远程请求：安装更新".into());
                     Ok(updates.install_latest().await)
                 }
                 other => Err(format!("未知的请求 {other}")),
             };
+            let recheck = method == "update.setMirror" && result.is_ok();
             let response = match result {
                 Ok(status) => {
                     json!({ "type": SHELL_RESPONSE, "id": id, "ok": true, "result": status })
@@ -413,6 +422,9 @@ impl HostManager {
                 }
             };
             manager.send_shell(&response);
+            if recheck {
+                updates.check().await;
+            }
         });
     }
 

@@ -1,6 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { normalizeUpdateMirror } from "@pier/client";
 import type { AppUpdateStatus } from "@pier/protocol";
+import { writePrivateFile } from "../config.ts";
 import { compareVersions } from "../peers/ssh/remote.ts";
 import type { AppUpdater, ShellMethod } from "../shell.ts";
 import { standaloneExecutable } from "./self.ts";
@@ -22,6 +24,7 @@ export class StandaloneUpdater implements AppUpdater {
 	private status: AppUpdateStatus;
 	private release?: StandaloneRelease;
 	private checking?: Promise<void>;
+	private checkController?: AbortController;
 	private readonly listeners = new Set<(status: AppUpdateStatus) => void>();
 	private readonly abort = new AbortController();
 	private startTimer?: ReturnType<typeof setTimeout>;
@@ -37,6 +40,10 @@ export class StandaloneUpdater implements AppUpdater {
 			...(options.unsupported ? { error: options.unsupported } : {}),
 		};
 		if (!options.unsupported && options.config) {
+			const settings = join(options.config.stateDir, "updater.json");
+			this.status.mirrorPrefix = existsSync(settings)
+				? normalizeUpdateMirror(JSON.parse(readFileSync(settings, "utf8")).mirrorPrefix ?? "")
+				: "";
 			this.refreshReceipt();
 			// The installer writes its final receipt after the new/rolled-back Host is ready.
 			this.receiptTimer = setInterval(() => this.refreshReceipt(), 1000);
@@ -89,10 +96,38 @@ export class StandaloneUpdater implements AppUpdater {
 		else this.set({ state: "error", error: receipt.error ?? "更新未生效，请重试", version: receipt.version });
 	}
 
-	private async check(): Promise<void> {
+	async setMirror(prefix: string): Promise<AppUpdateStatus> {
+		const config = this.options.config;
+		if (this.closed || !config || this.status.state === "unsupported") throw new Error("更新服务不可用");
+		if (this.status.state === "downloading" || this.status.state === "installing") {
+			throw new Error("请等待当前更新操作结束后再切换线路");
+		}
+		const mirrorPrefix = normalizeUpdateMirror(prefix);
+		writePrivateFile(join(config.stateDir, "updater.json"), JSON.stringify({ mirrorPrefix }));
+		this.checkController?.abort();
+		this.release = undefined;
+		this.set({ mirrorPrefix, version: undefined, notes: undefined, date: undefined, downloaded: 0, total: undefined });
+		void this.startCheck();
+		return this.updateStatus;
+	}
+
+	private startCheck(): Promise<void> {
+		const controller = new AbortController();
+		this.checkController = controller;
+		this.checking = this.check(controller.signal).finally(() => {
+			if (this.checkController === controller) {
+				this.checkController = undefined;
+				this.checking = undefined;
+			}
+		});
+		return this.checking;
+	}
+
+	private async check(signal: AbortSignal): Promise<void> {
 		this.set({ state: "checking", error: undefined });
 		try {
-			const release = await (this.options.latest ?? latestStandaloneRelease)(this.abort.signal);
+			const release = await (this.options.latest ?? latestStandaloneRelease)(signal, this.status.mirrorPrefix);
+			if (signal.aborted) return;
 			this.release = compareVersions(release.tag.slice(1), this.options.version) > 0 ? release : undefined;
 			this.set({
 				state: this.release ? "available" : "upToDate",
@@ -104,6 +139,7 @@ export class StandaloneUpdater implements AppUpdater {
 				lastChecked: Date.now(),
 			});
 		} catch (error) {
+			if (signal.aborted) return;
 			this.set({ state: "error", error: error instanceof Error ? error.message : String(error) });
 		}
 	}
@@ -112,12 +148,11 @@ export class StandaloneUpdater implements AppUpdater {
 		if (this.closed) throw new Error("The updater is closed");
 		if (this.status.state === "unsupported") throw new Error(this.status.error);
 		if (this.status.state === "downloading" || this.status.state === "installing") return this.updateStatus;
-		if (this.checking) await this.checking;
-		else if (method === "update.check" || !this.release || this.status.state === "error") {
-			this.checking = this.check().finally(() => {
-				this.checking = undefined;
-			});
-			await this.checking;
+		if (this.checking || method === "update.check" || !this.release || this.status.state === "error") {
+			const check = this.checking ?? this.startCheck();
+			const controller = this.checkController;
+			await check;
+			if (controller?.signal.aborted) return this.updateStatus;
 		}
 		if (method === "update.install" && this.release && !this.closed && this.status.state !== "error") {
 			// Multiple install requests may have been waiting on the same check.
@@ -144,6 +179,7 @@ export class StandaloneUpdater implements AppUpdater {
 			directory = mkdtempSync(join(root, "update-"));
 			const sha256 = await (this.options.download ?? downloadStandaloneRelease)(release.tag, join(directory, "pier"), {
 				signal: this.abort.signal,
+				mirrorPrefix: this.status.mirrorPrefix ?? "",
 				onProgress: (downloaded, total) => this.set({ downloaded, total }),
 			});
 			if (this.closed) return;
@@ -174,6 +210,7 @@ export class StandaloneUpdater implements AppUpdater {
 
 	close(): void {
 		this.closed = true;
+		this.checkController?.abort();
 		this.abort.abort();
 		clearTimeout(this.startTimer);
 		clearInterval(this.receiptTimer);

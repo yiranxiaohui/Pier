@@ -5,6 +5,7 @@ import { LogsSettings } from "../src/components/HostPanels.tsx";
 import { PairedRemoteSettings } from "../src/components/RemoteOverview.tsx";
 import { LocalRemoteSettings } from "../src/components/RemotePanel.tsx";
 import { SettingsPage } from "../src/components/Settings.tsx";
+import { UpdateSettings } from "../src/components/UpdatePanel.tsx";
 import type { AppState, ComputerInfo, SettingsTarget } from "../src/lib/store.tsx";
 
 const { state, target, computers, store, polling } = vi.hoisted(() => ({
@@ -61,6 +62,19 @@ beforeEach(() => {
 });
 
 describe("selected host settings UI", () => {
+	it("shows the selected peer's saved update route and explains older or offline hosts", () => {
+		state.peers = [];
+		const status = { state: "idle" as const, currentVersion: "0.3.2", autoCheck: false, downloaded: 0 };
+		state.peerUpdates.peer = { status: { ...status, mirrorPrefix: "https://remote.example/" } };
+		const render = () => renderToStaticMarkup(createElement(UpdateSettings));
+		expect(render()).toContain("https://remote.example/");
+		state.peerUpdates.peer = { status };
+		expect(render()).toContain("升级这台远程电脑");
+		expect(render()).not.toContain('aria-label="更新线路"');
+		target.online = false;
+		expect(render()).not.toContain("https://remote.example/");
+	});
+
 	it("shows remote access, devices and peers without local controls or local badges", () => {
 		polling.value = {
 			remote: {

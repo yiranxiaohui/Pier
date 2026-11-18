@@ -77,6 +77,8 @@ export interface AppUpdateStatus {
 	currentVersion: string;
 	/** The app checks for updates on its own. */
 	autoCheck: boolean;
+	/** Saved update route (1.59). Empty for GitHub, absent when remote selection is unavailable. */
+	mirrorPrefix?: string;
 	/** The available (or still pending, after a failed install) version. */
 	version?: string;
 	/** Release notes of `version` (Markdown). */
