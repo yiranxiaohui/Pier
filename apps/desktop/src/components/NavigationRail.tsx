@@ -9,8 +9,8 @@ import {
 	IconHome,
 	IconLoader,
 	IconPuzzle,
+	IconServer,
 	IconSettings,
-	IconSmartphone,
 	IconSparkles,
 	IconUser,
 } from "./Icons.tsx";
@@ -27,7 +27,6 @@ const SHORTCUTS: Array<{
 	{ section: "models", label: "模型与服务商", icon: IconSparkles },
 	{ section: "extensions", label: "扩展", icon: IconPuzzle },
 	{ section: "pi", label: "Agent 配置", icon: IconBot, pages: ["pi", "claude", "codex"] },
-	{ section: "remote", label: "设备与远程", icon: IconSmartphone },
 ];
 
 /** App navigation stays available even when the workspace list is collapsed or settings are open. */
@@ -35,6 +34,8 @@ export function NavigationRail() {
 	const store = useStore();
 	const settings = useAppState((s) => s.settings);
 	const scheduled = useAppState((s) => s.scheduledTasksOpen);
+	const hosts = useAppState((s) => s.hostHubOpen);
+	const workspacePage = !settings && !scheduled && !hosts;
 	const unread = useAppState((s) => Object.values(s.taskData).some((data) => data.runs.some((run) => !run.read)));
 	const sidebar = useAppState((s) => s.sidebar);
 	const noModels = useAppState((s) => s.localProviders?.availableCount === 0);
@@ -53,7 +54,7 @@ export function NavigationRail() {
 
 	// Navigating away or completing an update dismisses the update card.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: every navigation change closes the card.
-	useEffect(() => setUpdateOpen(false), [settings, pending]);
+	useEffect(() => setUpdateOpen(false), [settings, scheduled, hosts, pending]);
 
 	const utilities = (
 		<div className="navigation-utilities">
@@ -106,13 +107,13 @@ export function NavigationRail() {
 			<div className="navigation-links">
 				<button
 					type="button"
-					className={`navigation-button${settings || scheduled ? "" : " selected"}`}
+					className={`navigation-button${workspacePage ? " selected" : ""}`}
 					aria-label="工作区与会话"
-					aria-current={settings || scheduled ? undefined : "page"}
-					aria-expanded={!settings && !scheduled && sidebar}
-					title={`工作区与会话 · ${!settings && !scheduled && sidebar ? "收起" : "展开"}列表（${SIDEBAR_SHORTCUT}）`}
+					aria-current={workspacePage ? "page" : undefined}
+					aria-expanded={workspacePage && sidebar}
+					title={`工作区与会话 · ${workspacePage && sidebar ? "收起" : "展开"}列表（${SIDEBAR_SHORTCUT}）`}
 					onClick={() => {
-						if (settings || scheduled) {
+						if (!workspacePage) {
 							store.closeSettings();
 							store.toggleSidebar(true);
 						} else store.toggleSidebar();
@@ -130,6 +131,16 @@ export function NavigationRail() {
 				>
 					<IconClock size={20} />
 					{unread ? <span className="navigation-badge" /> : null}
+				</button>
+				<button
+					type="button"
+					className={`navigation-button${hosts ? " selected" : ""}`}
+					aria-label="远程主机"
+					aria-current={hosts ? "page" : undefined}
+					title="远程主机"
+					onClick={() => store.openHostHub()}
+				>
+					<IconServer size={20} />
 				</button>
 				<div className="navigation-divider" />
 				{SHORTCUTS.map((item) => {

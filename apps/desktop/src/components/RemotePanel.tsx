@@ -12,7 +12,7 @@ import { encode } from "uqr";
 import { relativeTime } from "../lib/format.ts";
 
 import { useAppState, useStore } from "../lib/store.tsx";
-import { IconLoader, IconMonitor, IconPencil, IconPlus, IconSmartphone } from "./Icons.tsx";
+import { IconLoader, IconMonitor, IconPencil, IconSmartphone } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
 import { Modal } from "./Modal.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
@@ -381,38 +381,6 @@ function PeerAddressDialog({ peer, onClose }: { peer: PeerInfo; onClose: () => v
 		</Modal>
 	);
 }
-function PeersSection() {
-	const store = useStore();
-	const peers = useAppState((s) => s.peers);
-	return (
-		<SettingsGroup
-			title={`可连接的其他电脑（${peers.length}）`}
-			actions={
-				<button type="button" onClick={() => store.openAddPeer()}>
-					<IconPlus size={14} />
-					添加电脑
-				</button>
-			}
-		>
-			{peers.length ? (
-				<div className="device-list">
-					{peers.map((peer) => (
-						<PeerRow key={peer.id} peer={peer} />
-					))}
-				</div>
-			) : (
-				<SettingsCard>
-					<div className="settings-empty">
-						还没有添加其他电脑。添加后，那台电脑的工作区和会话会和本机的一起出现在左侧列表中，可以直接查看和驱动。
-					</div>
-				</SettingsCard>
-			)}
-			<p className="muted small settings-note">
-				连接其他电脑不需要开启本机的局域网访问，但那台电脑需要开启局域网访问或中继。在这里移除只会忘记那台电脑；要撤销本机对它的访问，请在那台电脑的设备列表中移除本机。
-			</p>
-		</SettingsGroup>
-	);
-}
 
 /** Add another computer: over SSH (installing Pier there when needed), or with its pairing link. */
 export function AddPeerDialog() {
@@ -497,7 +465,7 @@ function PairingLinkForm({ onClose, onBusyChange }: { onClose: () => void; onBus
 					仍在那台电脑上运行）；两台电脑想互相连接时，在两边各添加一次。
 				</p>
 				<ol className="add-peer-steps">
-					<li>在那台电脑的 Pier 中打开「设置 → 设备与远程」，开启局域网访问（不在同一网络时开启中继）。</li>
+					<li>在那台电脑的 Pier 中打开「远程主机 → 本机 → 连接管理」，开启局域网访问（不在同一网络时开启中继）。</li>
 					<li>点「显示配对二维码」，再点「复制配对链接」，把链接发到这台电脑。</li>
 					<li>粘贴到下面并点「配对」，然后在那台电脑上确认。</li>
 				</ol>
@@ -642,8 +610,6 @@ export function LocalRemoteSettings() {
 				)}
 				<p className="muted small settings-note">移除设备会立即断开它的连接；它需要重新配对才能再次连接。</p>
 			</SettingsGroup>
-
-			<PeersSection />
 		</>
 	);
 }

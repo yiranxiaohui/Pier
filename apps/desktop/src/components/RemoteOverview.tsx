@@ -1,27 +1,20 @@
 import { useCallback } from "react";
-import { useSettingsTarget, useStore } from "../lib/store.tsx";
+import { useStore } from "../lib/store.tsx";
 import { useHostPolling } from "../lib/use-host-polling.ts";
-import { DeviceRow, LocalRemoteSettings, PeerRow, RELAY_STATE_TEXT } from "./RemotePanel.tsx";
+import { DeviceRow, PeerRow, RELAY_STATE_TEXT } from "./RemotePanel.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
 
-export function RemoteSettings() {
-	const target = useSettingsTarget();
-	return target.local ? <LocalRemoteSettings /> : <PairedRemoteSettings key={target.node} />;
-}
-
 /** Remote access controls remain local-only; expose their state without local mutation handlers. */
-export function PairedRemoteSettings() {
+export function PairedRemoteSettings({ node, name }: { node: string; name: string }) {
 	const store = useStore();
-	const target = useSettingsTarget();
-	const load = useCallback(() => store.remoteOverview(target.node), [store, target.node]);
+	const load = useCallback(() => store.remoteOverview(node), [store, node]);
 	const { value, error } = useHostPolling(load);
 	const remote = value?.remote;
 	const relay = remote?.relay;
 	return (
 		<>
 			<p className="settings-intro">
-				正在查看 {target.name} 的连接设置，每 3
-				秒刷新。配对授权、设备移除和网络配置只能在那台电脑上操作，避免中断远程连接。
+				正在查看 {name} 的连接设置，每 3 秒刷新。配对授权、设备移除和网络配置只能在那台电脑上操作，避免中断远程连接。
 			</p>
 			{error ? (
 				<div className="banner error inline" role="alert">

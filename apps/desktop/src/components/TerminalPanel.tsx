@@ -47,10 +47,12 @@ function tabTitle(tab: TerminalTab): string {
  * Bottom panel with the integrated terminals. `workspace` is where new terminals start
  * (the workspace on screen).
  */
-export function TerminalPanel({ workspace }: { workspace?: WorkspaceInfo }) {
-	const { tabs, active, height } = useTerminals((s) => s);
+export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; node?: string }) {
+	const state = useTerminals((s) => s);
+	const tabs = node ? state.tabs.filter((tab) => tab.node === node) : state.tabs;
+	const active = tabs.find((tab) => tab.key === state.active)?.key ?? tabs.at(-1)?.key;
 	const body = useRef<HTMLDivElement>(null);
-	const canOpen = useCanOpenTerminal(workspace);
+	const canOpen = useCanOpenTerminal(workspace, node);
 
 	useLayoutEffect(() => {
 		if (active && body.current) terminals.attach(active, body.current);
@@ -72,10 +74,10 @@ export function TerminalPanel({ workspace }: { workspace?: WorkspaceInfo }) {
 		};
 	}, [active]);
 
-	const newTerminal = () => terminals.create(workspace ? { workspace } : {});
+	const newTerminal = () => terminals.create(node ? { node } : workspace ? { workspace } : {});
 	return (
-		<section className="terminal-panel" style={{ height }} aria-label="终端">
-			<ResizeHandle />
+		<section className="terminal-panel" style={node ? undefined : { height: state.height }} aria-label="终端">
+			{node ? null : <ResizeHandle />}
 			<header className="terminal-header">
 				<div className="terminal-tabs" role="tablist">
 					{tabs.map((tab) => (
@@ -138,17 +140,31 @@ export function TerminalPanel({ workspace }: { workspace?: WorkspaceInfo }) {
 					>
 						<IconTrash size={14} />
 					</button>
-					<button
-						type="button"
-						className="ghost icon"
-						title="隐藏终端面板（Ctrl+`），终端继续运行"
-						onClick={() => terminals.toggle({}, false)}
-					>
-						<IconChevronDown size={14} />
-					</button>
+					{!node && (
+						<button
+							type="button"
+							className="ghost icon"
+							title="隐藏终端面板（Ctrl+`），终端继续运行"
+							onClick={() => terminals.toggle({}, false)}
+						>
+							<IconChevronDown size={14} />
+						</button>
+					)}
 				</div>
 			</header>
-			<div className="terminal-body" ref={body} />
+			<div className="terminal-body" ref={body} key={active ?? "empty"} />
+			{node && !tabs.length && (
+				<div className="host-shell-empty">
+					<IconTerminal size={26} />
+					{canOpen ? (
+						<button type="button" className="primary" onClick={newTerminal}>
+							新建 Shell 终端
+						</button>
+					) : (
+						<p>此主机暂时无法启动终端，请检查连接和 Host 的终端支持。</p>
+					)}
+				</div>
+			)}
 		</section>
 	);
 }

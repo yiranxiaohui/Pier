@@ -23,16 +23,16 @@ async function toEntry(dir: string, dirent: Dirent): Promise<HostDirectoryEntry 
 	}
 }
 
-/**
- * List the subdirectories of an absolute directory on this computer (the user's home
- * directory by default), for picking a workspace from another computer.
- */
-export async function listHostDirectories(path?: string): Promise<HostDirectoryListing> {
-	const home = homedir();
+export function absoluteHostDirectory(path?: string): string {
 	if (path !== undefined && !isAbsolute(path)) {
 		throw new PierProtocolError("BAD_REQUEST", "Directory path must be absolute");
 	}
-	const dir = resolve(path ?? home);
+	return resolve(path ?? homedir());
+}
+
+/** List subdirectories for the remote workspace picker. */
+export async function listHostDirectories(path?: string): Promise<HostDirectoryListing> {
+	const dir = absoluteHostDirectory(path);
 	let dirents: Dirent[];
 	try {
 		dirents = await readdir(dir, { withFileTypes: true });
@@ -52,7 +52,7 @@ export async function listHostDirectories(path?: string): Promise<HostDirectoryL
 	return {
 		path: dir,
 		...(parent !== dir ? { parent } : {}),
-		home,
+		home: homedir(),
 		separator: sep,
 		entries: entries.slice(0, MAX_HOST_DIRECTORY_ENTRIES),
 		...(total > MAX_HOST_DIRECTORY_ENTRIES ? { truncated: true, total } : {}),

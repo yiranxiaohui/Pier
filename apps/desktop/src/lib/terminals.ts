@@ -22,6 +22,7 @@ export type TerminalStatus = "starting" | "running" | "exited" | "failed";
 
 export interface TerminalTab {
 	key: string;
+	node?: string;
 	/** Shell name once started, e.g. `zsh`. */
 	shell?: string;
 	/** Directory the shell started in. */
@@ -45,6 +46,7 @@ export interface TerminalState {
 }
 
 export interface OpenTerminalOptions {
+	node?: string;
 	workspace?: WorkspaceInfo;
 	/** Start directory; defaults to the workspace root, then the home directory. */
 	cwd?: string;
@@ -53,12 +55,13 @@ export interface OpenTerminalOptions {
 /** Where a terminal runs. */
 export interface TerminalTarget {
 	backend: TerminalBridge;
+	node: string;
 	/** Set for another computer. */
 	hostName?: string;
 }
 
 /** Picks the computer for a new terminal; undefined when it cannot run terminals. */
-export type TerminalResolver = (workspace: WorkspaceInfo | undefined) => TerminalTarget | undefined;
+export type TerminalResolver = (workspace: WorkspaceInfo | undefined, node?: string) => TerminalTarget | undefined;
 
 interface Instance {
 	term: Terminal;
@@ -151,11 +154,11 @@ export class TerminalManager {
 	private nextKey = 0;
 	/** Hangs up shells orphaned by a page reload, once, before the first spawn. */
 	private cleanup: Promise<void> | undefined;
-	private linkOpener: ((url: string, workspaceId?: string) => void) | undefined;
-	setLinkOpener(opener: (url: string, workspaceId?: string) => void): void {
+	private linkOpener: ((url: string, tab?: TerminalTab) => void) | undefined;
+	setLinkOpener(opener: (url: string, tab?: TerminalTab) => void): void {
 		this.linkOpener = opener;
 	}
-	private resolver: TerminalResolver = () => (this.backend ? { backend: this.backend } : undefined);
+	private resolver: TerminalResolver = () => (this.backend ? { backend: this.backend, node: "local" } : undefined);
 
 	constructor(
 		private readonly backend: TerminalBridge | undefined,
@@ -233,18 +236,19 @@ export class TerminalManager {
 	}
 
 	/** Open a new terminal tab and show the panel. The shell starts once the tab is laid out. */
-	create({ workspace, cwd }: OpenTerminalOptions = {}): string {
+	create({ workspace, cwd, node }: OpenTerminalOptions = {}): string {
 		const key = `t${++this.nextKey}`;
-		const target = this.resolver(workspace);
+		const target = this.resolver(workspace, node);
 		const tab: TerminalTab = {
 			key,
+			node: target?.node ?? node,
 			status: "starting",
 			...((cwd ?? workspace?.path) ? { cwd: cwd ?? workspace?.path } : {}),
 			...(workspace ? { workspaceId: workspace.id, workspaceName: workspace.name } : {}),
 			...(target?.hostName ? { hostName: target.hostName } : {}),
 		};
 		this.instances.set(key, this.createInstance(key, target?.backend));
-		this.set({ tabs: [...this.state.tabs, tab], active: key, open: true });
+		this.set({ tabs: [...this.state.tabs, tab], active: key, ...(node ? {} : { open: true }) });
 		return key;
 	}
 
@@ -330,7 +334,11 @@ export class TerminalManager {
 		term.loadAddon(
 			new WebLinksAddon((event, uri) => {
 				event.preventDefault();
-				if (this.linkOpener) this.linkOpener(uri, this.state.tabs.find((tab) => tab.key === key)?.workspaceId);
+				if (this.linkOpener)
+					this.linkOpener(
+						uri,
+						this.state.tabs.find((tab) => tab.key === key),
+					);
 				else void this.openExternal(uri);
 			}),
 		);

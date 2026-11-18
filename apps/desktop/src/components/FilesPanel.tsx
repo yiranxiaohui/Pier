@@ -388,7 +388,7 @@ function DeleteDialog({
 }
 
 /** Resolves a name conflict, with an editable destination name when pasting. */
-function OverwriteDialog({
+export function OverwriteDialog({
 	question,
 	onAnswer,
 	rename,
@@ -501,7 +501,7 @@ function transferStatus(t: Transfer): string {
 }
 
 /** Uploads and downloads of one workspace, with progress. */
-function TransferList({ workspaceId }: { workspaceId: string }) {
+export function TransferList({ workspaceId }: { workspaceId: string }) {
 	const items = useTransfers(workspaceId);
 	if (!items.length) return null;
 	const finished = items.filter(transferFinished).length;

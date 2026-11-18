@@ -1,7 +1,7 @@
 import type { HostStats } from "@pier/protocol";
 import { useCallback, useEffect, useState } from "react";
 import { formatPercent, formatRate, formatSize, formatUptime } from "../lib/format.ts";
-import { type HostStatsEntry, LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import { type HostStatsEntry, LOCAL_NODE, statusBarNode, useAppState, useStore } from "../lib/store.tsx";
 import { useNodeStatus } from "./HostPanels.tsx";
 import { HostPortsPanel } from "./HostPortsPanel.tsx";
 import { HostProcessesPanel } from "./HostProcessesPanel.tsx";
@@ -177,7 +177,7 @@ function HostStatusPopover({
 	onProcesses(node: string): void;
 }) {
 	const store = useStore();
-	const node = useAppState((s) => s.node);
+	const node = useAppState(statusBarNode);
 	const peers = useAppState((s) => s.peers);
 	const localInfo = useAppState((s) => s.localHostInfo);
 	useEffect(() => store.watchHostStats(true), [store]);
@@ -228,7 +228,7 @@ function HostStatusPopover({
 				className="dropdown-item"
 				onClick={() => {
 					onClose();
-					store.openSettings("remote");
+					store.openHostHub();
 				}}
 			>
 				<span className="menu-label">
@@ -246,8 +246,8 @@ function HostStatusPopover({
  */
 function HostStatus() {
 	const store = useStore();
-	const node = useAppState((s) => s.node);
-	const entry = useAppState((s) => s.hostStats[s.node]);
+	const node = useAppState(statusBarNode);
+	const entry = useAppState((s) => s.hostStats[node]);
 	const peerCount = useAppState((s) => s.peers.length);
 	useAppState((s) => s.peers);
 	useAppState((s) => s.localHostInfo);
@@ -265,7 +265,7 @@ function HostStatus() {
 	};
 	const ref = useOutsideClick(open, close);
 	useEffect(() => store.watchHostStats(false), [store]);
-	const connection = useNodeStatus();
+	const connection = useNodeStatus(node);
 	const local = node === LOCAL_NODE;
 	const name = local ? "本机" : store.nodeName(node);
 	const stats = entry?.state === "ok" ? entry.stats : undefined;

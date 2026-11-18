@@ -2,7 +2,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LogsSettings } from "../src/components/HostPanels.tsx";
-import { RemoteSettings } from "../src/components/RemoteOverview.tsx";
+import { PairedRemoteSettings } from "../src/components/RemoteOverview.tsx";
+import { LocalRemoteSettings } from "../src/components/RemotePanel.tsx";
 import { SettingsPage } from "../src/components/Settings.tsx";
 import type { AppState, ComputerInfo, SettingsTarget } from "../src/lib/store.tsx";
 
@@ -83,7 +84,7 @@ describe("selected host settings UI", () => {
 				},
 			],
 		};
-		const html = renderToStaticMarkup(createElement(SettingsPage, { section: "remote" }));
+		const html = renderToStaticMarkup(createElement(PairedRemoteSettings, { node: target.node, name: target.name }));
 		for (const text of [
 			"10.0.0.42:7444",
 			"remote-fingerprint",
@@ -94,7 +95,7 @@ describe("selected host settings UI", () => {
 		])
 			expect(html).toContain(text);
 		expect(html).not.toMatch(/本机设置|这一页只针对本机|重命名|显示配对二维码|清除令牌|保存并重新连接/);
-		expect(html).toContain("此页只读");
+		expect(html).toContain("只能在那台电脑上操作");
 	});
 
 	it("shows the remote log tail and never offers the local restart button", () => {
@@ -112,18 +113,15 @@ describe("selected host settings UI", () => {
 		expect(html).not.toContain("所有电脑");
 	});
 
-	it.each(["remote", "logs"] as const)(
-		"explains old and disconnected hosts on %s without rendering local content",
-		(section) => {
-			store.settingsBlocker.mockReturnValue("请先更新远程主机：需要协议 1.55");
-			let html = renderToStaticMarkup(createElement(SettingsPage, { section }));
-			expect(html).toContain("需要协议 1.55");
-			target.online = false;
-			html = renderToStaticMarkup(createElement(SettingsPage, { section }));
-			expect(html).toContain("Remote machine 未连接");
-			expect(html).not.toContain("本机设置");
-		},
-	);
+	it.each(["logs"] as const)("explains old and disconnected hosts on %s without rendering local content", (section) => {
+		store.settingsBlocker.mockReturnValue("请先更新远程主机：需要协议 1.55");
+		let html = renderToStaticMarkup(createElement(SettingsPage, { section }));
+		expect(html).toContain("需要协议 1.55");
+		target.online = false;
+		html = renderToStaticMarkup(createElement(SettingsPage, { section }));
+		expect(html).toContain("Remote machine 未连接");
+		expect(html).not.toContain("本机设置");
+	});
 
 	it("keeps local access controls and restart available after selecting this computer", () => {
 		target.local = true;
@@ -139,7 +137,7 @@ describe("selected host settings UI", () => {
 			pairingActive: false,
 		};
 		state.peers = [];
-		const html = renderToStaticMarkup(createElement(RemoteSettings));
+		const html = renderToStaticMarkup(createElement(LocalRemoteSettings));
 		expect(html).toContain("local-only-address:7433");
 		expect(html).toContain("显示配对二维码");
 		expect(renderToStaticMarkup(createElement(LogsSettings))).toContain(">重启 Host</button>");
@@ -147,7 +145,9 @@ describe("selected host settings UI", () => {
 
 	it("shows load failures rather than spinning forever", () => {
 		polling.error = "connection lost";
-		expect(renderToStaticMarkup(createElement(RemoteSettings))).toContain("读取连接设置失败：connection lost");
+		expect(
+			renderToStaticMarkup(createElement(PairedRemoteSettings, { node: target.node, name: target.name })),
+		).toContain("读取连接设置失败：connection lost");
 		expect(renderToStaticMarkup(createElement(LogsSettings))).toContain("读取日志失败：connection lost");
 	});
 });

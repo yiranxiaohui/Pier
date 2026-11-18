@@ -77,6 +77,13 @@ export const APP_VERSION = "0.3.1";
 /** Node id of this computer; any other node is a paired computer's host id. */
 export const LOCAL_NODE = "local";
 
+/** The status bar follows the selected host tool or the workspace on screen. */
+export function statusBarNode(state: AppState): string {
+	if (!state.hostHubOpen) return state.node;
+	const node = state.hostHubView?.node;
+	return node && state.peers.some((p) => p.id === node) ? node : LOCAL_NODE;
+}
+
 /** One computer (node) whose workspaces and sessions the sidebar lists. */
 export interface NodeState {
 	/** Connection to that computer's Pier Host (through this computer's host for paired ones). */
@@ -282,7 +289,6 @@ export type SettingsSection =
 	| "pi"
 	| "claude"
 	| "codex"
-	| "remote"
 	| "logs"
 	| "about";
 
@@ -295,6 +301,8 @@ export interface ExtensionProgressState {
 }
 
 export interface AppState {
+	hostHubOpen: boolean;
+	hostHubView?: { node: string; tab: "connection" | "shell" | "files" };
 	scheduledTasksOpen: boolean;
 	taskData: Record<string, { tasks: ScheduledTask[]; runs: ScheduledTaskRun[]; error?: string }>;
 	host: HostStatus;
@@ -550,7 +558,7 @@ export function peerPairingErrorText(error: unknown): string {
 		case "INVALID_LINK":
 			return `配对链接无效：${message.replace(/^Invalid pairing link: /, "")}`;
 		case "SELF":
-			return "这是本机自己的配对链接。请在另一台电脑的「设置 → 设备与远程」中生成配对链接。";
+			return "这是本机自己的配对链接。请在另一台电脑的「远程主机 → 本机 → 连接管理」中生成配对链接。";
 		case "UNREACHABLE":
 			return `无法连接到那台电脑（${message}）。请确认两台电脑在同一局域网或 Tailscale 网络中，且那台电脑已开启局域网访问。`;
 		case "PAIRING_INVALID":
@@ -673,6 +681,7 @@ export class PierStore {
 			}
 		})();
 		const state: AppState = {
+			hostHubOpen: false,
 			scheduledTasksOpen: false,
 			taskData: {},
 			host: { state: "starting", restarts: 0, generation: 0 },
@@ -1596,7 +1605,7 @@ export class PierStore {
 
 	private async pollHostStats(): Promise<void> {
 		if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-		const nodes = new Set([this.state.node]);
+		const nodes = new Set([statusBarNode(this.state)]);
 		if (this.statsWatchers.detail > 0) {
 			nodes.add(LOCAL_NODE);
 			for (const peer of this.state.peers) nodes.add(peer.id);
@@ -2904,6 +2913,7 @@ export class PierStore {
 
 	selectSession(session: SessionSummary): void {
 		this.set((s) => ({
+			hostHubOpen: false,
 			scheduledTasksOpen: false,
 			selectedWorkspaceId: session.workspaceId,
 			selectedSessionId: session.id,
@@ -3221,16 +3231,24 @@ export class PierStore {
 		if (section === "about" && this.state.settingsNode === LOCAL_NODE && this.state.update.version) {
 			this.announcedUpdate = this.state.update.version;
 		}
-		this.set({ settings: section, scheduledTasksOpen: false });
+		this.set({ settings: section, scheduledTasksOpen: false, hostHubOpen: false });
 		if (section === "models" || section === "account") void this.loadProviders();
 	}
 
 	closeSettings(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: false });
+		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: false });
+	}
+
+	openHostHub(): void {
+		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: true });
+	}
+
+	selectHostView(node: string, tab: "connection" | "shell" | "files"): void {
+		this.set({ hostHubView: { node, tab } });
 	}
 
 	openScheduledTasks(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: true });
+		this.set({ settings: undefined, scheduledTasksOpen: true, hostHubOpen: false });
 		for (const node of this.clients.keys()) void this.loadTasks(node);
 	}
 
@@ -3600,14 +3618,19 @@ export class PierStore {
 	}
 
 	/** Resolve localhost against the conversation/terminal's host before opening it locally. */
-	async openWorkspaceUrl(url: string, workspaceId?: string): Promise<void> {
-		const node = workspaceId ? this.nodeOf(workspaceId) : LOCAL_NODE;
+	async openWorkspaceUrl(url: string, workspaceId?: string, hostNode?: string): Promise<void> {
+		const node = hostNode ?? (workspaceId ? this.nodeOf(workspaceId) : LOCAL_NODE);
 		const remoteUrl = remoteServiceUrl(url);
-		if (!workspaceId || node === LOCAL_NODE || !remoteUrl) {
+		if (node === LOCAL_NODE || !remoteUrl) {
 			this.openExternal(url);
 			return;
 		}
 		const client = this.nodeClient(LOCAL_NODE);
+		const browserWorkspace = workspaceId ?? this.state.nodes[node]?.workspaces[0]?.id;
+		if (!browserWorkspace) {
+			this.toast("info", "此链接位于远程主机。可在下方「端口」中映射后打开。");
+			return;
+		}
 		if (!client) {
 			this.toast("error", "尚未连接到本机 Pier Host");
 			return;
@@ -3615,7 +3638,7 @@ export class PierStore {
 		try {
 			const info = await client.request(
 				"browser.open",
-				{ peerId: node, workspaceId, url: remoteUrl, mode: "service" },
+				{ peerId: node, workspaceId: browserWorkspace, url: remoteUrl, mode: "service" },
 				{ timeoutMs: 60_000 },
 			);
 			await this.bridge.openExternal(info.localUrl);

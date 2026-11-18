@@ -9,6 +9,7 @@ import type { PierClient } from "@pier/client";
 import { PierProtocolError, type WorkspaceInfo } from "@pier/protocol";
 import { useSyncExternalStore } from "react";
 import { workspaceNameError } from "./file-names.ts";
+import { hostSpeaksMinor } from "./settings-target.ts";
 import type { PierStore } from "./store.tsx";
 import {
 	beginWorkspacePaste,
@@ -205,20 +206,36 @@ function baseName(path: string): string {
 	return path.slice(path.lastIndexOf("/") + 1);
 }
 
+/** A host directory is independent of the workspace selected in the chat view. */
+type TransferLocation = WorkspaceInfo | { node: string; directory: string };
+
+export function hostTransferKey(node: string): string {
+	return `host:${node}`;
+}
+
+function transferClient(store: PierStore, location: TransferLocation): PierClient {
+	if (!("node" in location)) return store.fileTransferClient(location.id);
+	const host = store.getState().nodes[location.node];
+	const client = store.nodeClient(location.node);
+	if (!client || host?.connection !== "open") throw new Error("主机未连接");
+	if (!hostSpeaksMinor(host.hostInfo, 57)) throw new Error("请更新此主机的 Pier 以传输工作区以外的文件");
+	return client;
+}
+
 /**
  * Download a workspace or preview file to this computer: asks where to save it, then copies it
  * in chunks. Resolves once the download ended (or the save dialog was cancelled).
  */
 export async function downloadFile(
 	store: PierStore,
-	workspace: WorkspaceInfo,
+	location: TransferLocation,
 	path: string,
 	expectedRealPath?: string,
 	preview = false,
 ): Promise<void> {
 	let client: PierClient;
 	try {
-		client = store.fileTransferClient(workspace.id);
+		client = transferClient(store, location);
 	} catch (error) {
 		store.toast("error", errorMessage(error));
 		return;
@@ -232,20 +249,23 @@ export async function downloadFile(
 		return;
 	}
 	if (!sink) return;
-	const item = transfers.add({ kind: "download", workspaceId: workspace.id, path, name, state: "running" });
+	const key = "node" in location ? hostTransferKey(location.node) : location.id;
+	const item = transfers.add({ kind: "download", workspaceId: key, path, name, state: "running" });
 	let offset = 0;
 	let version: string | undefined;
 	try {
 		for (;;) {
 			if (transfers.isCancelled(item.id)) throw new CancelledError();
-			const chunk = await client.request("workspace.readBytes", {
-				workspaceId: workspace.id,
-				path,
-				offset,
-				length: TRANSFER_CHUNK_BYTES,
-				...(expectedRealPath ? { expectedRealPath } : {}),
-				...(preview ? { preview: true } : {}),
-			});
+			const range = { path, offset, length: TRANSFER_CHUNK_BYTES };
+			const chunk =
+				"node" in location
+					? await client.request("host.readBytes", { directory: location.directory, ...range })
+					: await client.request("workspace.readBytes", {
+							workspaceId: location.id,
+							...range,
+							...(expectedRealPath ? { expectedRealPath } : {}),
+							...(preview ? { preview: true } : {}),
+						});
 			const stamp = `${chunk.size}@${chunk.modifiedAt}`;
 			if (version !== undefined && stamp !== version) throw new Error("文件在下载过程中被修改，请重新下载");
 			version = stamp;
@@ -271,23 +291,24 @@ export async function downloadFile(
  */
 export async function uploadFiles(
 	store: PierStore,
-	workspace: WorkspaceInfo,
+	location: TransferLocation,
 	items: UploadItem[],
 	ask: (question: OverwriteQuestion) => Promise<OverwriteAnswer>,
 ): Promise<void> {
 	if (!items.length) return;
 	let client: PierClient;
 	try {
-		client = store.fileTransferClient(workspace.id);
+		client = transferClient(store, location);
 	} catch (error) {
 		store.toast("error", errorMessage(error));
 		return;
 	}
+	const key = "node" in location ? hostTransferKey(location.node) : location.id;
 	const queued = items.map((item) => ({
 		item,
 		transfer: transfers.add({
 			kind: "upload",
-			workspaceId: workspace.id,
+			workspaceId: key,
 			path: item.path,
 			name: baseName(item.path),
 			total: item.file.size,
@@ -303,13 +324,12 @@ export async function uploadFiles(
 		transfers.update(transfer.id, { state: "running" });
 		let uploadId: string | undefined;
 		try {
-			const start = (overwrite: boolean) =>
-				client.request("workspace.uploadStart", {
-					workspaceId: workspace.id,
-					path: item.path,
-					size: item.file.size,
-					...(overwrite ? { overwrite: true } : {}),
-				});
+			const start = (overwrite: boolean) => {
+				const params = { path: item.path, size: item.file.size, ...(overwrite ? { overwrite: true } : {}) };
+				return "node" in location
+					? client.request("host.uploadStart", { directory: location.directory, ...params })
+					: client.request("workspace.uploadStart", { workspaceId: location.id, ...params });
+			};
 			let started: Awaited<ReturnType<typeof start>>;
 			try {
 				started = await start(always === "overwrite");
@@ -363,7 +383,7 @@ export async function uploadFiles(
 				});
 			} else transfers.update(transfer.id, { state: "error", error: errorMessage(error) });
 		}
-		store.bumpFiles(workspace.id);
+		store.bumpFiles(key);
 	}
 }
 

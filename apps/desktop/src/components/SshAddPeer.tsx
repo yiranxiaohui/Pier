@@ -279,7 +279,7 @@ export function SshAddPeerForm({ onClose, onBusyChange }: { onClose: () => void;
 						<span className="muted small">
 							{relay
 								? `：那台电脑没有开启中继时，使用本机的中继服务器 ${relay.url}${relay.hasToken ? "（包括访问令牌）" : ""}`
-								: "：本机还没有开启中继服务器，可在「设置 → 设备与远程 → 中继服务器」中设置"}
+								: "：本机还没有开启中继服务器，可在「远程主机 → 本机 → 连接管理 → 中继服务器」中设置"}
 						</span>
 					</span>
 				</label>

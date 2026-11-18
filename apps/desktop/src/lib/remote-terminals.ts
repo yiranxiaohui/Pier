@@ -17,12 +17,13 @@ const bridges = new WeakMap<PierClient, TerminalBridge>();
  * one through its host when it can run terminals.
  */
 export function installTerminalResolver(store: PierStore): void {
-	terminals.setLinkOpener((url, workspaceId) => {
-		void store.openWorkspaceUrl(url, workspaceId);
+	terminals.setLinkOpener((url, tab) => {
+		void store.openWorkspaceUrl(url, tab?.workspaceId, tab?.node);
 	});
-	terminals.setResolver((workspace: WorkspaceInfo | undefined): TerminalTarget | undefined => {
-		const node = workspace ? store.nodeOf(workspace.id) : LOCAL_NODE;
-		if (node === LOCAL_NODE) return terminals.local ? { backend: terminals.local } : undefined;
+	terminals.setResolver((workspace: WorkspaceInfo | undefined, hostNode?: string): TerminalTarget | undefined => {
+		const node = hostNode ?? (workspace ? store.nodeOf(workspace.id) : LOCAL_NODE);
+		if (node === LOCAL_NODE && (!hostNode || terminals.local))
+			return terminals.local ? { backend: terminals.local, node } : undefined;
 		const state = store.getState().nodes[node];
 		const client = store.nodeClient(node);
 		if (!client || state?.connection !== "open" || !hostRunsTerminals(state.hostInfo)) return undefined;
@@ -31,15 +32,15 @@ export function installTerminalResolver(store: PierStore): void {
 			backend = remoteTerminalBridge(client, () => store.nodeName(node));
 			bridges.set(client, backend);
 		}
-		return { backend, hostName: store.nodeName(node) };
+		return { backend, node, hostName: store.nodeName(node) };
 	});
 }
 
 /** Whether a terminal can be opened for a workspace (on its computer), or on this computer without one. */
-export function useCanOpenTerminal(workspace: WorkspaceInfo | undefined): boolean {
+export function useCanOpenTerminal(workspace: WorkspaceInfo | undefined, hostNode?: string): boolean {
 	return useAppState((s) => {
-		const node = workspace ? (s.workspaceNodes[workspace.id] ?? s.node) : LOCAL_NODE;
-		if (node === LOCAL_NODE) return terminals.supported;
+		const node = hostNode ?? (workspace ? (s.workspaceNodes[workspace.id] ?? s.node) : LOCAL_NODE);
+		if (node === LOCAL_NODE && (!hostNode || terminals.supported)) return terminals.supported;
 		const state = s.nodes[node];
 		return state?.connection === "open" && hostRunsTerminals(state.hostInfo);
 	});

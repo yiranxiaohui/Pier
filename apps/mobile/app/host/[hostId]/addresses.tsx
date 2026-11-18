@@ -83,8 +83,8 @@ export default function HostAddresses() {
 						<CardHeader icon="swap-horizontal" title="连接地址" subtitle="电脑的 IP 变了时在这里修改，不用重新配对" />
 						<Muted>
 							每行一个地址，格式为 IP:端口（省略端口时使用 {defaultPort}
-							），连接时按顺序尝试；也可以填域名或 Tailscale 地址。电脑上的地址可以在 Pier 的「设置 →
-							设备与远程」中看到。
+							），连接时按顺序尝试；也可以填域名或 Tailscale 地址。电脑上的地址可以在 Pier 的「远程主机 → 本机 →
+							连接管理」中看到。
 						</Muted>
 						<TextInput
 							testID="host-addresses-input"

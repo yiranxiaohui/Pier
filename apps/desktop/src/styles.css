@@ -22,6 +22,7 @@
 @import "./styles/git.css";
 @import "./styles/account.css";
 @import "./styles/terminal.css";
+@import "./styles/host-hub.css";
 @import "./styles/extensions.css";
 @import "./styles/pi-settings.css";
 @import "./styles/statusbar.css";

@@ -76,6 +76,39 @@ describe("computer-to-computer (peers)", () => {
 		return client;
 	}
 
+	it("transfers a file in an unregistered directory of the paired host", async () => {
+		const peer = await pair();
+		const client = viaA(peer.id);
+		await client.connect();
+		const directory = join(b.root, "incoming");
+		mkdirSync(directory);
+		const path = "payload.bin";
+		const bytes = Buffer.from([0, 255, 128, 42]);
+		const started = await client.request("host.uploadStart", { directory, path, size: bytes.length });
+		await client.request("workspace.uploadChunk", {
+			uploadId: started.uploadId,
+			offset: 0,
+			data: bytes.toString("base64"),
+		});
+		await client.request("workspace.uploadFinish", { uploadId: started.uploadId });
+		expect(await client.request("host.files", { directory })).toMatchObject({
+			directory,
+			parent: b.root,
+			entries: [{ name: path, kind: "file", size: 4 }],
+		});
+		expect(await client.request("host.readBytes", { directory, path, offset: 1, length: 3 })).toMatchObject({
+			eof: true,
+			data: bytes.subarray(1).toString("base64"),
+		});
+		await expectCode(client.request("host.uploadStart", { directory, path, size: 1 }), "CONFLICT");
+		await expectCode(client.request("host.files", { directory: "relative" }), "BAD_REQUEST");
+		await expectCode(
+			client.request("host.readBytes", { directory, path: "../payload.bin", offset: 0, length: 1 }),
+			"BAD_REQUEST",
+		);
+		expect((await client.request("workspace.list")).workspaces).toEqual([bWorkspace]);
+	});
+
 	it("pairs with the host key, then drives the other computer through the local gateway", async () => {
 		const from = aEvents.mark();
 		let request: PairingRequest | undefined;

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { keyFingerprint } from "@pier/crypto";
 import {
 	type AccountLine,
@@ -47,7 +47,7 @@ import {
 } from "./connection.ts";
 import { DiagnosticLog } from "./diagnostic-log.ts";
 import { GitService, samePath } from "./git.ts";
-import { listHostDirectories } from "./host-directories.ts";
+import { absoluteHostDirectory, listHostDirectories } from "./host-directories.ts";
 import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
 import { errorMessage, type ManagedSession } from "./managed-session.ts";
@@ -243,6 +243,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"workspace.deletePath",
 	"workspace.transferPath",
 	"workspace.uploadStart",
+	"host.uploadStart",
 	"workspace.uploadFinish",
 	"model.setDefault",
 	"provider.login",
@@ -394,6 +395,9 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 				bytes: params.size,
 				...(params.overwrite ? { overwrite: true } : {}),
 			};
+		case "host.readBytes":
+		case "host.uploadStart":
+			return { directory: params.directory, path: params.path };
 		case "workspace.uploadFinish":
 			return { uploadId: params.uploadId };
 		case "model.setDefault":
@@ -876,7 +880,9 @@ export class PierHost implements RequestHandler {
 				method === "workspace.readBytes" &&
 				(parsed.data as ParsedMethodParams<"workspace.readBytes">).expectedRealPath !== undefined &&
 				(parsed.data as ParsedMethodParams<"workspace.readBytes">).offset === 0;
-			if (connection.device && (AUDITED_METHODS.has(method) || authorizedDownload)) {
+			const hostDownload =
+				method === "host.readBytes" && (parsed.data as ParsedMethodParams<"host.readBytes">).offset === 0;
+			if (connection.device && (AUDITED_METHODS.has(method) || authorizedDownload || hostDownload)) {
 				const params = (parsed.data ?? {}) as Record<string, unknown>;
 				const detail = auditDetail(method, params);
 				this.remote.record({
@@ -1198,6 +1204,26 @@ export class PierHost implements RequestHandler {
 			"host.info": () => this.info(),
 			"host.logs": () => ({ lines: this.diagnostics.read() }),
 			"host.listDirectories": (_ctx, params) => listHostDirectories(params?.path),
+			"host.files": async (_ctx, params) => {
+				const directory = absoluteHostDirectory(params.directory);
+				const parent = dirname(directory);
+				return {
+					...(await listWorkspaceDirectory(directory)),
+					directory,
+					separator: sep,
+					...(directory !== parent ? { parent } : {}),
+				};
+			},
+			"host.readBytes": (_ctx, params) =>
+				readWorkspaceBytes(absoluteHostDirectory(params.directory), params.path, params.offset, params.length),
+			"host.uploadStart": (ctx, params) =>
+				this.uploads.start(
+					ctx.connection.connectionId,
+					absoluteHostDirectory(params.directory),
+					params.path,
+					params.size,
+					params.overwrite,
+				),
 			"host.stats": () => this.stats.sample(),
 			"host.packageManagers": async () => ({ managers: await detectPackageManagers() }),
 

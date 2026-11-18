@@ -224,6 +224,25 @@ export const MethodParamsSchemas = {
 	 * a workspace on another computer. Omit `path` for the user's home directory.
 	 */
 	"host.listDirectories": z.object({ path: z.string().min(1).max(4096).optional() }).optional(),
+	/** Host file transfers outside registered workspaces (1.57). File paths are relative to directory. */
+	"host.files": z.object({ directory: z.string().min(1).max(4096).optional() }),
+	"host.readBytes": z.object({
+		directory: z.string().min(1).max(4096),
+		path: z.string().min(1).max(4096),
+		offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+		length: z
+			.number()
+			.int()
+			.min(1)
+			.max(4 * 1024 * 1024),
+	}),
+	/** Continue this connection-owned upload with workspace.uploadChunk / Finish / Cancel. */
+	"host.uploadStart": z.object({
+		directory: z.string().min(1).max(4096),
+		path: z.string().min(1).max(4096),
+		size: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+		overwrite: z.boolean().optional(),
+	}),
 	/** CPU, memory, disk and network usage of the host's computer (1.12). */
 	"host.stats": z.object({}).optional(),
 	/** npm, pnpm and bun on the host's computer, for pi's `npmCommand` setting (1.17). */
@@ -998,6 +1017,9 @@ export interface MethodResults {
 	"host.info": HostInfo;
 	"host.logs": { lines: string[] };
 	"host.listDirectories": HostDirectoryListing;
+	"host.files": WorkspaceFilesResult & { directory: string; parent?: string; separator: string };
+	"host.readBytes": WorkspaceFileBytes;
+	"host.uploadStart": WorkspaceUploadStart;
 	"host.stats": HostStats;
 	"host.packageManagers": PackageManagerDetection;
 	"update.status": AppUpdateStatus;

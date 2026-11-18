@@ -26,14 +26,14 @@ export function useHostStatus(): { online: boolean; dot: "ok" | "bad" | "wait"; 
 }
 
 /** The shown computer's connection (this one's, or a paired computer's), for the main window. */
-export function useNodeStatus(): { online: boolean; dot: "ok" | "bad" | "wait"; text: string } {
+export function useNodeStatus(target?: string): { online: boolean; dot: "ok" | "bad" | "wait"; text: string } {
 	const store = useStore();
 	const local = useHostStatus();
-	const node = useAppState((s) => s.node);
+	const node = useAppState((s) => target ?? s.node);
 	const host = useAppState((s) => s.host);
-	const connection = useAppState((s) => s.connection);
-	const revoked = useAppState((s) => !!s.nodeRevoked);
-	const connectError = useAppState((s) => s.connectError);
+	const connection = useAppState((s) => s.nodes[node]?.connection);
+	const revoked = useAppState((s) => !!s.nodes[node]?.revoked);
+	const connectError = useAppState((s) => s.nodes[node]?.connectError);
 	useAppState((s) => s.peers);
 	if (node === LOCAL_NODE) return local;
 	const name = store.nodeName(node);

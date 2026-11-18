@@ -34,7 +34,6 @@ import {
 	IconRefresh,
 	IconSearch,
 	IconSettings,
-	IconSmartphone,
 	IconSparkles,
 	IconUser,
 	IconX,
@@ -42,7 +41,6 @@ import {
 import { CopyButton } from "./Markdown.tsx";
 import { ModelsSettings } from "./ModelsPanel.tsx";
 import { PiSettings } from "./PiSettingsPanel.tsx";
-import { RemoteSettings } from "./RemoteOverview.tsx";
 import { ResourcesSettings } from "./ResourcesPanel.tsx";
 import { Select } from "./Select.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
@@ -158,18 +156,6 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 		],
 	},
 	{
-		title: "连接",
-		items: [
-			{
-				id: "remote",
-				label: "设备与远程",
-				icon: IconSmartphone,
-				keywords: "手机 电脑 其他电脑 节点 互联 切换 远程 配对 二维码 链接 设备 局域网 端口 指纹",
-				online: true,
-			},
-		],
-	},
-	{
 		title: "系统",
 		items: [
 			{ id: "logs", label: "日志", icon: IconLogs, keywords: "日志 log host 排查" },
@@ -201,7 +187,6 @@ const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	pi: "调整 pi 的模型、工具与运行偏好。",
 	claude: "管理 Claude Code 的模型、权限与运行偏好。",
 	codex: "管理 Codex 的服务商、审批与运行偏好。",
-	remote: "连接其他电脑与手机，随时继续你的工作。",
 	logs: "查看 Host 的运行记录，定位连接与启动问题。",
 	about: "了解 Pier，获取最新版本与更新信息。",
 };
@@ -675,7 +660,6 @@ const PAGES: Record<SettingsSection, ComponentType> = {
 	pi: PiSettings,
 	claude: ClaudeSettings,
 	codex: CodexSettings,
-	remote: RemoteSettings,
 	logs: LogsSettings,
 	about: UpdateSettings,
 };
@@ -879,18 +863,8 @@ function RemoteUnavailable({ blocker }: { blocker?: string | undefined }) {
 
 function NavBadge({ id }: { id: SettingsSection }): ReactNode {
 	const noModels = useAppState((s) => s.providers?.availableCount === 0);
-	const remote = useAppState((s) => s.remote);
-	const connected = useAppState((s) => s.devices.filter((d) => d.connected).length);
 	const update = useAppState((s) => computerUpdateStatus(s.settingsNode, s));
-	const local = useAppState((s) => s.settingsNode === LOCAL_NODE);
 	if (id === "models" && noModels) return <span className="nav-dot warn" title="还没有可用模型" />;
-	if (local && id === "remote" && (remote?.running || remote?.relay?.state === "online") && connected > 0) {
-		return (
-			<span className="nav-count" title={`${connected} 台设备在线`}>
-				{connected}
-			</span>
-		);
-	}
 	if (id === "about" && update && updatePending(update)) return <span className="nav-dot accent" title="有可用更新" />;
 	return null;
 }

@@ -1,4 +1,4 @@
-# Pier 协议 v1.56
+# Pier 协议 v1.57
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -76,6 +76,14 @@
 - **Origin 校验（本地连接）**：带 `Origin` 头的连接只允许 Tauri WebView 的来源（`tauri://localhost`、`http(s)://tauri.localhost`、开发时的 `http://localhost:1420`），其他网页在握手阶段即被拒绝（HTTP 403）。无 `Origin` 的连接（CLI）允许，但仍须 token。远程监听不检查 Origin（React Native 在 Android 上会自动附带），认证完全由加密通道完成。
 
 ## 3. 方法
+
+协议 1.57 新增主机目录传输，已认证的本机和配对客户端可以在 Host 进程的文件权限范围内使用，无需登记工作区。
+
+| 方法 | 参数 | 结果 |
+|---|---|---|
+| `host.files` | `{ directory? }` | 省略目录时从主目录开始。返回 `WorkspaceFilesResult` 及绝对目录 `directory`、可选上级 `parent` 和平台分隔符 `separator`。 |
+| `host.readBytes` | `{ directory, path, offset, length }` | 读取绝对目录下指定相对路径的一块，返回 `WorkspaceFileBytes`。 |
+| `host.uploadStart` | `{ directory, path, size, overwrite? }` | 返回 `WorkspaceUploadStart`。同一连接通过 `workspace.uploadChunk`、`workspace.uploadFinish` 或 `workspace.uploadCancel` 继续操作。 |
 
 参数中的 `sessionId` 均为 pi 会话 ID。标注 🔒 的方法仅本地桌面连接可调用（`LOCAL_ONLY_METHODS`），它们决定谁能连接这台电脑：设备修改、配对、远程访问配置与 `peer.*` 写操作，另外还有在本机回环地址上监听的 `loopback.*`（1.28）。其余方法对已配对的远程设备（手机和其他电脑）同样开放（1.10）：配对即完全信任，可以管理工作区与审批策略、编辑文件、配置服务商与模型、账号和扩展；1.9 及以前这些方法也仅限本地。
 
