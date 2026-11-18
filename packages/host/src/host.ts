@@ -52,6 +52,7 @@ import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
 import { errorMessage, type ManagedSession } from "./managed-session.ts";
 import { LoopbackRelays } from "./oauth-loopback.ts";
+import { OpenCodeRuntime, type OpenCodeRuntimeOptions } from "./opencode/opencode-runtime.ts";
 import { detectPackageManagers } from "./package-managers.ts";
 import {
 	accountPath,
@@ -170,6 +171,7 @@ export interface PierHostOptions {
 	agents?: {
 		claudeCode?: ClaudeCodeRuntimeOptions | false;
 		codex?: CodexRuntimeOptions | false;
+		opencode?: OpenCodeRuntimeOptions | false;
 	};
 	/**
 	 * Configuration directories of Claude Code and Codex for `agentConfig.*` (tests). Default to
@@ -589,7 +591,11 @@ export class PierHost implements RequestHandler {
 					: new CodexRuntime({ log, managedDirectory, installationHome, ...agents.codex }),
 		};
 		this.pool = new SessionPool({
-			runtimes: [new PiRuntime(env), ...Object.values(nativeRuntimes).filter((r) => r !== undefined)],
+			runtimes: [
+				new PiRuntime(env),
+				...Object.values(nativeRuntimes).filter((r) => r !== undefined),
+				...(agents.opencode === false ? [] : [new OpenCodeRuntime(agents.opencode)]),
+			],
 			log,
 			config: this.config,
 			locksDir: locksDir(this.pierDir),
@@ -1545,16 +1551,15 @@ export class PierHost implements RequestHandler {
 			"model.list": async (_ctx, params) => {
 				if (params?.sessionId) {
 					const session = this.pool.require(params.sessionId);
-					const models = await this.pool.runtime(session.runtimeId).listModels();
+					const models = await this.pool.runtime(session.runtimeId).listModels(session.workspacePath);
 					const { model: current, thinkingLevel } = session.modelState();
 					return current ? { models, current, thinkingLevel } : { models, thinkingLevel };
 				}
 				const runtime = this.pool.runtime(params?.runtime);
-				const models = await runtime.listModels();
-				if (params?.workspaceId) {
-					const { model, thinkingLevel } = await runtime.newSessionDefaults(
-						this.requireWorkspace(params.workspaceId).path,
-					);
+				const directory = params?.workspaceId ? this.requireWorkspace(params.workspaceId).path : undefined;
+				const models = await runtime.listModels(directory);
+				if (directory) {
+					const { model, thinkingLevel } = await runtime.newSessionDefaults(directory, models);
 					return model ? { models, current: model, thinkingLevel } : { models, thinkingLevel };
 				}
 				return { models };

@@ -1,6 +1,6 @@
 import type { AgentRuntimeId } from "@pier/protocol";
 import type { ReactNode } from "react";
-import { IconBot } from "./Icons.tsx";
+import { IconBot, IconTerminal } from "./Icons.tsx";
 
 type AgentIconProps = { size?: number; className?: string };
 
@@ -59,6 +59,8 @@ export function AgentIcon({ runtime, ...props }: AgentIconProps & { runtime: Age
 			return <IconClaudeCode {...props} />;
 		case "codex":
 			return <IconCodex {...props} />;
+		case "opencode":
+			return <IconTerminal {...props} />;
 		default:
 			return <IconBot {...props} />;
 	}

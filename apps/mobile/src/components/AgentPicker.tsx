@@ -11,6 +11,7 @@ function agentIcon(id: AgentRuntimeId): IconName {
 		case "claude-code":
 			return "code-slash";
 		case "codex":
+		case "opencode":
 			return "terminal";
 		default:
 			return "hardware-chip-outline";
@@ -25,6 +26,8 @@ function agentDescription(id: AgentRuntimeId): string {
 			return "电脑上的 Claude Code，使用它自己的登录与配置";
 		case "codex":
 			return "电脑上的 Codex，使用它自己的登录与配置";
+		case "opencode":
+			return "电脑上的 OpenCode，使用它自己的模型与配置";
 		default:
 			return "";
 	}

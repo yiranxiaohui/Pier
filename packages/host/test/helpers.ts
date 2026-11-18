@@ -83,11 +83,11 @@ export async function startTestHost(
 		pierDir: join(root, "pier"),
 		env,
 		localToken: TOKEN,
-		// Only pi unless a test sets up other runtimes (the CLIs may be installed on this machine).
-		agents: { claudeCode: false, codex: false },
 		// A title request would take one of the responses a test sets up for its agent turns.
 		sessionTitles: false,
 		...hostOptions,
+		// Only pi unless a test sets up other runtimes (the CLIs may be installed on this machine).
+		agents: { claudeCode: false, codex: false, opencode: false, ...hostOptions.agents },
 		agentInstaller: {
 			homeDirectory: join(root, "home"),
 			configurePath: async () => {}, // Never change the test runner's shell profiles or Windows registry.

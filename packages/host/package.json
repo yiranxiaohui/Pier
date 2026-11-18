@@ -21,6 +21,7 @@
 		"@earendil-works/pi-codemode": "1.5.2",
 		"@earendil-works/pi-coding-agent": "1.5.2",
 		"@modelcontextprotocol/sdk": "^1.27.1",
+		"@opencode-ai/sdk": "1.19.6",
 		"@pier/client": "workspace:*",
 		"@pier/crypto": "workspace:*",
 		"@pier/protocol": "workspace:*",

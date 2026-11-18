@@ -38,6 +38,7 @@ export function findExecutable(name: string, override?: string, managed?: string
 	const names =
 		process.platform === "win32" ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, `${name}.ps1`, name] : [name];
 	const dirs = [...(process.env.PATH ?? "").split(delimiter).filter(Boolean), ...extraDirectories()];
+	if (name === "opencode") dirs.push(join(homedir(), ".opencode", "bin"));
 	for (const dir of dirs) {
 		for (const candidate of names) {
 			const path = join(dir, candidate);

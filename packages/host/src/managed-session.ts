@@ -470,6 +470,8 @@ export function runtimeName(id: AgentRuntimeId): string {
 			return "Claude Code";
 		case "codex":
 			return "Codex";
+		case "opencode":
+			return "OpenCode";
 		default:
 			return id;
 	}

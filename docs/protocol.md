@@ -201,6 +201,8 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 
 各运行时的差异：
 
+- **OpenCode** 使用运行时 ID `opencode`，由 Host 通过仅监听回环地址的 `opencode serve` 驱动。可用 `PIER_OPENCODE_PATH` 指定 CLI。模型保留 OpenCode 的服务商和模型 ID，`model.list` 读取对应工作区的配置。OpenCode 保存原生会话，`session.list` 只列出当前目录的顶层会话，`session.delete` 使用 OpenCode 原生归档。支持的操作由 `runtime.list` 的 `capabilities` 返回。
+
 - **模型**：`model.list` 按会话（或 `runtime` 参数）的运行时列出模型，`ModelInfo.provider` 为 `claude-code` / `codex`。Claude Code 的模型与斜杠命令来自 CLI（Host 启动一次不发送消息的 CLI 读取，缓存 10 分钟）；Codex 的来自 `model/list`。`model.set` 只接受本运行时的模型，`persist` 被忽略。思考等级对应 Claude Code 的 effort（`off` 关闭思考）与 Codex 的 reasoning effort。
 - **审批**：工作区策略同样适用。Claude Code 自己放行的调用（如只读工具、设置中允许的命令）不再询问；它请求许可时，受策略约束的工具（`bash`、`write`、`edit`）按策略决定，其他工具（`WebFetch`、MCP 工具等）在非 `auto` 策略下询问用户；`AskUserQuestion` 以 `select` 请求逐个提问。Codex 按策略设置审批与沙箱：`ask` → `untrusted` + `workspace-write`，`smart` → `on-request` + `workspace-write`，`auto` → `never` + `danger-full-access`；它请求执行命令、修改文件或更多权限时，按策略决定或询问用户（"本会话内允许"对应 Codex 的 `acceptForSession`）。
 - **会话存储**：Claude Code 会话在 `~/.claude/projects`（或 `CLAUDE_CONFIG_DIR`），Codex 会话由 Codex 管理（`~/.codex/sessions`）。`session.list` 列出 cwd 与工作区路径相同的会话，包括在终端中创建的，都可以在 Pier 中继续。`session.delete` 对 Claude Code 会话同样移到 Pier 回收站；对 Codex 会话调用 Codex 的归档（`thread/archive`，可在 Codex 中恢复）。`messageCount` 为估算值。

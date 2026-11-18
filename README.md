@@ -11,11 +11,11 @@ A cross-device workbench for coding agents.
   <a href="https://github.com/yiranxiaohui/Pier/actions/workflows/ci.yml"><img src="https://github.com/yiranxiaohui/Pier/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
 </p>
 
-Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置的 [pi](https://github.com/earendil-works/pi) 和电脑上安装的 [Claude Code](https://code.claude.com)、[Codex](https://github.com/openai/codex)，统一管理多台电脑上的工作区与会话，并提供文件、Git 和终端操作。Agent 常驻在各自的电脑上运行，你可以从桌面端或手机端查看进度、发送指令和审批操作。
+Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置的 [pi](https://github.com/earendil-works/pi) 和电脑上安装的 [Claude Code](https://code.claude.com)、[Codex](https://github.com/openai/codex)、[OpenCode](https://opencode.ai)，统一管理多台电脑上的工作区与会话，并提供文件、Git 和终端操作。Agent 常驻在各自的电脑上运行，你可以从桌面端或手机端查看进度、发送指令和审批操作。
 
 ## 特性
 
-- **一个界面，三种 Agent**：内置 pi，并驱动电脑上安装的 Claude Code 与 Codex；它们的会话与终端中的 CLI 共用，随时可以用 `claude --resume` / `codex resume` 在终端继续。
+- **一个界面，四种 Agent**：内置 pi，也支持电脑上的 Claude Code、Codex 和 OpenCode。原生 CLI 与 Pier 共用会话，可以用 `claude --resume`、`codex resume` 或 `opencode --session <ID>` 在终端继续。
 - **多台电脑统一管理**：每台电脑都是一个节点。粘贴配对链接，或通过 SSH 登录 Linux 电脑自动安装 Pier 并配对，那台电脑的工作区和会话与本机的一起列在侧边栏中。
 - **手机随时跟进**：原生 App（Expo / React Native）扫码配对后查看进度、发送指令、审批操作，断线自动重连补发。
 - **完整的工作台**：文件浏览、预览与编辑，Git（含工作树）、内置终端、远程浏览器、端口映射、进程管理、定时任务、Skills 与 MCP 管理、语音输入。
@@ -200,7 +200,8 @@ bunx expo run:ios --device
 
 1. **打开 Pier**：Windows 从开始菜单打开，macOS 从 Finder 的应用目录打开，Linux 从应用菜单或 `pier` 打开；Linux 服务器用一键脚本安装后，在终端运行 `pier` 打开 CLI。需要登录后自动运行时，在桌面端「设置 → 常规 → 开机自启」开启。
 2. **准备 Agent**：内置的 pi 在「设置 → 模型与服务商」中登录服务商或填写 API Key；Claude Code / Codex 可以在「设置 → Agent 配置」中一键安装，再按提示登录。
-3. **开始会话**：添加工作区（项目目录），新建会话时在输入框下方选择 pi、Claude Code 或 Codex。
+   使用 OpenCode 时，在运行 Host 的电脑上安装 `opencode` 并配置模型。详见[使用指南](docs/guide.md#opencode)。
+3. **开始会话**：添加工作区（项目目录），新建会话时在输入框下方选择 pi、Claude Code、Codex 或 OpenCode。
 4. **连接手机**：在桌面端「远程主机 → 本机 → 连接管理」开启远程访问并显示配对二维码，在手机 App 中点「添加电脑」扫码。服务器上在 `pier` CLI 中依次输入 `/remote on`、`/pair`，用手机 App 扫描终端中的二维码（也可粘贴配对链接），再输入 `/pair yes` 确认。
 5. **添加其他电脑**：在侧边栏点「添加电脑」，粘贴那台电脑的配对链接，或选择「通过 SSH 添加」自动安装并配对；不在同一网络时配置[中继](docs/guide.md#中继与-p2p-直连)。
 

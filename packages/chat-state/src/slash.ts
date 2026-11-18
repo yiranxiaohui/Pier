@@ -128,6 +128,8 @@ export function agentRuntimeLabel(id: AgentRuntimeId | undefined): string {
 			return "Claude Code";
 		case "codex":
 			return "Codex";
+		case "opencode":
+			return "OpenCode";
 		default:
 			return id;
 	}

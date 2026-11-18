@@ -249,6 +249,8 @@ function agentDescription(id: string): string {
 			return "这台电脑上安装的 Claude Code，使用它自己的登录与配置";
 		case "codex":
 			return "这台电脑上安装的 Codex，使用它自己的登录与配置";
+		case "opencode":
+			return "这台电脑上安装的 OpenCode，使用它自己的模型与配置";
 		default:
 			return "";
 	}

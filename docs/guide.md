@@ -173,6 +173,12 @@ CLI 不在 `PATH` 中时，可以用 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH` 指�
 
 修改对之后新建（或重新打开）的会话生效。Pier 按工作区审批策略设置的项（Claude Code 的默认权限模式，Codex 的审批策略与沙箱）只影响终端中的 CLI。设置其他电脑时这两页修改那台电脑上的文件，那台电脑需要协议 1.23 或更高。
 
+### OpenCode
+
+在工作区所在的电脑安装 OpenCode（例如 `npm install -g opencode-ai`），用 `opencode auth login` 登录服务商或在工作区的 `opencode.json` 配置模型。Pier 会从 `PATH`、常见安装目录和 `~/.opencode/bin` 查找 CLI。自定义安装可以在启动 Host 时设置 `PIER_OPENCODE_PATH` 为可执行文件的绝对路径。
+
+桌面端和手机端新建会话时选择「OpenCode」。Host 通过带身份验证的本地 `opencode serve` 连接工作区，支持切换模型、发送文字和图片、查看流式回复与工具结果、处理审批以及中止当前回合。会话由 OpenCode 保存，可在 Pier 里重新打开，也可以进入同一目录运行 `opencode --session <ID>` 继续。安装和更新使用 OpenCode 自己的发行渠道。
+
 ### Subagent
 
 Agent 把任务委派给 subagent 时，对话中会出现一张 Subagent 卡片：Claude Code 的 `Agent` 工具、Codex 的 sub-agent（`spawn_agent`，需要 Codex 的多 Agent 功能 `multi_agent`，新版 Codex 默认开启）和 pi 的 [pi-subagents](https://github.com/nicobailon/pi-subagents) 扩展都会显示。卡片顶部是主 Agent，下面列出它派出的每个 subagent 的名称、模型与思考程度、状态、运行时长、任务描述、已执行的步骤和正在做的事；连续派出的多个 subagent 合并在一张卡片里。

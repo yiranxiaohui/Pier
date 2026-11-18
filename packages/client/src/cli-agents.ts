@@ -6,7 +6,12 @@
 import type { AgentRuntimeId, AgentRuntimeInfo } from "@pier/protocol";
 
 /** Display names for the built-in runtimes, used until `runtime.list` has been fetched. */
-const KNOWN_NAMES: Record<string, string> = { pi: "pi", "claude-code": "Claude Code", codex: "Codex" };
+const KNOWN_NAMES: Record<string, string> = {
+	pi: "pi",
+	"claude-code": "Claude Code",
+	codex: "Codex",
+	opencode: "OpenCode",
+};
 
 export type CliRuntimeRef = Pick<AgentRuntimeInfo, "id" | "name">;
 

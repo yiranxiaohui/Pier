@@ -55,9 +55,9 @@ export interface AgentRuntime {
 	 */
 	deleteStored?(workspace: WorkspaceInfo, stored: StoredSession): Promise<boolean>;
 	/** Models new sessions can use. */
-	listModels(): Promise<ModelInfo[]>;
+	listModels(cwd?: string): Promise<ModelInfo[]>;
 	/** The model and thinking level a new session in `cwd` starts with. */
-	newSessionDefaults(cwd: string): Promise<{ model?: ModelInfo; thinkingLevel: ThinkingLevel }>;
+	newSessionDefaults(cwd: string, models?: ModelInfo[]): Promise<{ model?: ModelInfo; thinkingLevel: ThinkingLevel }>;
 	/** The runtime's own configuration files changed (1.23): drop what was read from them. */
 	configChanged?(): void;
 	/** A verified native CLI was installed (1.32): refresh cached version and catalogs. */

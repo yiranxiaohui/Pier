@@ -264,7 +264,7 @@ export class SessionPool {
 			if (!active && !entry) return false;
 			file ??= entry?.stored.path;
 		}
-		const key = file ? resolve(file) : undefined;
+		const key = file ? resolve(file) : entry ? `${entry.runtime.id}:${sessionId}` : undefined;
 		if (key && this.deleting.has(key)) throw new PierProtocolError("CONFLICT", "Session is already being deleted");
 		if (key) this.deleting.add(key);
 		try {

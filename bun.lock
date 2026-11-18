@@ -148,6 +148,7 @@
         "@earendil-works/pi-codemode": "1.5.2",
         "@earendil-works/pi-coding-agent": "1.5.2",
         "@modelcontextprotocol/sdk": "^1.27.1",
+        "@opencode-ai/sdk": "1.19.6",
         "@pier/client": "workspace:*",
         "@pier/crypto": "workspace:*",
         "@pier/protocol": "workspace:*",
@@ -577,6 +578,8 @@
     "@noble/curves": ["@noble/curves@2.4.0", "", { "dependencies": { "@noble/hashes": "2.4.0" } }, "sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew=="],
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
+
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.19.6", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-jYV7s+Tlc5jDILOyWFIgISkPlfk7z3ByqeC8/T9aESZBgSZosQR784U2UoM3ZrJ8S0LJ2cB+IA9xZN7Jj8tnhQ=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.151.0", "", {}, "sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA=="],
 
