@@ -97,6 +97,14 @@ export interface Subscription {
 	readonly sessionId: string;
 	/** Last applied seq; used to resume after reconnect. */
 	readonly lastSeq: number;
+	/**
+	 * Subscribe again, for when the session's events stopped although the connection did not drop
+	 * (e.g. a request answers that the session is not open). The host sends what was missed since
+	 * `lastSeq`, or a snapshot, and reopens a session it closed; events already applied are not
+	 * applied twice. Resolves to false when this subscription has ended (the host closed the
+	 * session, or it was unsubscribed).
+	 */
+	resubscribe(): Promise<boolean>;
 	unsubscribe(): Promise<void>;
 }
 
@@ -476,7 +484,7 @@ export class PierClient {
 				await this.requestSubscribe(state);
 			} catch (error) {
 				state.handlers.delete(handler);
-				if (!state.handlers.size) this.subscriptions.delete(state.sessionId);
+				if (!state.handlers.size) this.forget(state);
 				throw error;
 			}
 		}
@@ -487,10 +495,16 @@ export class PierClient {
 			get lastSeq() {
 				return state.lastSeq;
 			},
+			resubscribe: async () => {
+				if (!state.handlers.has(handler) || this.subscriptions.get(state.sessionId) !== state) return false;
+				await this.restore(state);
+				return true;
+			},
 			unsubscribe: async () => {
 				state.handlers.delete(handler);
 				if (state.handlers.size > 0) return;
-				this.subscriptions.delete(state.sessionId);
+				// A subscription the host already ended (`session.closed`) must not end a newer one.
+				if (!this.forget(state)) return;
 				if (this.stateValue === "open") {
 					await this.request("session.unsubscribe", { sessionId: state.sessionId }).catch(() => undefined);
 				}
@@ -510,24 +524,32 @@ export class PierClient {
 		return result;
 	}
 
+	/** Drop a subscription from the map, unless another one took its place. */
+	private forget(sub: SubscriptionState): boolean {
+		if (this.subscriptions.get(sub.sessionId) !== sub) return false;
+		this.subscriptions.delete(sub.sessionId);
+		return true;
+	}
+
+	/** Subscribe again on the current connection, reopening the session when the host no longer has it. */
+	private async restore(sub: SubscriptionState): Promise<void> {
+		try {
+			await this.requestSubscribe(sub);
+		} catch (error) {
+			if (!(error instanceof PierProtocolError && error.code === "NOT_FOUND" && sub.workspaceId)) throw error;
+			// The host restarted or evicted the session: reopen it, then start from a snapshot.
+			await this.request("session.open", { workspaceId: sub.workspaceId, sessionId: sub.sessionId });
+			sub.epoch = undefined;
+			sub.lastSeq = 0;
+			await this.requestSubscribe(sub);
+		}
+	}
+
 	private async resubscribeAll(): Promise<void> {
 		for (const sub of [...this.subscriptions.values()]) {
 			try {
-				await this.requestSubscribe(sub);
+				await this.restore(sub);
 			} catch (error) {
-				if (error instanceof PierProtocolError && error.code === "NOT_FOUND" && sub.workspaceId) {
-					// The host restarted or evicted the session: reopen it, then start from a snapshot.
-					try {
-						await this.request("session.open", { workspaceId: sub.workspaceId, sessionId: sub.sessionId });
-						sub.epoch = undefined;
-						sub.lastSeq = 0;
-						await this.requestSubscribe(sub);
-						continue;
-					} catch (reopenError) {
-						this.errorEmitter.emit(reopenError instanceof Error ? reopenError : new Error(String(reopenError)));
-						continue;
-					}
-				}
 				this.errorEmitter.emit(error instanceof Error ? error : new Error(String(error)));
 			}
 		}

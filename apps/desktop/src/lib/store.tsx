@@ -235,6 +235,10 @@ export interface HostStatsEntry {
 
 /** Subscriptions kept alive for recently viewed sessions (so approvals elsewhere stay visible). */
 const MAX_LIVE_CHATS = 8;
+/** How long a live chat may disagree with its host's session list before it follows the session again. */
+const CHAT_CHECK_DELAY_MS = 3000;
+/** Minimum time between two such attempts for one chat. */
+const CHAT_RECOVER_INTERVAL_MS = 30_000;
 
 export interface Toast {
 	id: number;
@@ -565,6 +569,9 @@ export class PierStore {
 	private readonly chats = new Map<string, ChatController>();
 	/** The computer each live chat runs on. */
 	private readonly chatNodes = new WeakMap<ChatController, string>();
+	/** Pending checks of live chats that disagreed with their host's session list. */
+	private readonly chatChecks = new Map<ChatController, ReturnType<typeof setTimeout>>();
+	private readonly chatRecoveredAt = new WeakMap<ChatController, number>();
 	private recent: string[] = [];
 	private readonly drafts = new Map<string, Draft>();
 	/** Sessions created from the new-chat screen whose draft is sent as soon as they load. */
@@ -1186,6 +1193,7 @@ export class PierStore {
 						),
 					},
 				}));
+				this.checkChats(workspaceId, sessionId);
 			} else {
 				this.scheduleRefresh(workspaceId);
 			}
@@ -1892,6 +1900,7 @@ export class PierStore {
 			const { sessions } = await client.request("session.list", { workspaceId });
 			if (!current()) return;
 			this.set((s) => ({ sessions: { ...s.sessions, [workspaceId]: sessions } }));
+			this.checkChats(workspaceId);
 		} catch (error) {
 			if (!current()) return;
 			if (error instanceof PierProtocolError && error.code === "NOT_FOUND") {
@@ -2888,6 +2897,39 @@ export class PierStore {
 		return this.chats.get(sessionId);
 	}
 
+	/** Whether a live chat disagrees with what its host lists for the session. */
+	private chatOutOfSync(chat: ChatController): boolean {
+		const state = chat.chat;
+		if (!state.loaded || state.closed) return false;
+		const node = this.chatNodes.get(chat);
+		if (node === undefined || this.state.nodes[node]?.connection !== "open") return false;
+		const listed = this.state.sessions[chat.workspaceId]?.find((s) => s.id === chat.sessionId);
+		return listed !== undefined && (!listed.active || listed.state !== state.runState);
+	}
+
+	/**
+	 * Live chats follow their sessions' events, so they agree with the host's session list (which
+	 * `session.activity` keeps current). One that still disagrees a moment later missed events: it
+	 * may show a run as going on although the host finished it, and even closed the idle session
+	 * since, so stopping it fails. It follows the session again, which brings the view (and the
+	 * sidebar's running badge) up to date and reopens a session the host closed.
+	 */
+	private checkChats(workspaceId: string, sessionId?: string): void {
+		for (const chat of this.chats.values()) {
+			if (chat.workspaceId !== workspaceId || (sessionId !== undefined && chat.sessionId !== sessionId)) continue;
+			if (this.chatChecks.has(chat) || !this.chatOutOfSync(chat)) continue;
+			const timer = setTimeout(() => {
+				this.chatChecks.delete(chat);
+				if (this.chats.get(chat.sessionId) !== chat || !this.chatOutOfSync(chat)) return;
+				const now = Date.now();
+				if (now - (this.chatRecoveredAt.get(chat) ?? 0) < CHAT_RECOVER_INTERVAL_MS) return;
+				this.chatRecoveredAt.set(chat, now);
+				void chat.recover().then(() => this.scheduleRefresh(workspaceId));
+			}, CHAT_CHECK_DELAY_MS);
+			this.chatChecks.set(chat, timer);
+		}
+	}
+
 	private touch(sessionId: string): void {
 		this.recent = [sessionId, ...this.recent.filter((id) => id !== sessionId)];
 		if (this.recent.length <= MAX_LIVE_CHATS) return;
@@ -2900,7 +2942,12 @@ export class PierStore {
 	}
 
 	private dropChat(sessionId: string): void {
-		this.chats.get(sessionId)?.dispose();
+		const chat = this.chats.get(sessionId);
+		if (chat) {
+			clearTimeout(this.chatChecks.get(chat));
+			this.chatChecks.delete(chat);
+			chat.dispose();
+		}
 		this.chats.delete(sessionId);
 		this.recent = this.recent.filter((id) => id !== sessionId);
 	}

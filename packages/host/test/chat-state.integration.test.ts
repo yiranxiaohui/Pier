@@ -208,6 +208,104 @@ describe("chat-state against a live host", () => {
 		expect(chat.chat.messages).toEqual(cached.messages);
 		chat.dispose();
 	});
+
+	it("keeps a newer subscription when an ended one is unsubscribed late", async () => {
+		t.faux.setResponses([fauxAssistantMessage("saved"), fauxAssistantMessage("after reopening")]);
+		const { session } = await client.request("session.create", { workspaceId: workspace.id });
+		const first = new Recorder();
+		const old = await client.subscribe(session.id, first.handler, { workspaceId: workspace.id });
+		await client.request("session.prompt", { sessionId: session.id, text: "save it" });
+		await first.waitForType("agent_settled");
+		await client.request("session.close", { sessionId: session.id });
+		await first.waitForType("session.closed");
+
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: session.id });
+		const second = new Recorder();
+		await client.subscribe(session.id, second.handler, { workspaceId: workspace.id });
+		await second.waitForType("session.snapshot");
+		await old.unsubscribe();
+		const from = second.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "still there?" });
+		await second.waitForType("agent_settled");
+		expect(second.text(from)).toBe("after reopening");
+	});
+
+	/** A controller whose subscription the host dropped while the client still counts on it. */
+	async function silencedChat(errors: string[] = []) {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id });
+		const chat = new ChatController(client, session, { ...hooks(), onError: (m) => errors.push(m) });
+		await chat.start();
+		await until(() => chat.chat.loaded);
+		return {
+			session,
+			chat,
+			silence: () => client.request("session.unsubscribe", { sessionId: session.id }),
+		};
+	}
+
+	it("catches up with the events it missed when it follows the session again", async () => {
+		const { session, chat, silence } = await silencedChat();
+		await silence();
+		t.faux.setResponses([fauxAssistantMessage("answer nobody saw")]);
+		const driver = await t.connect();
+		await driver.request("session.prompt", { sessionId: session.id, text: "hello" });
+		await until(
+			async () => (await driver.request("session.snapshot", { sessionId: session.id })).session.state === "idle",
+		);
+		expect(chat.chat.messages).toHaveLength(0);
+
+		expect(await chat.recover()).toBe(true);
+		const snapshot = await driver.request("session.snapshot", { sessionId: session.id });
+		await until(() => chat.chat.seq === snapshot.seq);
+		expect(chat.chat.messages).toEqual(snapshot.messages);
+		expect(chat.chat.runState).toBe("idle");
+		chat.dispose();
+	});
+
+	it("stops a run the host already finished and closed without reporting an error", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		t.faux.setResponses([
+			async () => {
+				await gate;
+				return fauxAssistantMessage("finished unseen");
+			},
+			fauxAssistantMessage("second answer"),
+		]);
+		const errors: string[] = [];
+		const { session, chat, silence } = await silencedChat(errors);
+		await client.request("session.prompt", { sessionId: session.id, text: "wait" });
+		await until(() => chat.chat.runState === "streaming");
+		await silence();
+		release();
+		// The run ends and the host closes the idle session; the controller sees neither.
+		const driver = await t.connect();
+		await until(
+			async () => (await driver.request("session.snapshot", { sessionId: session.id })).session.state === "idle",
+		);
+		expect(await driver.request("session.close", { sessionId: session.id })).toEqual({ closed: true });
+		expect(chat.chat.runState).toBe("streaming");
+
+		await chat.abort();
+		expect(errors).toEqual([]);
+		const reopened = await driver.request("session.snapshot", { sessionId: session.id });
+		await until(() => chat.chat.seq === reopened.seq && chat.chat.runState === "idle");
+		expect(chat.chat.messages).toEqual(reopened.messages);
+		expect(chat.chat.messages.at(-1)).toMatchObject({ role: "assistant" });
+		expect(chat.chat.closed).toBeUndefined();
+
+		// The session is followed again: the next message runs and streams to the controller.
+		await silence();
+		await driver.request("session.close", { sessionId: session.id });
+		const before = chat.chat.messages.length;
+		await chat.send("again", [], "followUp");
+		expect(errors).toEqual([]);
+		await until(() => chat.chat.messages.length === before + 2 && chat.chat.runState === "idle");
+		expect(chat.chat.messages.at(-1)).toMatchObject({ content: [{ type: "text", text: "second answer" }] });
+		chat.dispose();
+	});
 });
 
 function hooks(): ChatHooks {

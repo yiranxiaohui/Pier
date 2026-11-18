@@ -34,6 +34,15 @@ function message(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** The host's answer for a session it does not have open (closed, evicted, or the host restarted). */
+function sessionNotOpen(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		(error as { code?: unknown }).code === "NOT_FOUND" &&
+		/^Session \S+ is not open$/.test(error.message)
+	);
+}
+
 /** One subscribed session: its reduced state plus the actions the UI can take on it. */
 export class ChatController {
 	private view: ChatView;
@@ -43,6 +52,8 @@ export class ChatController {
 	private hostCommands: SessionCommandInfo[] = [];
 	private commandsKnown = false;
 	private commandsLoading: Promise<CommandList> | undefined;
+	private starting: Promise<void> | undefined;
+	private recovering: Promise<boolean> | undefined;
 	readonly workspaceId: string;
 
 	constructor(
@@ -80,7 +91,18 @@ export class ChatController {
 		this.hooks.onChange(this);
 	}
 
-	async start(): Promise<void> {
+	/** Open the session on the host and follow its events (once; again only after it failed). */
+	start(): Promise<void> {
+		if (!this.starting) {
+			const starting = this.follow().finally(() => {
+				if (!this.sub && this.starting === starting) this.starting = undefined;
+			});
+			this.starting = starting;
+		}
+		return this.starting;
+	}
+
+	private async follow(): Promise<void> {
 		try {
 			// Load the session into the host's active pool (no-op when it is already there).
 			await this.client.request("session.open", { workspaceId: this.workspaceId, sessionId: this.sessionId });
@@ -123,15 +145,68 @@ export class ChatController {
 			const snapshot = await this.client.request("session.snapshot", { sessionId: this.sessionId });
 			this.update({ ...this.view, chat: applySnapshot(this.view.chat, snapshot) });
 		} catch (error) {
-			this.hooks.onError(`刷新会话失败：${message(error)}`);
+			if (sessionNotOpen(error)) void this.recover();
+			else this.hooks.onError(`刷新会话失败：${message(error)}`);
 		}
 	}
 
-	private async run<T>(action: string, fn: () => Promise<T>): Promise<T | undefined> {
+	/**
+	 * Follow the session again, for when its events stopped although the connection stayed up:
+	 * the view may then still show a run that already ended, which the host may even have closed
+	 * since. The host resends what this view missed (or a snapshot) and reopens a session it
+	 * closed. Resolves to whether that worked; never rejects.
+	 */
+	recover(): Promise<boolean> {
+		if (this.disposed) return Promise.resolve(false);
+		if (!this.recovering) {
+			this.recovering = this.refollow().finally(() => {
+				this.recovering = undefined;
+			});
+		}
+		return this.recovering;
+	}
+
+	private async refollow(): Promise<boolean> {
+		try {
+			const sub = this.sub;
+			if (sub && (await sub.resubscribe())) return true;
+			if (this.disposed) return false;
+			// Not following the session (yet, or no longer since the host closed it): start over.
+			if (sub && this.sub === sub) {
+				this.sub = undefined;
+				this.starting = undefined;
+				void sub.unsubscribe();
+			}
+			await this.start();
+			return this.sub !== undefined;
+		} catch (error) {
+			this.update({ ...this.view, error: message(error) });
+			return false;
+		}
+	}
+
+	/**
+	 * Run an action on the session and report a failure. When the host answers that the session is
+	 * not open, this view missed the end of it: follow it again and `retry` once (the host reopened
+	 * the session, so it is idle now).
+	 */
+	private async run<T>(
+		action: string,
+		fn: () => Promise<T>,
+		retry: (() => Promise<T>) | null = fn,
+	): Promise<T | undefined> {
 		try {
 			return await fn();
 		} catch (error) {
-			this.hooks.onError(`${action}失败：${message(error)}`);
+			let failure = error;
+			if (sessionNotOpen(error) && (await this.recover()) && retry) {
+				try {
+					return await retry();
+				} catch (retryError) {
+					failure = retryError;
+				}
+			}
+			this.hooks.onError(`${action}失败：${message(failure)}`);
 			return undefined;
 		}
 	}
@@ -141,13 +216,21 @@ export class ChatController {
 		const sessionId = this.sessionId;
 		const idle = this.chat.runState === "idle" || this.chat.runState === "inactive";
 		const imageParam = images.length ? { images } : {};
-		if (mode === "auto" && idle) {
-			return this.run("发送", () => this.client.request("session.prompt", { sessionId, text, ...imageParam }));
-		}
+		// A session the host had closed reopens idle, so a retried message starts a run.
+		const prompt = () => this.client.request("session.prompt", { sessionId, text, ...imageParam });
+		if (mode === "auto" && idle) return this.run("发送", prompt);
 		if (mode === "followUp") {
-			return this.run("排队", () => this.client.request("session.followUp", { sessionId, text, ...imageParam }));
+			return this.run<unknown>(
+				"排队",
+				() => this.client.request("session.followUp", { sessionId, text, ...imageParam }),
+				prompt,
+			);
 		}
-		return this.run("引导", () => this.client.request("session.steer", { sessionId, text, ...imageParam }));
+		return this.run<unknown>(
+			"引导",
+			() => this.client.request("session.steer", { sessionId, text, ...imageParam }),
+			prompt,
+		);
 	}
 
 	/**
@@ -160,14 +243,15 @@ export class ChatController {
 		const idle = this.chat.runState === "idle" || this.chat.runState === "inactive";
 		const streamingBehavior =
 			idle && mode === "auto" ? {} : ({ streamingBehavior: mode === "followUp" ? "followUp" : "steer" } as const);
-		return this.run("发送命令", () =>
+		const prompt = (behavior: { streamingBehavior?: "steer" | "followUp" }) => () =>
 			this.client.request("session.prompt", {
 				sessionId,
 				text,
 				...(images.length ? { images } : {}),
-				...streamingBehavior,
-			}),
-		);
+				...behavior,
+			});
+		// A session the host had closed reopens idle: retry without a streaming behavior.
+		return this.run("发送命令", prompt(streamingBehavior), prompt({}));
 	}
 
 	/** Last known slash commands (built-ins until `loadCommands` finished). */
@@ -215,6 +299,7 @@ export class ChatController {
 		});
 	}
 
+	/** Stop the run. A session the host had already closed is reopened (idle), so nothing is left running. */
 	abort(): Promise<unknown> {
 		return this.run("中止", () => this.client.request("session.abort", { sessionId: this.sessionId }));
 	}
@@ -230,8 +315,11 @@ export class ChatController {
 	}
 
 	respond(requestId: string, response: UiResponse): Promise<unknown> {
-		return this.run("回复", () =>
-			this.client.request("ui.respond", { sessionId: this.sessionId, requestId, response }),
+		// A reopened session no longer has the request: nothing to retry.
+		return this.run(
+			"回复",
+			() => this.client.request("ui.respond", { sessionId: this.sessionId, requestId, response }),
+			null,
 		);
 	}
 
@@ -278,11 +366,15 @@ export class ChatController {
 
 	/** Stop one running subagent, or all of them without `subagentId` (1.54). */
 	stopSubagent(subagentId?: string): Promise<unknown> {
-		return this.run("停止 Subagent", () =>
-			this.client.request("session.subagentStop", {
-				sessionId: this.sessionId,
-				...(subagentId !== undefined ? { subagentId } : {}),
-			}),
+		// A reopened session runs no subagents: nothing to retry.
+		return this.run(
+			"停止 Subagent",
+			() =>
+				this.client.request("session.subagentStop", {
+					sessionId: this.sessionId,
+					...(subagentId !== undefined ? { subagentId } : {}),
+				}),
+			null,
 		);
 	}
 
