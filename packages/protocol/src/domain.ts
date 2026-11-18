@@ -509,6 +509,13 @@ export interface ModelInfo {
 export interface SessionContextInfo {
 	/** Model context window, when the runtime knows it. */
 	contextWindow?: number;
+	/**
+	 * Tokens in the context after the latest model request, when the runtime reports them apart
+	 * from the usage of replies (1.58). Codex reports them after every request, including the ones
+	 * in the middle of a turn, and again when a session is reopened. Clients prefer this to the
+	 * usage of the last reply.
+	 */
+	contextTokens?: number;
 	/** Whether the automatic compaction policy is configured here or by the runtime. */
 	autoCompaction: "configured" | "disabled" | "runtime";
 	/** Context size at which the configured automatic compaction starts. */

@@ -13,6 +13,7 @@ import {
 	resolveSlash,
 	runBuiltin,
 	type SlashActions,
+	sessionUsage,
 	subagentList,
 	waitingForModelLabel,
 } from "@pier/chat-state";
@@ -180,7 +181,49 @@ describe("Codex runtime", () => {
 		await client.request("session.prompt", { sessionId: session.id, text: "hello" });
 		await rec.waitForType("agent_settled");
 		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
-		expect(snapshot.contextInfo).toMatchObject({ autoCompaction: "runtime", contextWindow: 100_000 });
+		expect(snapshot.contextInfo).toEqual({ autoCompaction: "runtime", contextWindow: 100_000, contextTokens: 30 });
+	});
+
+	it("reports the context size of every model request while the turn runs", async () => {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const { rec, state } = await open(session);
+		await client.request("session.prompt", { sessionId: session.id, text: "usage then reply" });
+		// The request that called the tool: 1200 input tokens (1000 cache reads, 150 cache writes) and 34 output.
+		await rec.waitFor(
+			(f) =>
+				f.event.type === "session.model" &&
+				(f.event.contextInfo as { contextTokens?: number } | undefined)?.contextTokens === 1234,
+		);
+		expect(state().runState).toBe("streaming");
+		expect(state().messages.some((m) => (m as { usage?: { totalTokens?: number } }).usage?.totalTokens)).toBe(false);
+		expect(sessionUsage(state()).lastContext).toBe(1234);
+		await rec.waitForType("agent_settled");
+		expect(sessionUsage(state()).lastContext).toBe(30);
+		const reply = state().messages.at(-1) as { usage?: Record<string, number> };
+		expect(reply.usage).toMatchObject({ input: 15, cacheRead: 5, cacheWrite: 0, output: 10, totalTokens: 30 });
+	});
+
+	it("restores the context size when a session is reopened or forked", async () => {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const { rec } = await open(session);
+		await client.request("session.prompt", { sessionId: session.id, text: "hello" });
+		await rec.waitForType("agent_settled");
+		await client.request("session.close", { sessionId: session.id });
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: session.id });
+		const reopened = await client.request("session.snapshot", { sessionId: session.id });
+		// The history Codex returns carries no usage; the size comes from the usage Codex replays.
+		expect(reopened.messages.some((m) => (m as { usage?: unknown }).usage)).toBe(false);
+		expect(reopened.contextInfo).toMatchObject({ contextWindow: 100_000, contextTokens: 30 });
+		expect(sessionUsage(applySnapshot(initialChatState(session.id, session), reopened)).lastContext).toBe(30);
+
+		const { points } = await client.request("session.forkPoints", { sessionId: session.id });
+		const forked = await client.request("session.fork", {
+			sessionId: session.id,
+			entryId: points[0]?.entryId ?? "",
+			position: "at",
+		});
+		const fork = await client.request("session.snapshot", { sessionId: forked.session.id });
+		expect(fork.contextInfo).toMatchObject({ contextTokens: 30 });
 	});
 
 	it("preserves Ultra in the model catalog and sends it as the native turn effort", async () => {

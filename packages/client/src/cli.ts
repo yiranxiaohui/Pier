@@ -979,6 +979,7 @@ class Cli {
 				this.thinkingLevel = String(event.thinkingLevel);
 				const info = event.contextInfo as SessionSnapshot["contextInfo"];
 				this.contextWindow = info?.contextWindow ?? this.model?.contextWindow;
+				if (info?.contextTokens) this.contextUsed = info.contextTokens;
 				this.emit([]);
 				break;
 			}
@@ -1028,6 +1029,8 @@ class Cli {
 				break;
 			}
 		}
+		// Codex reports the context size apart from replies (1.58), also for a reopened session.
+		if (snapshot.contextInfo?.contextTokens) this.contextUsed = snapshot.contextInfo.contextTokens;
 		// Tool calls still running stay in the live area rather than the history.
 		const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
 		for (const id of snapshot.pendingToolCalls) {
@@ -1646,6 +1649,7 @@ class Cli {
 				this.model = snapshot.model;
 				this.thinkingLevel = snapshot.thinkingLevel;
 				this.contextWindow = snapshot.contextInfo?.contextWindow ?? snapshot.model?.contextWindow;
+				if (snapshot.contextInfo?.contextTokens) this.contextUsed = snapshot.contextInfo.contextTokens;
 				const percent = this.contextPercent();
 				const context =
 					percent === undefined

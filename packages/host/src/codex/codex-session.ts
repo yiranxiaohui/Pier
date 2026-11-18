@@ -25,6 +25,7 @@ import {
 	LiveTranscript,
 	type TextPart,
 	type TranscriptMessage,
+	type Usage,
 	type UserMessage,
 	usageFrom,
 	userContentText,
@@ -84,6 +85,8 @@ export interface CodexThreadStart {
 	messages?: TranscriptMessage[];
 	/** Sub-agents of a stored thread. */
 	subagents?: SubagentInfo[];
+	/** Token usage Codex replayed for a resumed or forked thread (`ThreadTokenUsage`). */
+	tokenUsage?: Json;
 }
 
 /** A sub-agent thread the session's agent started. */
@@ -122,6 +125,29 @@ function userContent(text: string, images: ImageInput[] | undefined): UserMessag
 	return parts;
 }
 
+/** A token count Codex reported, or 0. */
+function tokenCount(value: unknown): number {
+	const count = Number(value ?? 0);
+	return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+/** A Codex `TokenUsageBreakdown` as Pier usage: cache reads and writes are part of its `inputTokens`. */
+function codexUsage(breakdown: Json): Usage {
+	const cacheRead = tokenCount(breakdown.cachedInputTokens);
+	const cacheWrite = tokenCount(breakdown.cacheWriteInputTokens);
+	return usageFrom({
+		input: Math.max(0, tokenCount(breakdown.inputTokens) - cacheRead - cacheWrite),
+		output: tokenCount(breakdown.outputTokens),
+		cacheRead,
+		cacheWrite,
+	});
+}
+
+/** Tokens in the context after the request a `TokenUsageBreakdown` describes, as pi counts them. */
+function contextTokensOf(breakdown: Json): number {
+	return codexUsage(breakdown).totalTokens || tokenCount(breakdown.totalTokens);
+}
+
 /** A Codex thread driven through `codex app-server`. */
 export class CodexSession extends ManagedSession {
 	readonly runtimeId = "codex";
@@ -148,9 +174,12 @@ export class CodexSession extends ManagedSession {
 	private retrying = false;
 	private compacting = false;
 	private compactWaiters: Array<() => void> = [];
+	/** Usage of the latest model request of the running turn, for the reply that ends it. */
 	private lastUsage: Json | undefined;
 	/** Reported by Codex after the first turn; model/list does not always include it. */
 	private contextWindow: number | undefined;
+	/** Tokens in the context after the latest model request, as Codex reported them. */
+	private contextTokens: number | undefined;
 	private offNotifications: (() => void) | undefined;
 	private offExit: (() => void) | undefined;
 	private unregister: (() => void) | undefined;
@@ -185,6 +214,7 @@ export class CodexSession extends ManagedSession {
 		if (start.messages) this.transcript.load(start.messages);
 		this.subagents.provider = CODEX_PROVIDER;
 		if (start.subagents) this.subagents.load(start.subagents);
+		if (start.tokenUsage) this.recordTokenUsage(start.tokenUsage);
 	}
 
 	static start(options: ManagedSessionOptions, host: CodexSessionHost, start: CodexThreadStart): CodexSession {
@@ -227,7 +257,39 @@ export class CodexSession extends ManagedSession {
 		return {
 			autoCompaction: "runtime",
 			...(contextWindow ? { contextWindow } : {}),
+			...(this.contextTokens ? { contextTokens: this.contextTokens } : {}),
 		};
+	}
+
+	/**
+	 * Record a `ThreadTokenUsage` report; returns whether the context window or size changed. Codex
+	 * sends one after every model request (also in the middle of a turn, between tool calls) and
+	 * replays the latest one when a thread is resumed or forked, so the context size is known right
+	 * away instead of only with the reply that ends a turn.
+	 */
+	private recordTokenUsage(usage: Json): boolean {
+		const last = (usage.last ?? usage.total) as Json | undefined;
+		// A replay while idle belongs to an earlier turn, not to the reply of the next one.
+		if (this.running) this.lastUsage = last;
+		const reported = Number(usage.modelContextWindow);
+		const contextWindow = Number.isSafeInteger(reported) && reported > 0 ? reported : this.contextWindow;
+		const contextTokens = (last && contextTokensOf(last)) || this.contextTokens;
+		if (contextWindow === this.contextWindow && contextTokens === this.contextTokens) return false;
+		this.contextWindow = contextWindow;
+		this.contextTokens = contextTokens;
+		return true;
+	}
+
+	/** A token usage report from the app server: clients learn the new context size at once. */
+	private applyTokenUsage(usage: Json): void {
+		if (!this.recordTokenUsage(usage)) return;
+		const model = this.currentModel();
+		this.emit({
+			type: "session.model",
+			...(model ? { model } : {}),
+			contextInfo: this.contextInfo(model),
+			thinkingLevel: this.thinkingLevel,
+		});
 	}
 
 	// ---------------------------------------------------------------- app-server events
@@ -379,22 +441,9 @@ export class CodexSession extends ManagedSession {
 				this.finishTurn(failure);
 				return;
 			}
-			case "thread/tokenUsage/updated": {
-				const usage = (params.tokenUsage ?? {}) as Json;
-				this.lastUsage = (usage.last ?? usage.total) as Json | undefined;
-				const contextWindow = Number(usage.modelContextWindow);
-				if (Number.isSafeInteger(contextWindow) && contextWindow > 0 && contextWindow !== this.contextWindow) {
-					this.contextWindow = contextWindow;
-					const model = this.currentModel();
-					this.emit({
-						type: "session.model",
-						...(model ? { model } : {}),
-						contextInfo: this.contextInfo(model),
-						thinkingLevel: this.thinkingLevel,
-					});
-				}
+			case "thread/tokenUsage/updated":
+				this.applyTokenUsage((params.tokenUsage ?? {}) as Json);
 				return;
-			}
 			case "thread/name/updated": {
 				const name = typeof params.threadName === "string" ? params.threadName : undefined;
 				if (name && name !== this.name) {
@@ -818,17 +867,7 @@ export class CodexSession extends ManagedSession {
 	private finishTurn(failure?: string): void {
 		const t = this.transcript;
 		const usage = this.lastUsage;
-		if (usage && t.streaming) {
-			const input = Number(usage.inputTokens ?? 0);
-			const cached = Number(usage.cachedInputTokens ?? 0);
-			t.setUsage(
-				usageFrom({
-					input: Math.max(0, input - cached),
-					output: Number(usage.outputTokens ?? 0),
-					cacheRead: cached,
-				}),
-			);
-		}
+		if (usage && t.streaming) t.setUsage(codexUsage(usage));
 		this.lastUsage = undefined;
 		this.pendingError = undefined;
 		if (this.retrying) {

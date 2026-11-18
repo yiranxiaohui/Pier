@@ -575,6 +575,29 @@ describe("helpers", () => {
 		expect(sessionUsage(loaded()).cacheHitRate).toBeUndefined();
 	});
 
+	it("prefers the context size the runtime reports to the usage of the last reply", () => {
+		const reply = {
+			role: "assistant",
+			content: [{ type: "text", text: "ok" }],
+			usage: { input: 90, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 100 },
+			timestamp: 1,
+		};
+		let state = loaded({ messages: [reply] as SessionSnapshot["messages"] });
+		expect(sessionUsage(state).lastContext).toBe(100);
+		// Codex reports each model request of a running turn, before any reply carries usage.
+		state = run(state, [
+			{
+				type: "session.model",
+				contextInfo: { autoCompaction: "runtime", contextWindow: 1000, contextTokens: 250 },
+				thinkingLevel: "medium",
+			},
+		]);
+		expect(sessionUsage(state)).toMatchObject({ input: 90, output: 10, lastContext: 250 });
+		expect(sessionUsage(loaded({ contextInfo: { autoCompaction: "runtime", contextTokens: 40 } })).lastContext).toBe(
+			40,
+		);
+	});
+
 	it("extracts edit replacements", () => {
 		expect(editReplacements({ path: "a", edits: [{ oldText: "x", newText: "y" }] })).toEqual([
 			{ oldText: "x", newText: "y" },

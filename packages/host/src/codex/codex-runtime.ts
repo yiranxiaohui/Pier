@@ -263,27 +263,49 @@ export class CodexRuntime implements AgentRuntime {
 		return turns;
 	}
 
+	/**
+	 * Keep the token usage Codex reports per thread until `stop()`. Codex replays a thread's latest
+	 * usage right after answering `thread/resume` or `thread/fork`, before the Pier session that
+	 * would listen for it exists.
+	 */
+	private captureTokenUsage(): { of: (threadId: string) => Json | undefined; stop: () => void } {
+		const reports = new Map<string, Json>();
+		const stop = this.server().onNotification((method, params) => {
+			if (method !== "thread/tokenUsage/updated" || typeof params.threadId !== "string") return;
+			const usage = params.tokenUsage;
+			if (usage && typeof usage === "object") reports.set(params.threadId, usage as Json);
+		});
+		return { of: (threadId) => reports.get(threadId), stop };
+	}
+
 	async open(options: ManagedSessionOptions, stored: StoredSession): Promise<ManagedSession> {
 		await this.listModels().catch(() => []);
 		const workspace = options.workspace();
 		const policy = codexPolicy(workspace.policy);
-		const response = await this.server().request<Json>("thread/resume", {
-			threadId: stored.id,
-			cwd: workspace.path,
-			approvalPolicy: policy.approvalPolicy,
-			sandbox: policy.sandbox,
-			excludeTurns: true,
-		});
-		const thread = (response.thread ?? {}) as Json;
-		const turns = await this.readTurns(stored.id);
-		return CodexSession.start(options, this.sessionHost(), {
-			thread: { ...thread, name: thread.name ?? stored.name },
-			...(typeof response.model === "string" ? { model: response.model } : {}),
-			effort: (response.reasoningEffort as string | null | undefined) ?? null,
-			serviceTier: response.serviceTier as string | null | undefined,
-			messages: convertTurns(turns),
-			subagents: storedSubagents(turns),
-		});
+		const usage = this.captureTokenUsage();
+		try {
+			const response = await this.server().request<Json>("thread/resume", {
+				threadId: stored.id,
+				cwd: workspace.path,
+				approvalPolicy: policy.approvalPolicy,
+				sandbox: policy.sandbox,
+				excludeTurns: true,
+			});
+			const thread = (response.thread ?? {}) as Json;
+			const turns = await this.readTurns(stored.id);
+			const tokenUsage = usage.of(stored.id);
+			return CodexSession.start(options, this.sessionHost(), {
+				thread: { ...thread, name: thread.name ?? stored.name },
+				...(typeof response.model === "string" ? { model: response.model } : {}),
+				effort: (response.reasoningEffort as string | null | undefined) ?? null,
+				serviceTier: response.serviceTier as string | null | undefined,
+				messages: convertTurns(turns),
+				subagents: storedSubagents(turns),
+				...(tokenUsage ? { tokenUsage } : {}),
+			});
+		} finally {
+			usage.stop();
+		}
 	}
 
 	async fork(
@@ -305,24 +327,32 @@ export class CodexRuntime implements AgentRuntime {
 		}
 		const workspace = options.workspace();
 		const policy = codexPolicy(workspace.policy);
-		const response = await this.server().request<Json>("thread/fork", {
-			threadId: source.id,
-			lastTurnId,
-			cwd: workspace.path,
-			approvalPolicy: policy.approvalPolicy,
-			sandbox: policy.sandbox,
-			excludeTurns: true,
-		});
-		const thread = (response.thread ?? {}) as Json;
-		const turns = await this.readTurns(String(thread.id));
-		const session = CodexSession.start(options, this.sessionHost(), {
-			thread,
-			...(typeof response.model === "string" ? { model: response.model } : {}),
-			effort: (response.reasoningEffort as string | null | undefined) ?? null,
-			serviceTier: response.serviceTier as string | null | undefined,
-			messages: convertTurns(turns),
-			subagents: storedSubagents(turns),
-		});
+		const usage = this.captureTokenUsage();
+		let session: CodexSession;
+		try {
+			const response = await this.server().request<Json>("thread/fork", {
+				threadId: source.id,
+				lastTurnId,
+				cwd: workspace.path,
+				approvalPolicy: policy.approvalPolicy,
+				sandbox: policy.sandbox,
+				excludeTurns: true,
+			});
+			const thread = (response.thread ?? {}) as Json;
+			const turns = await this.readTurns(String(thread.id));
+			const tokenUsage = usage.of(String(thread.id));
+			session = CodexSession.start(options, this.sessionHost(), {
+				thread,
+				...(typeof response.model === "string" ? { model: response.model } : {}),
+				effort: (response.reasoningEffort as string | null | undefined) ?? null,
+				serviceTier: response.serviceTier as string | null | undefined,
+				messages: convertTurns(turns),
+				subagents: storedSubagents(turns),
+				...(tokenUsage ? { tokenUsage } : {}),
+			});
+		} finally {
+			usage.stop();
+		}
 		return position === "before" ? { session, selectedText: point.text } : { session };
 	}
 

@@ -24,8 +24,20 @@ function ask(method, params) {
 }
 
 function threadView(thread, withTurns = false) {
-	const { turns, archived, ...rest } = thread;
+	const { turns, archived, tokenUsage, ...rest } = thread;
 	return { ...rest, turns: withTurns ? turns : [] };
+}
+
+/** Notifications to send right after the response to the current request. */
+let afterResponse = [];
+
+/** Like Codex, replay a thread's latest token usage right after answering resume or fork. */
+function replayTokenUsage(thread) {
+	const turnId = thread.turns.at(-1)?.id;
+	if (!thread.tokenUsage || !turnId) return;
+	afterResponse.push(() =>
+		notify("thread/tokenUsage/updated", { threadId: thread.id, turnId, tokenUsage: thread.tokenUsage }),
+	);
 }
 
 function newThread(cwd, extra = {}) {
@@ -269,6 +281,45 @@ async function runTurn(thread, turn, text) {
 			complete({ ...item, status: "declined" });
 		}
 	}
+	if (text.includes("usage")) {
+		// A model request in the middle of the turn: a tool call, then the request's token usage.
+		const item = {
+			type: "commandExecution",
+			id: id("cmd"),
+			command: "ls",
+			cwd: thread.cwd,
+			status: "inProgress",
+			commandActions: [],
+			aggregatedOutput: null,
+			exitCode: null,
+			durationMs: null,
+		};
+		notify("item/started", { threadId, turnId, item, startedAtMs: Date.now() });
+		notify("thread/tokenUsage/updated", {
+			threadId,
+			turnId,
+			tokenUsage: {
+				total: {
+					totalTokens: 1234,
+					inputTokens: 1200,
+					cachedInputTokens: 1000,
+					outputTokens: 34,
+					reasoningOutputTokens: 0,
+				},
+				last: {
+					totalTokens: 1234,
+					inputTokens: 1200,
+					cachedInputTokens: 1000,
+					cacheWriteInputTokens: 150,
+					outputTokens: 34,
+					reasoningOutputTokens: 0,
+				},
+				modelContextWindow: 100000,
+			},
+		});
+		await sleep(50);
+		complete({ ...item, status: "completed", exitCode: 0, aggregatedOutput: "a.txt\n" });
+	}
 	if (text.includes("progress")) {
 		const item = { type: "agentMessage", id: id("msg"), text: "", phase: "commentary" };
 		notify("item/started", { threadId, turnId, item, startedAtMs: Date.now() });
@@ -332,15 +383,12 @@ async function runTurn(thread, turn, text) {
 			notify("item/agentMessage/delta", { threadId, turnId, itemId: message.id, delta: chunk });
 		}
 		complete({ ...message, text: reply });
-		notify("thread/tokenUsage/updated", {
-			threadId,
-			turnId,
-			tokenUsage: {
-				total: { totalTokens: 30, inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 0 },
-				last: { totalTokens: 30, inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 0 },
-				modelContextWindow: 100000,
-			},
-		});
+		thread.tokenUsage = {
+			total: { totalTokens: 30, inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 0 },
+			last: { totalTokens: 30, inputTokens: 20, cachedInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 0 },
+			modelContextWindow: 100000,
+		};
+		notify("thread/tokenUsage/updated", { threadId, turnId, tokenUsage: thread.tokenUsage });
 		turn.status = "completed";
 	}
 	active.delete(threadId);
@@ -374,6 +422,7 @@ const handlers = {
 	"thread/resume": (params) => {
 		const thread = threads.get(params.threadId);
 		if (!thread) throw new Error("no such thread");
+		replayTokenUsage(thread);
 		return {
 			thread: threadView(thread),
 			model: thread.model,
@@ -395,7 +444,9 @@ const handlers = {
 			preview: source.preview,
 			serviceTier: source.serviceTier,
 			turns: structuredClone(source.turns.slice(0, end + 1)),
+			tokenUsage: source.tokenUsage,
 		});
+		replayTokenUsage(thread);
 		return { thread: threadView(thread), model: thread.model, reasoningEffort: null, serviceTier: thread.serviceTier };
 	},
 	"thread/settings/update": (params) => {
@@ -475,6 +526,9 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
 		try {
 			if (!handler) throw new Error(`unknown method ${message.method}`);
 			send({ id: message.id, result: await handler(message.params ?? {}) });
+			const after = afterResponse;
+			afterResponse = [];
+			for (const notifyAfter of after) notifyAfter();
 		} catch (error) {
 			send({ id: message.id, error: { code: -32000, message: error.message } });
 		}

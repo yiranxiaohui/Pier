@@ -1,4 +1,4 @@
-# Pier 协议 v1.57
+# Pier 协议 v1.58
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -543,7 +543,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 |---|---|---|
 | `session.snapshot` | `snapshot` | 仅在订阅 / 恢复时单独发给该连接，**不带 seq**，不写入日志 |
 | `session.status` | `state: idle\|streaming\|compacting\|retrying` | 状态变化时发送 |
-| `session.model` | `model?, contextInfo?, thinkingLevel` | `model.set` 之后 |
+| `session.model` | `model?, contextInfo?, thinkingLevel` | `model.set` 之后；运行时报告新的上下文窗口或上下文大小时也会发送（Codex 每次模型请求之后） |
 | `session.fast` | `enabled: boolean` | Codex Fast 状态变化时发送（1.43），包括原生 `thread/settings/updated` 通知 |
 | `subagent.update` | `subagent: SubagentInfo` | subagent 出现或变化时发送完整状态（1.54），见「Subagent」；状态变化立即发送，进度最多每 250ms 一次 |
 | `session.replaced` | `previousSessionId, session` | 扩展命令（如 `/new`）替换了底层 pi 会话；帧的 `sessionId` 为旧 ID，随后会收到新会话的 `session.snapshot` |
@@ -646,7 +646,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 
 `ModelInfo = { provider, id, name, reasoning, input: string[], contextWindow?, thinkingLevels? }`。`thinkingLevels`（1.19）是模型支持的思考等级，从低到高（`off`、`minimal`、`low`、`medium`、`high`，模型支持时还有 `xhigh`、`max`、`ultra`），不支持推理的模型为 `["off"]`；`thinking.set` 会把不支持的等级钳制到其中之一。`ultra` 自协议 1.34 起支持，只在运行时明确报告模型支持它时显示，并作为原生等级传给运行时。
 
-`SessionContextInfo = { contextWindow?, autoCompaction, compactionThreshold?, reserveTokens?, keepRecentTokens? }`（1.45）。`autoCompaction` 为 `configured` 时，`compactionThreshold` 是自动压缩触发的上下文 token 数，`reserveTokens` 是为回复预留的 token 数，`keepRecentTokens` 是压缩后原样保留的最近内容；`disabled` 表示自动压缩关闭；`runtime` 表示由 Claude Code / Codex 等运行时决定。字段是可选的，旧版 Host 不返回时客户端应隐藏或显示未知状态。
+`SessionContextInfo = { contextWindow?, contextTokens?, autoCompaction, compactionThreshold?, reserveTokens?, keepRecentTokens? }`（1.45）。`contextTokens`（1.58）是最近一次模型请求后的上下文 token 数，由不在每条回复上报告用量的运行时提供：Codex 在一轮中的每次请求（包括工具调用之间）之后更新，重新打开或分叉会话时也会从 Codex 回放的用量中恢复；客户端优先用它，没有时再用最近一条带用量的回复。`autoCompaction` 为 `configured` 时，`compactionThreshold` 是自动压缩触发的上下文 token 数，`reserveTokens` 是为回复预留的 token 数，`keepRecentTokens` 是压缩后原样保留的最近内容；`disabled` 表示自动压缩关闭；`runtime` 表示由 Claude Code / Codex 等运行时决定。字段是可选的，旧版 Host 不返回时客户端应隐藏或显示未知状态。
 
 ## 6. UI 请求与审批
 

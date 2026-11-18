@@ -292,6 +292,10 @@ export interface SessionUsage {
 	/** cacheRead / input, or undefined when no prompt tokens were recorded. */
 	cacheHitRate: number | undefined;
 	cost: number;
+	/**
+	 * Tokens in the context after the latest model request: what the runtime reports (Codex, 1.58),
+	 * else the usage of the last reply that has one; 0 when unknown.
+	 */
 	lastContext: number;
 }
 
@@ -317,6 +321,7 @@ export function sessionUsage(state: ChatState): SessionUsage {
 		if (usage.totalTokens) lastContext = usage.totalTokens;
 	}
 	const cacheHitRate = input > 0 ? cacheRead / input : undefined;
+	if (state.contextInfo?.contextTokens) lastContext = state.contextInfo.contextTokens;
 	return { input, output, cacheRead, cacheWrite, cacheHitRate, cost, lastContext };
 }
 
