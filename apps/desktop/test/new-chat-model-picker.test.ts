@@ -2,7 +2,7 @@ import type { AgentRuntimeInfo, WorkspaceInfo } from "@pier/protocol";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NewChatModelPicker } from "../src/components/ModelPicker.tsx";
+import { NewChatModelPicker, providerLabel } from "../src/components/ModelPicker.tsx";
 import type { AppState } from "../src/lib/store.tsx";
 
 const { state, store } = vi.hoisted(() => ({
@@ -72,5 +72,22 @@ describe("new-chat model picker", () => {
 		state.newChatRuntime.peer = runtime;
 		state.newChatModel.peer.fastMode = true;
 		expect(render([codex])).not.toContain("Fast");
+	});
+});
+
+describe("model picker provider labels", () => {
+	const names = new Map([
+		["yunlian-claude-11r9sb4", "云链API · claude旧名"],
+		["anthropic", "Anthropic"],
+	]);
+
+	it("shows a provider's name instead of its id", () => {
+		expect(providerLabel({ provider: "yunlian-claude-11r9sb4", providerName: "云链API · claude企业级" }, names)).toBe(
+			"云链API · claude企业级",
+		);
+		// Hosts older than 1.60 send only the id: use the names the providers list knows.
+		expect(providerLabel({ provider: "yunlian-claude-11r9sb4" }, names)).toBe("云链API · claude旧名");
+		expect(providerLabel({ provider: "anthropic" })).toBe("anthropic");
+		expect(providerLabel({ provider: "codex" }, names)).toBe("codex");
 	});
 });

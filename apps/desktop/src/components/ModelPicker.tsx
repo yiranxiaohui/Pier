@@ -5,9 +5,9 @@ import {
 	supportedThinkingLevels,
 	thinkingLabel,
 } from "@pier/chat-state";
-import type { AgentRuntimeInfo, ModelInfo, ThinkingLevel, WorkspaceInfo } from "@pier/protocol";
-import { type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import type { AgentRuntimeInfo, ModelInfo, ProviderListResult, ThinkingLevel, WorkspaceInfo } from "@pier/protocol";
+import { type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type AppState, LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
 import {
 	IconArrowLeft,
 	IconBrain,
@@ -166,6 +166,24 @@ function chipName(model: ModelInfo): string {
 	return (model.name || model.id).replace(/\s*\(recommended\)$/i, "");
 }
 
+/**
+ * What a model's provider is called: the name the host sends (1.60), else its name in `names`
+ * (older hosts send only the id), else the id. A 云链API group shows as `云链API · claude企业级`
+ * rather than its id `yunlian-claude-11r9sb4`.
+ */
+export function providerLabel(
+	model: Pick<ModelInfo, "provider" | "providerName">,
+	names?: ReadonlyMap<string, string>,
+) {
+	return model.providerName || names?.get(model.provider) || model.provider;
+}
+
+/** The providers of `node` the app has read: this computer's, or the ones the settings screen shows. */
+function loadedProviders(state: AppState, node: string): ProviderListResult | undefined {
+	if (node === LOCAL_NODE) return state.localProviders;
+	return state.settingsNode === node ? state.providers : undefined;
+}
+
 interface ModelMenuProps {
 	/** The computer whose models these are (for "manage models"). */
 	node: string;
@@ -204,6 +222,9 @@ function ModelMenu({
 	onFast,
 }: ModelMenuProps) {
 	const store = useStore();
+	// pi's providers of this computer, when loaded: names for hosts that send only provider ids.
+	const providerList = useAppState((s) => (manageable ? loadedProviders(s, node) : undefined));
+	const names = useMemo(() => new Map(providerList?.providers.map((p) => [p.id, p.name])), [providerList]);
 	const [open, setOpen] = useState(false);
 	const [view, setView] = useState<"main" | "models">("main");
 	/** Which way the last view switch went, so the new view slides in from that side. */
@@ -267,7 +288,7 @@ function ModelMenu({
 	};
 
 	const visible = (models ?? []).filter((m) =>
-		`${m.provider}/${m.id} ${m.name}`.toLowerCase().includes(filter.trim().toLowerCase()),
+		`${m.provider}/${m.id} ${m.name} ${providerLabel(m, names)}`.toLowerCase().includes(filter.trim().toLowerCase()),
 	);
 	const groups = new Map<string, ModelInfo[]>();
 	for (const m of visible) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
@@ -350,7 +371,7 @@ function ModelMenu({
 												<IconSparkles size={14} />
 												<span className="model-menu-current-text">
 													<span className="model-menu-current-name">{model.name || model.id}</span>
-													<span className="muted">{model.provider}</span>
+													<span className="muted">{providerLabel(model, names)}</span>
 												</span>
 											</span>
 											<span className="model-menu-switch">
@@ -387,34 +408,42 @@ function ModelMenu({
 													{models.length ? "没有匹配的模型。" : "还没有可用的模型。"}
 												</div>
 											) : null}
-											{[...groups].map(([provider, list]) => (
-												<div key={provider} className="dropdown-group">
-													<div className="dropdown-group-title">{provider}</div>
-													{list.map((m) => {
-														const selected = model?.provider === m.provider && model.id === m.id;
-														return (
-															<button
-																type="button"
-																key={m.id}
-																className={`dropdown-item${selected ? " selected" : ""}`}
-																onClick={() => {
-																	go("main");
-																	if (!selected) onModel(m);
-																}}
-															>
-																<span className="model-item-text">
-																	<span className="model-item-name">
-																		{m.name || m.id}
-																		{m.reasoning ? <span className="mini-tag">推理</span> : null}
+											{[...groups].map(([provider, list]) => {
+												const label = list[0] ? providerLabel(list[0], names) : provider;
+												return (
+													<div key={provider} className="dropdown-group">
+														<div
+															className="dropdown-group-title no-caps"
+															title={label === provider ? undefined : provider}
+														>
+															{label}
+														</div>
+														{list.map((m) => {
+															const selected = model?.provider === m.provider && model.id === m.id;
+															return (
+																<button
+																	type="button"
+																	key={m.id}
+																	className={`dropdown-item${selected ? " selected" : ""}`}
+																	onClick={() => {
+																		go("main");
+																		if (!selected) onModel(m);
+																	}}
+																>
+																	<span className="model-item-text">
+																		<span className="model-item-name">
+																			{m.name || m.id}
+																			{m.reasoning ? <span className="mini-tag">推理</span> : null}
+																		</span>
+																		<span className="muted">{m.id}</span>
 																	</span>
-																	<span className="muted">{m.id}</span>
-																</span>
-																{selected ? <IconCheck size={15} className="policy-check" /> : null}
-															</button>
-														);
-													})}
-												</div>
-											))}
+																	{selected ? <IconCheck size={15} className="policy-check" /> : null}
+																</button>
+															);
+														})}
+													</div>
+												);
+											})}
 										</div>
 										{manage}
 									</>

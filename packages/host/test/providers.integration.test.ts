@@ -291,6 +291,8 @@ describe("provider configuration", () => {
 
 		const list = await t.client.request("model.list");
 		expect(list.models.map((m) => `${m.provider}/${m.id}`)).toEqual(["my-proxy/gpt-a", "my-proxy/gpt-b"]);
+		// Clients group models under the provider's name, not its id (1.60).
+		expect(list.models.map((m) => m.providerName)).toEqual(["My Proxy", "My Proxy"]);
 
 		// Probing a saved provider reuses its stored key.
 		const again = await t.client.request("provider.probeModels", {

@@ -66,6 +66,7 @@ export class OpenCodeRuntime implements AgentRuntime {
 		return data.providers.flatMap((provider) =>
 			Object.entries(provider.models).map(([id, m]) => ({
 				provider: provider.id,
+				...(provider.name && provider.name !== provider.id ? { providerName: provider.name } : {}),
 				id,
 				name: m.name,
 				reasoning: m.capabilities.reasoning,

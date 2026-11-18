@@ -498,6 +498,11 @@ export interface SessionCleanupResult {
 
 export interface ModelInfo {
 	provider: string;
+	/**
+	 * Display name of `provider` when it differs from the id (1.60), e.g. `云链API · claude企业级` for
+	 * `yunlian-claude-11r9sb4`. Clients fall back to the id.
+	 */
+	providerName?: string;
 	id: string;
 	name: string;
 	reasoning: boolean;

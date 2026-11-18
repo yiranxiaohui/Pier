@@ -220,7 +220,12 @@ export class PiEnvironment {
 
 	async listModels(): Promise<ModelInfo[]> {
 		const models = await this.modelRuntime.getAvailable();
-		return models.map(toModelInfo);
+		return models.map((model) => this.modelInfo(model));
+	}
+
+	/** `model` as clients see it, with its provider's display name. */
+	modelInfo(model: ModelLike): ModelInfo {
+		return toModelInfo(model, this.modelRuntime.getProvider(model.provider)?.name);
 	}
 
 	/**
@@ -246,7 +251,7 @@ export class PiEnvironment {
 			settings.getDefaultThinkingLevel() ??
 			DEFAULT_THINKING_LEVEL;
 		return {
-			model: toModelInfo(model),
+			model: this.modelInfo(model),
 			thinkingLevel: clampThinkingLevel(model, level === "ultra" ? "max" : level) as ThinkingLevel,
 		};
 	}
@@ -272,10 +277,11 @@ interface ModelLike {
 	thinkingLevelMap?: Model<Api>["thinkingLevelMap"];
 }
 
-export function toModelInfo(model: ModelLike): ModelInfo {
+export function toModelInfo(model: ModelLike, providerName?: string): ModelInfo {
 	const reasoning = model.reasoning === true;
 	return {
 		provider: model.provider,
+		...(providerName && providerName !== model.provider ? { providerName } : {}),
 		id: model.id,
 		name: model.name ?? model.id,
 		reasoning,

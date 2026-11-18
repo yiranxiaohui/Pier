@@ -216,7 +216,7 @@ function ModelSheet({ chat, onClose }: { chat: ChatController; onClose: () => vo
 					{models && !models.length ? <Muted>没有可用的模型，请在电脑上的 Pier 里配置模型。</Muted> : null}
 					{[...groups].map(([provider, list]) => (
 						<View key={provider} style={styles.providerGroup}>
-							<Text style={[styles.providerTitle, { color: p.faint }]}>{provider}</Text>
+							<Text style={[styles.providerTitle, { color: p.faint }]}>{list[0]?.providerName || provider}</Text>
 							<View style={[styles.group, { backgroundColor: p.bg }]}>
 								{list.map((model, index) => {
 									const key = `${model.provider}/${model.id}`;

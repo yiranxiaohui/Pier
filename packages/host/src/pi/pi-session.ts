@@ -31,7 +31,7 @@ import type { TranscriptMessage } from "../runtimes/live-transcript.ts";
 import type { SubagentRuntimeHooks } from "../runtimes/subagents.ts";
 import { ExternalChangeGuard } from "../session-lock.ts";
 import { createApprovalExtension } from "./approval-extension.ts";
-import { type PiEnvironment, toModelInfo } from "./environment.ts";
+import type { PiEnvironment } from "./environment.ts";
 import { toWireEvent } from "./events.ts";
 import { PI_SUBAGENT_TOOL, piSubagentUpdates, storedPiSubagents } from "./subagents.ts";
 import { createUiContext } from "./ui-context.ts";
@@ -286,7 +286,7 @@ export class PiManagedSession extends ManagedSession {
 			messages: [...session.messages],
 			...(state.streamingMessage ? { streamingMessage: state.streamingMessage } : {}),
 			pendingToolCalls: [...state.pendingToolCalls],
-			...(model ? { model: toModelInfo(model) } : {}),
+			...(model ? { model: this.piOptions.env.modelInfo(model) } : {}),
 			contextInfo: this.contextInfo(model),
 			thinkingLevel: session.thinkingLevel as ThinkingLevel,
 			...(state.errorMessage ? { errorMessage: state.errorMessage } : {}),
@@ -399,7 +399,7 @@ export class PiManagedSession extends ManagedSession {
 		this.assertWritable();
 		await this.runtime.session.setModel(model, { persist });
 		this.guard.record();
-		const info = toModelInfo(model);
+		const info = this.piOptions.env.modelInfo(model);
 		this.emit({
 			type: "session.model",
 			model: info,
@@ -420,7 +420,7 @@ export class PiManagedSession extends ManagedSession {
 		if (!current) return;
 		const refreshed = this.piOptions.env.modelRuntime.getModel(current.provider, current.id);
 		if (!refreshed || refreshed === current) return;
-		const before = JSON.stringify(toModelInfo(current));
+		const before = JSON.stringify(this.piOptions.env.modelInfo(current));
 		const levelBefore = session.thinkingLevel;
 		session.agent.state.model = refreshed;
 		if (
@@ -440,7 +440,7 @@ export class PiManagedSession extends ManagedSession {
 				this.guard.record();
 			}
 		}
-		const info = toModelInfo(refreshed);
+		const info = this.piOptions.env.modelInfo(refreshed);
 		if (JSON.stringify(info) === before && session.thinkingLevel === levelBefore) return;
 		this.emit({
 			type: "session.model",
