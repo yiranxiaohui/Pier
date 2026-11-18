@@ -65,7 +65,7 @@ button.titlebar-button:focus-visible {
 }
 
 :root.custom-titlebar .window-body > .app .main,
-:root.custom-titlebar .window-body > .app .files-panel {
+:root.custom-titlebar .side-panel-window:not(.overlay) {
 	margin-top: 0;
 }
 

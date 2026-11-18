@@ -1,9 +1,6 @@
 import type { WorkspaceInfo } from "@pier/protocol";
-import { type CSSProperties, useEffect, useState } from "react";
+import { type CSSProperties, useEffect } from "react";
 import { DirectoryPicker } from "./components/DirectoryPicker.tsx";
-import { FilePreview } from "./components/FilePreview.tsx";
-import { FilesPanel } from "./components/FilesPanel.tsx";
-import { GitPanel } from "./components/GitPanel.tsx";
 import { Welcome, WorkspaceHome } from "./components/Home.tsx";
 import { HostBanner } from "./components/HostPanels.tsx";
 import { IconAlert, IconInfo, IconMessage, IconX } from "./components/Icons.tsx";
@@ -16,8 +13,8 @@ import { SessionView } from "./components/SessionView.tsx";
 import { SettingsPage } from "./components/Settings.tsx";
 import { Sidebar, SidebarToggle } from "./components/Sidebar.tsx";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle.tsx";
+import { SidePanel } from "./components/SidePanel.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
-import { SubagentPanel } from "./components/SubagentPanel.tsx";
 import { TerminalPanel } from "./components/TerminalPanel.tsx";
 import { TitleBar } from "./components/TitleBar.tsx";
 import { useCanOpenTerminal } from "./lib/remote-terminals.ts";
@@ -97,29 +94,10 @@ function useScreenWorkspace(): { workspace?: WorkspaceInfo; composerKey?: string
 	return { ...(workspace ? { workspace } : {}), ...(composerKey ? { composerKey } : {}) };
 }
 
-/** Matches `--sidebar-duration` in base.css, plus a little slack. */
-const FILES_CLOSE_MS = 320;
-
-function RightPanel({ workspace, composerKey }: { workspace?: WorkspaceInfo; composerKey?: string }) {
-	const tab = useAppState((s) => s.rightPanelTab);
-	const subagent = useAppState((s) => s.subagentView);
-	if (!workspace) return null;
-	if (tab === "subagent" && subagent && subagent.sessionId === composerKey) {
-		return <SubagentPanel key={`${subagent.sessionId}:${subagent.subagentId}`} workspace={workspace} {...subagent} />;
-	}
-	if (tab === "git") {
-		return <GitPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
-	}
-	return <FilesPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
-}
-
 export function App() {
 	const store = useStore();
 	const settings = useAppState((s) => s.settings);
 	const scheduled = useAppState((s) => s.scheduledTasksOpen);
-	const filesPanel = useAppState((s) => s.filesPanel);
-	const filesPanelWidth = useAppState((s) => s.filesPanelWidth);
-	const hasWorkspace = useAppState((s) => s.workspaces.length > 0);
 	const sidebar = useAppState((s) => s.sidebar);
 	const sidebarWidth = useAppState((s) => s.sidebarWidth);
 	// Terminals run on the computer of the workspace they were opened for; the panel shows them all.
@@ -128,25 +106,13 @@ export function App() {
 	const screen = useScreenWorkspace();
 	const screenWorkspace = screen.workspace;
 	const canOpenTerminal = useCanOpenTerminal(screenWorkspace);
-	const showFiles = filesPanel && hasWorkspace;
 	// A subagent's conversation belongs to its session: leave it when another one is shown.
 	const subagentSession = useAppState((s) => s.subagentView?.sessionId);
 	useEffect(() => {
 		if (subagentSession && subagentSession !== screen.composerKey) store.closeSubagent(true);
 	}, [store, subagentSession, screen.composerKey]);
-	// Both side panels sit in shells that animate between open and collapsed widths. The file
-	// panel stays mounted only until its closing animation ends, so a hidden panel does not keep
-	// reloading and closing still cancels its pending upload questions.
-	const [filesMounted, setFilesMounted] = useState(showFiles);
-	useEffect(() => {
-		if (showFiles) {
-			setFilesMounted(true);
-			return;
-		}
-		const timer = setTimeout(() => setFilesMounted(false), FILES_CLOSE_MS);
-		return () => clearTimeout(timer);
-	}, [showFiles]);
-	const columns = ["auto", "minmax(0, 1fr)", "auto"];
+	// The right-hand panel (SidePanel) is the window body's last column, outside this screen.
+	const columns = ["auto", "minmax(0, 1fr)"];
 
 	// Ctrl/⌘+Shift+E and Ctrl/⌘+Shift+G show (or hide) the file and source control views, as in editors; Ctrl/⌘+B the sidebar;
 	// Ctrl+` the terminal (Ctrl on macOS too, as in editors: ⌘+` cycles windows there).
@@ -164,8 +130,8 @@ export function App() {
 			if (e.shiftKey && (key === "e" || key === "g")) {
 				e.preventDefault();
 				const tab = key === "g" ? "git" : "files";
-				const { filesPanel, rightPanelTab } = store.getState();
-				if (filesPanel && rightPanelTab === tab) store.toggleFilesPanel(false);
+				const { filesPanel, rightPanelTab, filePreviewShown } = store.getState();
+				if (filesPanel && rightPanelTab === tab && !filePreviewShown) store.toggleFilesPanel(false);
 				else store.showRightPanel(tab);
 			} else if (!e.shiftKey && key === "b") {
 				e.preventDefault();
@@ -187,7 +153,7 @@ export function App() {
 					<SettingsPage section={settings} footer={<StatusBar />} />
 				) : (
 					<div
-						className={`app with-files-shell${sidebar ? "" : " no-sidebar"}`}
+						className={`app with-side-panel${sidebar ? "" : " no-sidebar"}`}
 						style={{ gridTemplateColumns: columns.join(" "), "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
 					>
 						<div className={`sidebar-shell${sidebar ? "" : " collapsed"}`} inert={!sidebar}>
@@ -201,21 +167,10 @@ export function App() {
 							</div>
 							{terminalOpen ? <TerminalPanel {...(screenWorkspace ? { workspace: screenWorkspace } : {})} /> : null}
 						</main>
-						<div
-							className={`files-shell${showFiles ? "" : " collapsed"}`}
-							style={{ "--files-width": `${filesPanelWidth}px` } as CSSProperties}
-							inert={!showFiles}
-						>
-							{showFiles || filesMounted ? <RightPanel {...screen} /> : null}
-						</div>
 						<StatusBar />
 					</div>
 				)}
-				<FilePreview
-					hidden={!!settings || scheduled}
-					screenWorkspaceId={screenWorkspace?.id}
-					screenComposerKey={screen.composerKey}
-				/>
+				<SidePanel hidden={!!settings || scheduled} {...screen} />
 			</div>
 			<Toasts />
 			<AuthDialog />

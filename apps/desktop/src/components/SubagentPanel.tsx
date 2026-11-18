@@ -12,7 +12,7 @@ import { formatDuration, formatTokens } from "../lib/format.ts";
 import { useAppState, useChatView, useStore } from "../lib/store.tsx";
 import { IconBot, IconChevronRight, IconInfo, IconLoader, IconStop, IconX } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
-import { PanelHeading, ResizeHandle } from "./PanelChrome.tsx";
+import { PanelHeading } from "./PanelChrome.tsx";
 import {
 	SUBAGENT_STATUS_LABEL,
 	type SubagentScope,
@@ -186,9 +186,8 @@ export function SubagentPanel({
 
 	return (
 		<aside className="files-panel subagent-panel" aria-label="Subagent 的对话">
-			<ResizeHandle />
 			<header className="files-header">
-				<PanelHeading workspaceId={workspace.id} name={workspace.name} title={workspace.path} />
+				<PanelHeading name={workspace.name} title={workspace.path} />
 				<div className="subagent-panel-actions">
 					{running && subagent?.stoppable && controller ? (
 						<button

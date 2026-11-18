@@ -399,6 +399,11 @@ export interface AppState {
 	filePreviewMode: FilePreviewMode;
 	/** Width of the file preview panel in pixels; undefined follows the window width. */
 	filePreviewWidth?: number | undefined;
+	/**
+	 * The active file tab is on screen: in the right-hand panel instead of its `rightPanelTab`
+	 * view (`panel` mode), or in the full-window dialog (`modal` mode). See `isRightPanelOpen`.
+	 */
+	filePreviewShown: boolean;
 	/** Bumped when pi extension or package settings changed, so the extensions page reloads. */
 	extensionsVersion: number;
 	/** Bumped when a pi settings file may have changed, so the pi settings page reloads. */
@@ -478,6 +483,17 @@ export interface FilePreviewTab {
 }
 export const FILE_PREVIEW_MIN_WIDTH = 360;
 export const FILE_PREVIEW_MAX_WIDTH = 2400;
+
+/**
+ * Whether the right-hand panel is open beside the conversation: on its files / source control
+ * view, or on a file tab in `panel` mode. (A `modal` file dialog does not count.)
+ */
+export function isRightPanelOpen(state: AppState): boolean {
+	return (
+		(state.filesPanel && state.workspaces.length > 0) ||
+		(state.filePreviewMode === "panel" && state.filePreviewShown && state.filePreviews.length > 0)
+	);
+}
 const SIDEBAR_KEY = "pier.sidebar";
 const WORKSPACE_ORDER_KEY = "pier.workspaceOrder";
 export const SIDEBAR_MIN_WIDTH = 180;
@@ -689,6 +705,7 @@ export class PierStore {
 			filesPanelWidth: clampPanelWidth(panel.width ?? FILES_PANEL_DEFAULT_WIDTH),
 			rightPanelTab: panel.tab === "git" ? "git" : "files",
 			filePreviews: [],
+			filePreviewShown: false,
 			filePreviewMode: preview.mode === "modal" ? "modal" : "panel",
 			...(previewWidth ? { filePreviewWidth: previewWidth } : {}),
 			filesVersion: {},
@@ -2279,15 +2296,26 @@ export class PierStore {
 		if (sidebarWidth !== this.state.sidebarWidth) this.set({ sidebarWidth });
 	}
 
-	toggleFilesPanel(open = !this.state.filesPanel): void {
-		if (open !== this.state.filesPanel) this.set({ filesPanel: open });
+	/**
+	 * Show (`open`) or hide the right-hand panel; by default toggle what `isRightPanelOpen`
+	 * reports. Hiding keeps the open file tabs for the next time.
+	 */
+	toggleFilesPanel(open = !isRightPanelOpen(this.state)): void {
+		if (open) {
+			if (!this.state.filesPanel) this.set({ filesPanel: true });
+			return;
+		}
+		const hidePreview = this.state.filePreviewShown && this.state.filePreviewMode === "panel";
+		if (this.state.filesPanel || hidePreview) {
+			this.set({ filesPanel: false, ...(hidePreview ? { filePreviewShown: false } : {}) });
+		}
 	}
 
-	/** Show the right-hand panel on `tab` (files or source control). */
+	/** Show the right-hand panel on `tab` (files, source control or a subagent) rather than a file tab. */
 	showRightPanel(tab: RightPanelTab): void {
 		if (tab === "subagent" && !this.state.subagentView) return;
-		if (tab !== this.state.rightPanelTab || !this.state.filesPanel) {
-			this.set({ rightPanelTab: tab, filesPanel: true });
+		if (tab !== this.state.rightPanelTab || !this.state.filesPanel || this.state.filePreviewShown) {
+			this.set({ rightPanelTab: tab, filesPanel: true, filePreviewShown: false });
 		}
 	}
 
@@ -2297,6 +2325,7 @@ export class PierStore {
 			subagentView: { sessionId, subagentId },
 			rightPanelTab: "subagent",
 			filesPanel: true,
+			filePreviewShown: false,
 			// Conversations need more room than the file tree.
 			filesPanelWidth: clampPanelWidth(Math.max(this.state.filesPanelWidth, SUBAGENT_PANEL_MIN_WIDTH)),
 		});
@@ -2525,28 +2554,39 @@ export class PierStore {
 				composerKey && composerKey !== tab.composerKey
 					? tabs.map((t) => (t.id === id ? { ...t, composerKey } : t))
 					: tabs;
-			this.set({ filePreviews, activeFilePreview: id });
+			this.set({ filePreviews, activeFilePreview: id, filePreviewShown: true });
 			return;
 		}
 		const active = tabs.findIndex((tab) => tab.id === this.state.activeFilePreview);
 		const at = active >= 0 ? active + 1 : tabs.length;
-		this.set({ filePreviews: [...tabs.slice(0, at), { ...file, id }, ...tabs.slice(at)], activeFilePreview: id });
+		this.set({
+			filePreviews: [...tabs.slice(0, at), { ...file, id }, ...tabs.slice(at)],
+			activeFilePreview: id,
+			filePreviewShown: true,
+		});
 	}
 
+	/** Show a file tab (in the right-hand panel instead of its files / source control view). */
 	selectFilePreview(id: string): void {
-		if (id !== this.state.activeFilePreview && this.state.filePreviews.some((tab) => tab.id === id)) {
-			this.set({ activeFilePreview: id });
+		if (
+			(id !== this.state.activeFilePreview || !this.state.filePreviewShown) &&
+			this.state.filePreviews.some((tab) => tab.id === id)
+		) {
+			this.set({ activeFilePreview: id, filePreviewShown: true });
 		}
 	}
 
 	/**
 	 * Close one preview tab (its right-hand neighbour, else its left one, takes over), or all of
-	 * them when `id` is omitted. Unsaved edits are the caller's to confirm.
+	 * them when `id` is omitted. Unsaved edits are the caller's to confirm. With no file left,
+	 * the right-hand panel goes back to its files / source control view, or closes if that was hidden.
 	 */
 	closeFilePreview(id?: string): void {
 		const tabs = this.state.filePreviews;
 		if (id === undefined) {
-			if (tabs.length || this.state.activeFilePreview) this.set({ filePreviews: [], activeFilePreview: undefined });
+			if (tabs.length || this.state.activeFilePreview || this.state.filePreviewShown) {
+				this.set({ filePreviews: [], activeFilePreview: undefined, filePreviewShown: false });
+			}
 			return;
 		}
 		const index = tabs.findIndex((tab) => tab.id === id);
@@ -2556,7 +2596,11 @@ export class PierStore {
 			this.state.activeFilePreview === id
 				? (filePreviews[index] ?? filePreviews[index - 1])?.id
 				: this.state.activeFilePreview;
-		this.set({ filePreviews, activeFilePreview });
+		this.set({
+			filePreviews,
+			activeFilePreview,
+			...(filePreviews.length ? {} : { filePreviewShown: false }),
+		});
 	}
 
 	setFilePreviewMode(mode: FilePreviewMode): void {

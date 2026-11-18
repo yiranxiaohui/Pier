@@ -1,120 +1,28 @@
-/* Right-hand workspace file panel. */
+/* The right-hand panel's files view, and the file viewer of its file tabs (SidePanel.tsx). */
 
-/* The files shell always provides the main panel's right gap (8px when collapsed). */
-.app.with-files-shell .main {
+/* The right-hand panel's shell always provides the main panel's right gap (8px when collapsed). */
+.app.with-side-panel .main {
 	margin-right: 0;
 }
 
-/*
- * Mirrors the left sidebar: the panel sits in a shell whose width animates, anchored to the
- * right edge so it is clipped from the left, while the panel itself slides and fades out.
- */
-.files-shell {
-	display: flex;
-	justify-content: flex-end;
-	width: var(--files-width);
-	min-width: 0;
-	min-height: 0;
-	overflow: hidden;
-	transition: width var(--sidebar-duration) var(--sidebar-ease);
-}
-
-.files-shell.collapsed {
-	width: 8px;
-}
-
-/* Dragging the resize handle must track the pointer without easing. */
-body.resizing-panel .files-shell {
-	transition: none;
-}
-
+/* A view of the right-hand panel (files, source control, a subagent), filling its window. */
 .files-panel {
 	position: relative;
 	display: flex;
+	flex: 1;
 	flex-direction: column;
-	flex: none;
-	width: calc(var(--files-width, 280px) - 16px);
 	min-width: 0;
 	min-height: 0;
-	margin: 8px 8px 8px 8px;
-	background: var(--bg);
-	border-radius: var(--radius-lg);
-	box-shadow: var(--panel-shadow);
 	overflow: hidden;
-	/* `transform: none` when open so fixed-position menus inside are not contained. */
-	transform: none;
-	animation: files-in var(--sidebar-duration) var(--sidebar-ease);
-	transition:
-		opacity 0.22s var(--ease) 0.04s,
-		transform var(--sidebar-duration) var(--sidebar-ease);
 }
 
-.files-shell.collapsed > .files-panel {
-	opacity: 0;
-	transform: translateX(28px);
-	visibility: hidden;
-	transition:
-		opacity 0.14s ease-out,
-		transform var(--sidebar-duration) var(--sidebar-ease),
-		visibility 0s linear var(--sidebar-duration);
-}
-
-@keyframes files-in {
-	from {
-		opacity: 0;
-		transform: translateX(28px);
-	}
-}
-
-.files-resize {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	left: 0;
-	width: 6px;
-	cursor: col-resize;
-	touch-action: none;
-	z-index: 3;
-}
-
-/* Like the sidebar's strip (base.css): it stays clear; a short grip shows in its middle. */
-.files-resize::after {
-	content: "";
-	position: absolute;
-	top: 50%;
-	left: 1px;
-	width: 4px;
-	height: 40px;
-	margin-top: -20px;
-	border-radius: 2px;
-	background: var(--text-faint);
-	opacity: 0;
-	transition: opacity 0.15s var(--ease);
-}
-
-/* After a beat, so the pointer passing over does not flash it. */
-.files-resize:hover::after {
-	opacity: 0.45;
-	transition-delay: 0.2s;
-}
-
-body.resizing-panel .files-resize::after {
-	background: var(--accent);
-	opacity: 1;
-	transition-delay: 0s;
-}
-
-body.resizing-panel {
-	cursor: col-resize;
-	user-select: none;
-}
-
+/* The workspace the view shows, with the view's own tools. */
 .files-header {
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	min-height: 56px;
-	padding: 8px 8px 8px 16px;
+	min-height: 42px;
+	padding: 6px 8px 6px 14px;
 	border-bottom: 1px solid var(--border);
 }
 
@@ -128,19 +36,15 @@ body.resizing-panel {
 	flex-wrap: wrap;
 	justify-content: flex-end;
 	gap: 2px;
-	width: 100%;
+	margin-left: auto;
 }
 
 .files-heading {
-	flex: 1;
+	flex: 1 1 60px;
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 1px;
-}
-
-.files-header-with-toolbar .files-heading {
-	flex-basis: 100%;
 }
 
 .files-title {
@@ -149,8 +53,9 @@ body.resizing-panel {
 }
 
 .files-workspace {
-	font-size: 11.5px;
-	color: var(--text-faint);
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--text-muted);
 	overflow: hidden;
 	white-space: nowrap;
 	text-overflow: ellipsis;

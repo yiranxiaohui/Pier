@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../src/lib/bridge.ts";
-import { FILE_PREVIEW_MAX_WIDTH, FILE_PREVIEW_MIN_WIDTH, PierStore } from "../src/lib/store.tsx";
+import { FILE_PREVIEW_MAX_WIDTH, FILE_PREVIEW_MIN_WIDTH, isRightPanelOpen, PierStore } from "../src/lib/store.tsx";
 
 let storage: Map<string, string>;
 
@@ -106,5 +106,63 @@ describe("file preview tabs", () => {
 		expect(newStore().getState().filePreviewMode).toBe("panel");
 		storage.set("pier.filePreview", "null");
 		expect(newStore().getState().filePreviewMode).toBe("panel");
+	});
+});
+
+describe("file tabs in the right-hand panel", () => {
+	const withWorkspace = () => {
+		const store = newStore();
+		(store as unknown as { set(patch: object): void }).set({
+			workspaces: [{ id: "w", name: "w", path: "/w", policy: "smart" }],
+		});
+		return store;
+	};
+
+	it("opens the panel on a file tab and hides it again when the last one closes", () => {
+		const store = withWorkspace();
+		expect(isRightPanelOpen(store.getState())).toBe(false);
+		store.openFilePreview("w", "a.ts");
+		expect(store.getState()).toMatchObject({ filePreviewShown: true, filesPanel: false });
+		expect(isRightPanelOpen(store.getState())).toBe(true);
+		store.closeFilePreview(store.getState().activeFilePreview);
+		expect(store.getState().filePreviewShown).toBe(false);
+		expect(isRightPanelOpen(store.getState())).toBe(false);
+	});
+
+	it("switches between the files / source control views and the file tabs", () => {
+		const store = withWorkspace();
+		store.showRightPanel("files");
+		store.openFilePreview("w", "a.ts");
+		store.openFilePreview("w", "b.ts");
+		store.showRightPanel("git");
+		expect(store.getState()).toMatchObject({ rightPanelTab: "git", filePreviewShown: false, filesPanel: true });
+		expect(paths(store)).toEqual(["a.ts", "b.ts"]);
+		const first = store.getState().filePreviews[0]?.id ?? "";
+		store.selectFilePreview(first);
+		expect(store.getState()).toMatchObject({ activeFilePreview: first, filePreviewShown: true });
+		// Closing every file shows the source control view again.
+		store.closeFilePreview();
+		expect(store.getState()).toMatchObject({ rightPanelTab: "git", filePreviewShown: false });
+		expect(isRightPanelOpen(store.getState())).toBe(true);
+	});
+
+	it("hides the panel, file tabs included, and keeps the tabs for later", () => {
+		const store = withWorkspace();
+		store.openFilePreview("w", "a.ts");
+		store.toggleFilesPanel();
+		expect(isRightPanelOpen(store.getState())).toBe(false);
+		expect(paths(store)).toEqual(["a.ts"]);
+		store.toggleFilesPanel();
+		expect(store.getState()).toMatchObject({ filesPanel: true, filePreviewShown: false });
+		store.openSubagent("session", "agent");
+		expect(store.getState()).toMatchObject({ rightPanelTab: "subagent", filePreviewShown: false });
+	});
+
+	it("does not count a full-window file dialog as the open panel", () => {
+		const store = withWorkspace();
+		store.setFilePreviewMode("modal");
+		store.openFilePreview("w", "a.ts");
+		expect(store.getState().filePreviewShown).toBe(true);
+		expect(isRightPanelOpen(store.getState())).toBe(false);
 	});
 });

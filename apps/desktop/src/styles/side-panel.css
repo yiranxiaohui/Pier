@@ -1,0 +1,424 @@
+/*
+ * The right-hand panel (SidePanel.tsx): browser-like tabs for the workspace's files, source
+ * control and a subagent, then one tab per opened file, all in the window body's last column.
+ * The files / source control views and the file tabs keep separate widths (`data-size`). In
+ * `modal` mode the panel's window becomes a dialog filling the window while files are shown
+ * (`.overlay`). Each file tab's content is a `.file-viewer` (files.css).
+ */
+
+/*
+ * The shell's width animates, anchored to the right edge so the window is clipped from the
+ * left while it slides and fades; collapsed it keeps an 8px strip as the main panel's gap.
+ */
+.side-panel {
+	/* A file tab's width: the saved one (--preview-width) or a share of the window, at most the
+	   room beside the rail, sidebar and a usable conversation (--preview-room, both set inline),
+	   but never narrower than 360px. */
+	--preview-size: min(
+		var(--preview-width, clamp(440px, 46vw, 980px)),
+		max(360px, var(--preview-room, calc(100vw - 460px)))
+	);
+	--panel-duration: 0.3s;
+	--panel-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	display: flex;
+	justify-content: flex-end;
+	width: var(--panel-size);
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	transition: width var(--panel-duration) var(--panel-ease);
+}
+
+.side-panel[data-size="tool"] {
+	--panel-size: var(--files-width, 280px);
+}
+
+.side-panel[data-size="file"] {
+	--panel-size: var(--preview-size);
+}
+
+.side-panel[data-view="closed"] {
+	width: 8px;
+}
+
+/* Width changes follow the pointer immediately while dragging. */
+body.resizing-panel .side-panel {
+	transition: none;
+}
+
+.side-panel-window {
+	position: relative;
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	width: calc(var(--panel-size) - 16px);
+	min-width: 0;
+	min-height: 0;
+	margin: 8px;
+	background: var(--bg);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--panel-shadow);
+	overflow: hidden;
+	/* `transform: none` when open so fixed-position menus inside are not contained. */
+	transform: none;
+	animation: side-panel-in var(--panel-duration) var(--panel-ease);
+	transition:
+		opacity 0.22s var(--ease) 0.04s,
+		transform var(--panel-duration) var(--panel-ease);
+}
+
+.side-panel[data-view="closed"] > .side-panel-window {
+	opacity: 0;
+	transform: translateX(28px);
+	visibility: hidden;
+	transition:
+		opacity 0.14s ease-out,
+		transform var(--panel-duration) var(--panel-ease),
+		visibility 0s linear var(--panel-duration);
+}
+
+@keyframes side-panel-in {
+	from {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+}
+
+/* ---- full-window dialog (`modal` mode) ------------------------------------------- */
+
+.side-panel-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	background: rgba(5, 6, 10, 0.5);
+	backdrop-filter: blur(10px) saturate(1.2);
+	-webkit-backdrop-filter: blur(10px) saturate(1.2);
+	animation: fade-in 0.15s var(--ease);
+}
+
+/* Fixed, the window leaves the clipping shell; the shell keeps its own width underneath. */
+.side-panel > .side-panel-window.overlay {
+	position: fixed;
+	inset: 16px;
+	z-index: 40;
+	width: auto;
+	margin: 0;
+	background: var(--bg-raised);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-xl);
+	box-shadow: var(--shadow-lg), var(--highlight);
+	opacity: 1;
+	transform: none;
+	visibility: visible;
+	transition: none;
+	animation: pop-in 0.18s var(--ease);
+}
+
+/* A dialog that closes leaves at once instead of sliding out of the collapsed panel. */
+.side-panel.instant > .side-panel-window {
+	transition: none;
+}
+
+/* ---- resize handle --------------------------------------------------------------- */
+
+.side-panel-resize {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: 6px;
+	cursor: col-resize;
+	touch-action: none;
+	z-index: 3;
+}
+
+.side-panel-resize:focus-visible {
+	outline: none;
+}
+
+/* Like the sidebar's strip (base.css): it stays clear; a short grip shows in its middle. */
+.side-panel-resize::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 1px;
+	width: 4px;
+	height: 40px;
+	margin-top: -20px;
+	border-radius: 2px;
+	background: var(--text-faint);
+	opacity: 0;
+	transition: opacity 0.15s var(--ease);
+}
+
+/* After a beat, so the pointer passing over does not flash it. */
+.side-panel-resize:hover::after {
+	opacity: 0.45;
+	transition-delay: 0.2s;
+}
+
+.side-panel-resize:focus-visible::after,
+body.resizing-panel .side-panel-resize::after {
+	background: var(--accent);
+	opacity: 1;
+	transition-delay: 0s;
+}
+
+body.resizing-panel {
+	cursor: col-resize;
+	user-select: none;
+}
+
+/* A rendered HTML page must not swallow the pointer while the panel is resized. */
+body.resizing-panel iframe {
+	pointer-events: none;
+}
+
+/* ---- tab strip ------------------------------------------------------------------- */
+
+.side-panel-strip {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: 44px;
+	padding: 0 6px 0 8px;
+	border-bottom: 1px solid var(--border);
+}
+
+.side-panel-tabs {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	height: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+}
+
+.side-panel-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+/* Files, source control, subagent: labelled, or just icons (pinned) beside file tabs. */
+button.side-panel-tool-tab {
+	position: relative;
+	flex: none;
+	gap: 6px;
+	height: 30px;
+	padding: 0 10px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--text-faint);
+}
+
+button.side-panel-tool-tab:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--text-muted);
+}
+
+button.side-panel-tool-tab.active {
+	background: var(--bg-active);
+	color: var(--text);
+	font-weight: 600;
+}
+
+button.side-panel-tool-tab.compact {
+	width: 32px;
+	padding: 0;
+}
+
+.side-panel-tool-tab.compact .panel-tab-badge {
+	position: absolute;
+	top: 1px;
+	right: -3px;
+	min-width: 15px;
+	padding: 0 4px;
+	font-size: 9.5px;
+	line-height: 14px;
+}
+
+.side-panel-divider {
+	flex: none;
+	width: 1px;
+	height: 18px;
+	margin: 0 4px;
+	background: var(--border-strong);
+}
+
+.file-preview-tab {
+	display: flex;
+	flex: 0 1 auto;
+	align-items: center;
+	min-width: 88px;
+	max-width: 220px;
+	height: 30px;
+	border-radius: 8px;
+	color: var(--text-faint);
+	transition:
+		background 0.15s var(--ease),
+		color 0.15s var(--ease);
+}
+
+.file-preview-tab:hover {
+	background: var(--bg-hover);
+	color: var(--text-muted);
+}
+
+.file-preview-tab.active {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+.file-preview-tab button {
+	border: none;
+	background: transparent;
+	color: inherit;
+	box-shadow: none;
+}
+
+.file-preview-tab button:hover:not(:disabled) {
+	background: transparent;
+}
+
+button.file-preview-tab-label {
+	flex: 1;
+	justify-content: flex-start;
+	gap: 6px;
+	min-width: 0;
+	height: 100%;
+	padding: 0 4px 0 10px;
+	border-radius: inherit;
+	font-size: 12.5px;
+	font-weight: 500;
+}
+
+.file-preview-tab-label > svg {
+	flex: none;
+	opacity: 0.8;
+}
+
+.file-preview-tab-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-preview-tab-folder {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: 11.5px;
+	font-weight: 400;
+	color: var(--text-faint);
+}
+
+button.file-preview-tab-close {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	margin-right: 5px;
+	padding: 0;
+	border-radius: 6px;
+	color: var(--text-faint);
+	opacity: 0;
+}
+
+.file-preview-tab:hover .file-preview-tab-close,
+.file-preview-tab.active .file-preview-tab-close,
+.file-preview-tab.dirty .file-preview-tab-close,
+.file-preview-tab-close:focus-visible {
+	opacity: 1;
+}
+
+.file-preview-tab button.file-preview-tab-close:hover:not(:disabled) {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+/* Unsaved edits show a dot in place of the close button, which comes back on hover. */
+.file-preview-tab-dot {
+	display: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.file-preview-tab.dirty .file-preview-tab-dot {
+	display: block;
+}
+
+.file-preview-tab.dirty .file-preview-tab-close > svg,
+.file-preview-tab.dirty .file-preview-tab-close:hover > .file-preview-tab-dot,
+.file-preview-tab.dirty .file-preview-tab-close:focus-visible > .file-preview-tab-dot {
+	display: none;
+}
+
+.file-preview-tab.dirty .file-preview-tab-close:hover > svg,
+.file-preview-tab.dirty .file-preview-tab-close:focus-visible > svg {
+	display: block;
+}
+
+.side-panel-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+}
+
+/* ---- views ----------------------------------------------------------------------- */
+
+.side-panel-body {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* The files / source control view and every open file stay mounted; only one shows. */
+.side-panel-view,
+.file-preview-page {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+
+.file-preview-page {
+	container-type: inline-size;
+}
+
+.side-panel-view[hidden],
+.file-preview-page[hidden] {
+	display: none;
+}
+
+/* A narrow panel keeps only the icons of the longer toolbar buttons. */
+@container (max-width: 640px) {
+	.file-viewer-action-label {
+		display: none;
+	}
+}
+
+/* The dialog has a little more room around its tabs and content. */
+.side-panel-window.overlay .side-panel-strip {
+	height: 48px;
+	padding: 0 10px 0 12px;
+}
+
+.side-panel-window.overlay .file-viewer {
+	padding: 12px 18px 18px;
+}
+
+/* Kept mounted while the settings or scheduled tasks replace the main screen; last, so it wins. */
+.side-panel[data-view][hidden] {
+	display: none;
+}

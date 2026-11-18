@@ -9,7 +9,8 @@
 
 .window-body {
 	display: grid;
-	/* Navigation rail, the screen, and the file preview panel (FilePreview.tsx) when it is open. */
+	/* Navigation rail, the screen, and the right-hand panel (SidePanel.tsx), which runs down to
+	   the window's bottom edge beside the screen's status bar. */
 	grid-template-columns: 60px minmax(0, 1fr) auto;
 	grid-template-rows: minmax(0, 1fr);
 	flex: 1;
@@ -39,9 +40,8 @@
 	grid-row: 1 / -1;
 }
 
-/* The status bar provides the gap below the panels. */
-.window-body > .app .main,
-.window-body > .app .files-panel {
+/* The status bar provides the gap below the main panel. */
+.window-body > .app .main {
 	margin-bottom: 0;
 }
 

@@ -36,6 +36,7 @@ import {
 	hostCanDeleteFiles,
 	hostTransfersFiles,
 	hostTransfersWorkspacePaths,
+	isRightPanelOpen,
 	useAppState,
 	useStore,
 } from "../lib/store.tsx";
@@ -76,7 +77,7 @@ import {
 	IconX,
 } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
-import { PanelHeading, ResizeHandle } from "./PanelChrome.tsx";
+import { PanelHeading } from "./PanelChrome.tsx";
 
 interface DirState {
 	entries?: WorkspaceFileEntry[];
@@ -1370,9 +1371,8 @@ export function FilesPanel({ workspace, composerKey }: { workspace: WorkspaceInf
 	const loading = Object.values(dirs).some((d) => d.loading);
 	return (
 		<aside className="files-panel" aria-label="工作区文件">
-			<ResizeHandle />
 			<header className="files-header files-header-with-toolbar">
-				<PanelHeading workspaceId={workspace.id} name={workspace.name} title={workspace.path} />
+				<PanelHeading name={workspace.name} title={workspace.path} />
 				<div className="files-toolbar">
 					<button
 						type="button"
@@ -1408,9 +1408,6 @@ export function FilesPanel({ workspace, composerKey }: { workspace: WorkspaceInf
 					</button>
 					<button type="button" className="ghost icon" title="全部折叠" disabled={!expanded.size} onClick={collapseAll}>
 						<IconChevronUp size={14} />
-					</button>
-					<button type="button" className="ghost icon" title="关闭面板" onClick={() => store.toggleFilesPanel(false)}>
-						<IconX size={14} />
 					</button>
 				</div>
 			</header>
@@ -1552,7 +1549,7 @@ export function FilesPanel({ workspace, composerKey }: { workspace: WorkspaceInf
 /** Header button that shows or hides the file panel. */
 export function FilesPanelToggle() {
 	const store = useStore();
-	const open = useAppState((s) => s.filesPanel);
+	const open = useAppState(isRightPanelOpen);
 	return (
 		<button
 			type="button"

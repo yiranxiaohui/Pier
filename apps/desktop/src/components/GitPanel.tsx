@@ -43,7 +43,7 @@ import {
 	IconX,
 } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
-import { PanelHeading, ResizeHandle, setGitChangeCount } from "./PanelChrome.tsx";
+import { PanelHeading, setGitChangeCount } from "./PanelChrome.tsx";
 
 /** Client-side timeout of commands that may run hooks or wait for a remote (the host allows 5 minutes). */
 const LONG_MS = 6 * 60_000;
@@ -1176,9 +1176,8 @@ export function GitPanel({ workspace, composerKey }: { workspace: WorkspaceInfo;
 
 	return (
 		<aside className="files-panel git-panel" aria-label="源代码管理">
-			<ResizeHandle />
 			<header className="files-header">
-				<PanelHeading workspaceId={workspaceId} name={workspace.name} title={status?.root ?? workspace.path} />
+				<PanelHeading name={workspace.name} title={status?.root ?? workspace.path} />
 				<button
 					type="button"
 					className="ghost icon"
@@ -1199,9 +1198,6 @@ export function GitPanel({ workspace, composerKey }: { workspace: WorkspaceInfo;
 					}}
 				>
 					<IconMore size={14} />
-				</button>
-				<button type="button" className="ghost icon" title="关闭面板" onClick={() => store.toggleFilesPanel(false)}>
-					<IconX size={14} />
 				</button>
 			</header>
 			<div className="git-body">{body}</div>

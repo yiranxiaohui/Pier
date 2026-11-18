@@ -2,36 +2,6 @@
 
 /* ---- panel tabs ------------------------------------------------------------------ */
 
-.panel-tabs {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	min-width: 0;
-	margin-left: -7px;
-}
-
-.panel-tab {
-	gap: 5px;
-	min-width: 0;
-	padding: 2px 7px;
-	border: none;
-	border-radius: 7px;
-	background: transparent;
-	font-size: 14px;
-	font-weight: 500;
-	color: var(--text-faint);
-}
-
-.panel-tab:hover:not(:disabled) {
-	background: var(--bg-hover);
-	color: var(--text-muted);
-}
-
-.panel-tab.active {
-	font-weight: 600;
-	color: var(--text);
-}
-
 .panel-tab-badge {
 	min-width: 18px;
 	padding: 0 5px;
