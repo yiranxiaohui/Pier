@@ -318,17 +318,14 @@ function SessionItem({
 				className={`session-row${selected ? " selected" : ""}`}
 				onClick={() => store.selectSession(session)}
 			>
-				{/* Only an agent other than the default one is marked: on every row the mark would say nothing. */}
-				{runtime === DEFAULT_AGENT_RUNTIME ? null : (
-					<span
-						className="session-row-agent"
-						role="img"
-						aria-label={agentRuntimeLabel(runtime)}
-						title={agentRuntimeLabel(runtime)}
-					>
-						<AgentIcon runtime={runtime} size={13} />
-					</span>
-				)}
+				<span
+					className="session-row-agent"
+					role="img"
+					aria-label={agentRuntimeLabel(runtime)}
+					title={agentRuntimeLabel(runtime)}
+				>
+					<AgentIcon runtime={runtime} size={13} />
+				</span>
 				<span className="session-row-title">{sessionTitle(session)}</span>
 				<SessionBadge session={session} />
 				<span className="session-row-time">{relativeTime(session.modifiedAt)}</span>
