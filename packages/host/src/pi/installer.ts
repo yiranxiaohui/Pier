@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join, posix, win32 } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import {
 	AGENT_INSTALL_SOURCES,
@@ -164,7 +164,9 @@ export class PiInstaller {
 		const windows = (this.options.platform ?? process.platform) === "win32";
 		// pi's installer links `pi` into a user directory it finds on PATH: offer the one Pier
 		// shares with Claude Code and Codex.
-		if (installing && !windows) env.PATH = mergePath(env.PATH, join(this.options.home ?? homedir(), ".local", "bin"));
+		if (installing && !windows) {
+			env.PATH = mergePath(env.PATH, posix.join(this.options.home ?? homedir(), ".local", "bin"), ":");
+		}
 		if (source === "npmmirror") {
 			env.npm_config_registry = NPMMIRROR_REGISTRY;
 			// Bun reads the upper-case name (Windows variables are case-insensitive anyway).
@@ -252,7 +254,8 @@ export class PiInstaller {
 			}
 			this.options.log?.(`pi: ${after.installation.version} at ${after.installation.packageDir}`);
 			if (!existing && after.installation.command && this.options.configurePath) {
-				await this.options.configurePath(dirname(after.installation.command));
+				const path = (this.options.platform ?? process.platform) === "win32" ? win32 : posix;
+				await this.options.configurePath(path.dirname(after.installation.command));
 			}
 			this.update({ state: "ready", version: after.installation.version });
 			try {
