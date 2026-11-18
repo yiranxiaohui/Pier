@@ -400,8 +400,8 @@ export function reduceChat(state: ChatState, frame: EventFrame): ChatState {
 			if (event.errorMessage) next = addNotice(next, "error", "compaction", String(event.errorMessage));
 			return next;
 		}
-		case "auto_retry_start":
-			return {
+		case "auto_retry_start": {
+			const next: ChatState = {
 				...state,
 				retry: {
 					attempt: Number(event.attempt ?? 0),
@@ -409,6 +409,16 @@ export function reduceChat(state: ChatState, frame: EventFrame): ChatState {
 					errorMessage: String(event.errorMessage ?? ""),
 				},
 			};
+			// pi retries a reply that failed (for example, cut off by a dropped connection) and leaves the
+			// failed attempt out of the session, so the transcript drops it too. Only while it is the run's
+			// last failure: `agent_start` clears `errorMessage`, and Claude Code and Codex retry within a run.
+			const last = state.messages.at(-1) as AssistantMessage | undefined;
+			if (state.errorMessage !== undefined && last?.role === "assistant" && last.stopReason === "error") {
+				next.messages = state.messages.slice(0, -1);
+				delete next.errorMessage;
+			}
+			return next;
+		}
 		case "auto_retry_end": {
 			const { retry: _r, ...rest } = state;
 			return rest;

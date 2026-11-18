@@ -255,6 +255,77 @@ describe("Claude Code runtime", () => {
 		expect(fake.options[1]).toMatchObject({ resume: session.id });
 	});
 
+	it("drops a streamed reply that broke off when Claude Code requests it again", async () => {
+		function* brokenStream(id: string): Generator<Record<string, unknown>> {
+			yield {
+				type: "stream_event",
+				event: { type: "message_start", message: { id, model: "claude-test", usage: {} } },
+			};
+			yield {
+				type: "stream_event",
+				event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
+			};
+			yield {
+				type: "stream_event",
+				event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Half a thought" } },
+			};
+			yield { type: "stream_event", event: { type: "content_block_stop", index: 0 } };
+			yield {
+				type: "stream_event",
+				event: { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
+			};
+			yield {
+				type: "stream_event",
+				event: { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Cut off mid" } },
+			};
+		}
+		fake.responder = async function* (ctx) {
+			yield* brokenStream("msg_broken");
+			if (ctx.text === "stream again") {
+				yield {
+					type: "system",
+					subtype: "api_retry",
+					attempt: 1,
+					max_retries: 10,
+					retry_delay_ms: 0,
+					error_status: null,
+					error: { message: "Connection error." },
+				};
+				yield* streamText("msg_whole", "Whole answer.");
+			} else {
+				// Claude Code falls back to a request without streaming.
+				yield {
+					type: "assistant",
+					message: {
+						id: "msg_fallback",
+						model: "claude-test",
+						content: [{ type: "text", text: "Fallback answer." }],
+						stop_reason: "end_turn",
+					},
+				};
+			}
+		};
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		for (const [text, answer] of [
+			["stream again", "Whole answer."],
+			["fall back", "Fallback answer."],
+		] as const) {
+			const mark = rec.mark();
+			await client.request("session.prompt", { sessionId: session.id, text });
+			await rec.waitForType("agent_settled", mark);
+			await rec.waitFor((f) => f.event.type === "session.status" && f.event.state === "idle", mark);
+			expect(state().messages.at(-1)).toMatchObject({
+				role: "assistant",
+				content: [{ type: "text", text: answer }],
+			});
+		}
+		expect(JSON.stringify(state().messages)).not.toMatch(/Cut off mid|Half a thought/);
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(state().messages).toEqual(snapshot.messages);
+		expect(state().streaming).toBeUndefined();
+	});
+
 	it("takes the context window from the result's model usage", async () => {
 		fake.responder = async function* () {
 			yield* streamText("msg_c", "hi");

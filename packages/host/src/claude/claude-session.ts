@@ -107,6 +107,8 @@ export interface ClaudeSessionStart {
 type Json = Record<string, unknown>;
 
 interface StreamState {
+	/** API message id. */
+	id?: string;
 	/** Claude content block index → pi content index. */
 	index: Map<number, number>;
 	kind: Map<number, string>;
@@ -380,10 +382,13 @@ export class ClaudeCodeSession extends ManagedSession {
 		switch (event.type) {
 			case "message_start": {
 				this.endFallback();
+				// A response that broke off before `message_stop` is requested again.
+				this.discardStream();
 				const message = (event.message ?? {}) as Json;
 				if (typeof message.id === "string") this.streamed.add(message.id);
 				const usage = anthropicUsage(message.usage);
 				this.stream = {
+					...(typeof message.id === "string" ? { id: message.id } : {}),
 					index: new Map(),
 					kind: new Map(),
 					json: new Map(),
@@ -492,6 +497,9 @@ export class ClaudeCodeSession extends ManagedSession {
 		const message = (m.message ?? {}) as Json;
 		const id = typeof message.id === "string" ? message.id : undefined;
 		if (id && this.streamed.has(id)) return;
+		// A whole message while a streamed one has not ended: Claude Code fell back to a request without
+		// streaming after the stream broke off, and this message replaces the streamed one.
+		if (id && this.stream?.id) this.discardStream();
 		const t = this.transcript;
 		if (this.fallbackId !== id) {
 			this.endFallback();
@@ -507,6 +515,14 @@ export class ClaudeCodeSession extends ManagedSession {
 		const usage = anthropicUsage(message.usage);
 		if (usage && t.streaming) t.setUsage(usage);
 		if (message.stop_reason) this.endFallback(stopReason(message.stop_reason));
+	}
+
+	/** Drop what a stream that never reached `message_stop` added to the reply. */
+	private discardStream(): void {
+		const stream = this.stream;
+		if (!stream) return;
+		this.stream = undefined;
+		this.transcript.discard(stream.index.values());
 	}
 
 	private endFallback(reason?: string): void {

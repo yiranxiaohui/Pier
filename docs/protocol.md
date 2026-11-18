@@ -529,7 +529,11 @@ Host 每秒检查计划。恢复后只补执行一个错过的周期；任务正
 
 `agent_settled` 表示 pi 不会再自动继续，适合作为"任务完成"通知的触发点。
 
+pi 自动重试（`auto_retry_start`）时会把失败的那次回复（`stopReason: "error"` 的 assistant 消息）移出会话上下文，之后的快照也不再包含它；客户端收到 `auto_retry_start` 时，若转录最后一条正是本轮失败的回复（其后没有新的 `agent_start`），应同样删除它，由重试的回复取而代之。
+
 Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessage`（`user` / `assistant` / `toolResult`，以及压缩后的 `compactionSummary`），只使用其中的一个子集：`agent_start`、`agent_end`、`agent_settled`、`message_start|update|end`、`tool_execution_start|update|end`、`queue_update`、`compaction_start|end`、`auto_retry_start|end`、`session_info_changed`、`thinking_level_changed`；没有 `turn_*`、`entry_appended` 与 `bash_execution_update`。assistant 消息的 `provider` 为运行时 ID。
+
+这两种运行时的回复因连接中断而断开、运行时重新请求时，Host 会删去流式消息中断开前未完成的内容（Claude Code 为整条断开的消息），并对同一条流式消息再发一次 `message_start`，携带删减后的完整内容；客户端收到流式过程中的 `message_start` 时应整体替换当前流式消息，而不是追加。
 
 ### 4.2 Pier 会话事件
 

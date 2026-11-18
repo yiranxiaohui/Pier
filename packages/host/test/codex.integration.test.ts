@@ -487,6 +487,28 @@ describe("Codex runtime", () => {
 		expect(sessions.filter((s) => s.runtime === "codex").map((s) => s.id)).toEqual([session.id]);
 	});
 
+	it("drops what a response that broke off streamed before Codex requests it again", async () => {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const { rec, state } = await open(session);
+		await client.request("session.prompt", { sessionId: session.id, text: "progress reconnect" });
+		await rec.waitForType("agent_settled");
+		await rec.waitFor((frame) => frame.event.type === "session.status" && frame.event.state === "idle");
+		expect(rec.types()).toContain("auto_retry_start");
+		const reply = state().messages.at(-1);
+		expect(reply).toMatchObject({
+			role: "assistant",
+			content: [
+				{ type: "text", text: "Progress reported.", completed: true },
+				{ type: "thinking", thinking: "Thinking", completed: true },
+				{ type: "text", text: "Reply to progress reconnect", completed: true },
+			],
+		});
+		expect(JSON.stringify(state().messages)).not.toMatch(/Cut off mid|Half a thought/);
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(state().messages).toEqual(snapshot.messages);
+		expect(state().errorMessage).toBeUndefined();
+	});
+
 	it("aborts a running turn", async () => {
 		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
 		const { rec, state } = await open(session);

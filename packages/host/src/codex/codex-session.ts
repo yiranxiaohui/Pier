@@ -410,6 +410,10 @@ export class CodexSession extends ManagedSession {
 				const error = (params.error ?? {}) as Json;
 				const message = String(error.message ?? "Codex reported an error");
 				if (params.willRetry === true) {
+					// The response broke off and Codex requests it again. Codex drops the items it had not
+					// finished (the retry starts over), so the reply drops what they streamed too.
+					t.discard(this.itemIndex.values());
+					this.itemIndex.clear();
 					this.retrying = true;
 					this.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 0, delayMs: 0, errorMessage: message });
 					this.setRunState("retrying");

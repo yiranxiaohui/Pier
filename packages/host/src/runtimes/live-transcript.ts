@@ -246,6 +246,27 @@ export class LiveTranscript {
 		this.toolCallEnd(index, call);
 	}
 
+	/**
+	 * Remove parts of the streamed message, for output the runtime takes back: a model response cut
+	 * off by a dropped connection, which the runtime requests again. Tool calls among them are no
+	 * longer pending. Content indices of the remaining parts change, so the caller must not keep any.
+	 * Clients replace their copy of the streamed message from the `message_start` this repeats.
+	 */
+	discard(indices: Iterable<number>): void {
+		const draft = this.draft;
+		if (!draft) return;
+		const drop = new Set(indices);
+		if (!draft.content.some((part, index) => part && drop.has(index))) return;
+		const content: AssistantMessage["content"] = [];
+		for (const [index, part] of draft.content.entries()) {
+			if (!part) continue;
+			if (!drop.has(index)) content.push(part);
+			else if (part.type === "toolCall") this.pending.delete(part.id);
+		}
+		draft.content = content;
+		this.emit({ type: "message_start", message: structuredClone(draft) });
+	}
+
 	setUsage(usage: Usage): void {
 		const draft = this.beginAssistant();
 		draft.usage = usage;

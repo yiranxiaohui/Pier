@@ -275,6 +275,27 @@ async function runTurn(thread, turn, text) {
 		notify("item/agentMessage/delta", { threadId, turnId, itemId: item.id, delta: "Progress reported." });
 		complete({ ...item, text: "Progress reported." });
 	}
+	if (text.includes("reconnect")) {
+		// The response breaks off mid-item and Codex requests it again: the unfinished items are dropped.
+		const reasoning = { type: "reasoning", id: id("rs"), summary: [], content: [] };
+		notify("item/started", { threadId, turnId, item: reasoning, startedAtMs: Date.now() });
+		notify("item/reasoning/summaryTextDelta", {
+			threadId,
+			turnId,
+			itemId: reasoning.id,
+			delta: "Half a thought",
+			summaryIndex: 0,
+		});
+		const item = { type: "agentMessage", id: id("msg"), text: "", phase: null };
+		notify("item/started", { threadId, turnId, item, startedAtMs: Date.now() });
+		notify("item/agentMessage/delta", { threadId, turnId, itemId: item.id, delta: "Cut off mid" });
+		notify("error", {
+			threadId,
+			turnId,
+			willRetry: true,
+			error: { message: "Reconnecting... 1/5", codexErrorInfo: null, additionalDetails: null },
+		});
+	}
 	if (text.includes("wait")) {
 		await new Promise((resolve) => {
 			const timer = setInterval(() => {

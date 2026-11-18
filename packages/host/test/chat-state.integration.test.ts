@@ -12,6 +12,7 @@ import {
 import type { PierClient } from "@pier/client";
 import type { SessionSnapshot, SessionSummary, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PiManagedSession } from "../src/pi/pi-session.ts";
 import { fauxAssistantMessage, fauxText, fauxToolCall, Recorder, startTestHost, type TestHost } from "./helpers.ts";
 
 const posixShell = process.platform !== "win32";
@@ -86,6 +87,39 @@ describe("chat-state against a live host", () => {
 			call: { name: "bash", arguments: { command: "touch made.txt" } },
 		});
 		expect(last?.kind === "assistant" && last.blocks).toEqual([{ kind: "text", text: "All done." }]);
+	});
+
+	it("replaces a reply pi retries after it broke off, as the host does", async () => {
+		t.faux.setResponses([
+			fauxAssistantMessage(fauxText("Cut off mid"), { stopReason: "error", errorMessage: "terminated" }),
+			fauxAssistantMessage("Whole answer."),
+		]);
+		const { session } = await client.request("session.create", { workspaceId: workspace.id });
+		const managed = t.host.pool.get(session.id);
+		if (!(managed instanceof PiManagedSession)) throw new Error("Expected a pi session");
+		managed.session.settingsManager.applyOverrides({ retry: { enabled: true, baseDelayMs: 1 } });
+		let state: ChatState = initialChatState(session.id, session);
+		const rec = new Recorder();
+		await client.subscribe(
+			session.id,
+			(frame) => {
+				state = reduceChat(state, frame);
+				rec.handler(frame);
+			},
+			{ workspaceId: workspace.id },
+		);
+		await rec.waitForType("session.snapshot");
+		await client.request("session.prompt", { sessionId: session.id, text: "answer" });
+		await rec.waitForType("agent_settled");
+		await rec.waitFor((f) => f.event.type === "session.status" && f.event.state === "idle");
+		expect(rec.types()).toContain("auto_retry_start");
+
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(state.messages).toEqual(snapshot.messages);
+		expect(JSON.stringify(state.messages)).not.toContain("Cut off mid");
+		expect(buildTranscript(state).map((i) => i.kind)).toEqual(["user", "assistant"]);
+		expect(state.errorMessage).toBeUndefined();
+		expect(state.retry).toBeUndefined();
 	});
 
 	it("resumes a late subscriber mid-run from the snapshot", async () => {

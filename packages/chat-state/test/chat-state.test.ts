@@ -457,6 +457,45 @@ describe("reduceChat", () => {
 		expect(state.errorMessage).toBeUndefined();
 	});
 
+	it("replaces a failed attempt pi retries", () => {
+		const user = { role: "user", content: "hi", timestamp: 1 };
+		const failed = {
+			role: "assistant",
+			content: [{ type: "text", text: "Cut off mid" }],
+			stopReason: "error",
+			errorMessage: "terminated",
+			timestamp: 2,
+		};
+		const reply = { role: "assistant", content: [{ type: "text", text: "Whole answer." }], timestamp: 3 };
+		let state = run(loaded(), [
+			{ type: "agent_start" },
+			{ type: "message_start", message: user },
+			{ type: "message_end", message: user },
+			{ type: "message_start", message: { ...failed, content: [] } },
+			{ type: "message_end", message: failed },
+			{ type: "agent_end", messages: [] },
+			{ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 100, errorMessage: "terminated" },
+		]);
+		expect(state.messages).toEqual([user]);
+		expect(state.errorMessage).toBeUndefined();
+		expect(state.retry).toMatchObject({ attempt: 1, errorMessage: "terminated" });
+		state = run(state, [
+			{ type: "agent_start" },
+			{ type: "message_start", message: { ...reply, content: [] } },
+			{ type: "message_end", message: reply },
+			{ type: "auto_retry_end", success: true, attempt: 1 },
+		]);
+		expect(state.messages).toEqual([user, reply]);
+
+		// A run that starts after a failed one keeps it, whatever the new run retries.
+		state = run(state, [
+			{ type: "message_end", message: failed },
+			{ type: "agent_start" },
+			{ type: "auto_retry_start", attempt: 1, maxAttempts: 0, delayMs: 0, errorMessage: "Reconnecting" },
+		]);
+		expect(state.messages).toEqual([user, reply, failed]);
+	});
+
 	it("handles session replacement and close", () => {
 		let state = loaded();
 		state = run(state, [{ type: "session.replaced", previousSessionId: "s1", session: { ...summary, id: "s2" } }]);
