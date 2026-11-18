@@ -9,7 +9,7 @@ import { TerminalPanel } from "./TerminalPanel.tsx";
 
 const TABS = [
 	{ id: "shell", label: "Shell 终端", icon: IconTerminal },
-	{ id: "files", label: "文件传输", icon: IconFolder },
+	{ id: "files", label: "文件", icon: IconFolder },
 	{ id: "connection", label: "连接管理", icon: IconLink },
 ] as const;
 
@@ -95,7 +95,7 @@ export function HostHub({ footer }: { footer?: ReactNode }) {
 					computer.online ? (
 						<HostFiles key={node} computer={computer} />
 					) : (
-						<p className="host-notice">连接主机后可传输文件。</p>
+						<p className="host-notice">连接主机后可管理文件。</p>
 					)
 				) : (
 					<div className="host-connections" key={node}>

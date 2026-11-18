@@ -69,7 +69,7 @@ function insertAtCaret(area: HTMLTextAreaElement, text: string, onChange: (value
 	onChange(area.value);
 }
 
-function TextEditor({
+export function TextEditor({
 	value,
 	path,
 	onChange,
@@ -126,7 +126,7 @@ function TextEditor({
 const MARKDOWN = /\.(md|markdown|mdx)$/i;
 const HTML = /\.html?$/i;
 
-function TextView({ file }: { file: WorkspaceFileContent }) {
+export function TextView({ file }: { file: WorkspaceFileContent }) {
 	const text = file.text ?? "";
 	const lines = useMemo(() => {
 		const count = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);

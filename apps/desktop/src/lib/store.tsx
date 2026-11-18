@@ -3656,6 +3656,11 @@ export class PierStore {
 		return Boolean(this.bridge.revealPath) && this.isLocalNode;
 	}
 
+	/** Whether this computer's paths can be shown in the system file manager, whatever is on screen. */
+	get canRevealLocalPaths(): boolean {
+		return Boolean(this.bridge.revealPath);
+	}
+
 	revealPath(path: string): void {
 		const reveal = this.bridge.revealPath;
 		if (!reveal) return;

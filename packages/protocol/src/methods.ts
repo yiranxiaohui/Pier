@@ -243,6 +243,29 @@ export const MethodParamsSchemas = {
 		size: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 		overwrite: z.boolean().optional(),
 	}),
+	/**
+	 * Manage files in host directories outside registered workspaces (1.58), with the same rules as
+	 * the matching `workspace.*` methods. `path` is relative to the absolute `directory`.
+	 */
+	"host.readFile": z.object({ directory: z.string().min(1).max(4096), path: z.string().min(1).max(4096) }),
+	"host.writeFile": z.object({
+		directory: z.string().min(1).max(4096),
+		path: z.string().min(1).max(4096),
+		text: z.string().max(4 * 1024 * 1024),
+		expectedModifiedAt: z.string().max(64).optional(),
+	}),
+	"host.createFile": z.object({ directory: z.string().min(1).max(4096), path: z.string().min(1).max(4096) }),
+	"host.createDirectory": z.object({ directory: z.string().min(1).max(4096), path: z.string().min(1).max(4096) }),
+	"host.deletePath": z.object({ directory: z.string().min(1).max(4096), path: z.string().min(1).max(4096) }),
+	/** Copy, move or rename a complete path between host directories (1.58). */
+	"host.transferPath": z.object({
+		directory: z.string().min(1).max(4096),
+		path: z.string().min(1).max(4096),
+		destinationDirectory: z.string().min(1).max(4096),
+		destinationPath: z.string().min(1).max(4096),
+		mode: z.enum(["copy", "move"]),
+		overwrite: z.boolean().optional(),
+	}),
 	/** CPU, memory, disk and network usage of the host's computer (1.12). */
 	"host.stats": z.object({}).optional(),
 	/** npm, pnpm and bun on the host's computer, for pi's `npmCommand` setting (1.17). */
@@ -1020,6 +1043,12 @@ export interface MethodResults {
 	"host.files": WorkspaceFilesResult & { directory: string; parent?: string; separator: string };
 	"host.readBytes": WorkspaceFileBytes;
 	"host.uploadStart": WorkspaceUploadStart;
+	"host.readFile": WorkspaceFileContent;
+	"host.writeFile": WorkspaceFileWriteResult;
+	"host.createFile": WorkspaceFileWriteResult;
+	"host.createDirectory": { path: string };
+	"host.deletePath": WorkspacePathDeleteResult;
+	"host.transferPath": WorkspacePathTransferResult;
 	"host.stats": HostStats;
 	"host.packageManagers": PackageManagerDetection;
 	"update.status": AppUpdateStatus;

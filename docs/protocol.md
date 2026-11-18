@@ -77,13 +77,19 @@
 
 ## 3. 方法
 
-协议 1.57 新增主机目录传输，已认证的本机和配对客户端可以在 Host 进程的文件权限范围内使用，无需登记工作区。
+协议 1.57 新增主机目录传输，1.58 新增主机目录文件管理。已认证的本机和配对客户端可以在 Host 进程的文件权限范围内使用，无需登记工作区。`directory` 必须是绝对路径（否则 `BAD_REQUEST`），`path` 是相对它的路径，规则同 `workspace.files`（不能是绝对路径、不能含 `..`，需要条目的方法不能指向目录本身）。主机目录不是边界：1.58 起除 `host.uploadStart` 外，路径中的符号链接无论指向哪里都会被跟随，因此指向其他目录的链接列为 `directory`，链接的文件可以预览和下载；结果中的路径仍相对 `directory`。其他错误、冲突、覆盖与删除规则与对应的 `workspace.*` 方法相同。远程调用 `host.readBytes` 的首块以及除 `host.files` 外的其他方法写入审计日志（目录、路径、写入字节数或复制 / 移动的目标，不记录文件内容）。
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
 | `host.files` | `{ directory? }` | 省略目录时从主目录开始。返回 `WorkspaceFilesResult` 及绝对目录 `directory`、可选上级 `parent` 和平台分隔符 `separator`。 |
 | `host.readBytes` | `{ directory, path, offset, length }` | 读取绝对目录下指定相对路径的一块，返回 `WorkspaceFileBytes`。 |
 | `host.uploadStart` | `{ directory, path, size, overwrite? }` | 返回 `WorkspaceUploadStart`。同一连接通过 `workspace.uploadChunk`、`workspace.uploadFinish` 或 `workspace.uploadCancel` 继续操作。 |
+| `host.readFile` | `{ directory, path }` | `WorkspaceFileContent`（1.58），类型与大小限制同 `workspace.readFile`。 |
+| `host.writeFile` | `{ directory, path, text, expectedModifiedAt? }` | `{ path, size, modifiedAt }`（1.58），用 UTF-8 文本覆盖已有文件，规则同 `workspace.writeFile`。 |
+| `host.createFile` | `{ directory, path }` | `{ path, size, modifiedAt }`（1.58），规则同 `workspace.createFile`，缺少的上级目录自动创建，不覆盖已有条目。 |
+| `host.createDirectory` | `{ directory, path }` | `{ path }`（1.58），规则同 `workspace.createDirectory`。 |
+| `host.deletePath` | `{ directory, path }` | `{ path, kind }`（1.58），永久删除文件、目录（连同内容）或符号链接本身，规则同 `workspace.deletePath`。 |
+| `host.transferPath` | `{ directory, path, destinationDirectory, destinationPath, mode: "copy"\|"move", overwrite? }` | `{ sourcePath, path, kind }`（1.58），在同一 Host 的两个目录之间复制、移动或重命名完整项目，规则同 `workspace.transferPath`；`sourcePath` 相对 `directory`，`path` 相对 `destinationDirectory`。 |
 
 参数中的 `sessionId` 均为 pi 会话 ID。标注 🔒 的方法仅本地桌面连接可调用（`LOCAL_ONLY_METHODS`），它们决定谁能连接这台电脑：设备修改、配对、远程访问配置与 `peer.*` 写操作，另外还有在本机回环地址上监听的 `loopback.*`（1.28）。其余方法对已配对的远程设备（手机和其他电脑）同样开放（1.10）：配对即完全信任，可以管理工作区与审批策略、编辑文件、配置服务商与模型、账号和扩展；1.9 及以前这些方法也仅限本地。
 

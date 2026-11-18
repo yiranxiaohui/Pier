@@ -73,7 +73,8 @@ export function pasteNameError(name: string, existingName: string): string | und
 	return undefined;
 }
 
-function suggestedPasteName(name: string, kind: string): string {
+/** The name offered when a pasted entry already exists, e.g. `a (副本).txt`. */
+export function suggestedPasteName(name: string, kind: string): string {
 	const dot = kind === "file" ? name.lastIndexOf(".") : -1;
 	const stem = dot > 0 ? name.slice(0, dot) : name;
 	const extension = dot > 0 ? name.slice(dot) : "";
@@ -168,7 +169,7 @@ class CancelledError extends Error {
 	}
 }
 
-function errorMessage(error: unknown): string {
+export function transferErrorMessage(error: unknown): string {
 	if (error instanceof PierProtocolError) {
 		if (error.code === "NOT_FOUND") return error.message.startsWith("Upload") ? "上传已失效，请重试" : "文件不存在";
 		if (error.code === "FORBIDDEN") return "没有权限，或路径位于工作区之外";
@@ -237,7 +238,7 @@ export async function downloadFile(
 	try {
 		client = transferClient(store, location);
 	} catch (error) {
-		store.toast("error", errorMessage(error));
+		store.toast("error", transferErrorMessage(error));
 		return;
 	}
 	const name = baseName(path);
@@ -245,7 +246,7 @@ export async function downloadFile(
 	try {
 		sink = await store.saveLocalFile(name);
 	} catch (error) {
-		store.toast("error", `无法保存文件：${errorMessage(error)}`);
+		store.toast("error", `无法保存文件：${transferErrorMessage(error)}`);
 		return;
 	}
 	if (!sink) return;
@@ -281,7 +282,7 @@ export async function downloadFile(
 	} catch (error) {
 		await sink.abort().catch(() => {});
 		if (error instanceof CancelledError) transfers.update(item.id, { state: "cancelled" });
-		else transfers.update(item.id, { state: "error", error: errorMessage(error) });
+		else transfers.update(item.id, { state: "error", error: transferErrorMessage(error) });
 	}
 }
 
@@ -300,7 +301,7 @@ export async function uploadFiles(
 	try {
 		client = transferClient(store, location);
 	} catch (error) {
-		store.toast("error", errorMessage(error));
+		store.toast("error", transferErrorMessage(error));
 		return;
 	}
 	const key = "node" in location ? hostTransferKey(location.node) : location.id;
@@ -379,9 +380,14 @@ export async function uploadFiles(
 				const kind = (error.data as { kind?: string } | undefined)?.kind;
 				transfers.update(transfer.id, {
 					state: "error",
-					error: kind === "directory" ? "同名文件夹已存在" : kind === "file" ? "同名文件已存在" : errorMessage(error),
+					error:
+						kind === "directory"
+							? "同名文件夹已存在"
+							: kind === "file"
+								? "同名文件已存在"
+								: transferErrorMessage(error),
 				});
-			} else transfers.update(transfer.id, { state: "error", error: errorMessage(error) });
+			} else transfers.update(transfer.id, { state: "error", error: transferErrorMessage(error) });
 		}
 		store.bumpFiles(key);
 	}
@@ -425,7 +431,7 @@ async function runWorkspacePaste(
 			throw new Error("跨电脑暂只支持普通文件；文件夹和符号链接可在同一台电脑的工作区之间复制或移动");
 		}
 	} catch (error) {
-		store.toast("error", errorMessage(error));
+		store.toast("error", transferErrorMessage(error));
 		return;
 	}
 	const queued = clipboard.entries.map((entry) => {
@@ -535,7 +541,7 @@ async function runWorkspacePaste(
 				transfers.update(item.transfer.id, { state: "cancelled" });
 			} else {
 				failures++;
-				transfers.update(item.transfer.id, { state: "error", error: errorMessage(error) });
+				transfers.update(item.transfer.id, { state: "error", error: transferErrorMessage(error) });
 			}
 		} finally {
 			store.bumpFiles(sourceWorkspaceId);
@@ -615,7 +621,7 @@ async function copyBetweenHosts(
 					expectedSize,
 				});
 			} catch (error) {
-				throw new Error(`文件已复制，但删除源文件失败：${errorMessage(error)}`);
+				throw new Error(`文件已复制，但删除源文件失败：${transferErrorMessage(error)}`);
 			}
 		}
 	} finally {

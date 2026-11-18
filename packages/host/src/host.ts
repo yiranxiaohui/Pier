@@ -48,6 +48,7 @@ import {
 import { DiagnosticLog } from "./diagnostic-log.ts";
 import { GitService, samePath } from "./git.ts";
 import { absoluteHostDirectory, listHostDirectories } from "./host-directories.ts";
+import { hostFileTarget } from "./host-files.ts";
 import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
 import { errorMessage, type ManagedSession } from "./managed-session.ts";
@@ -246,6 +247,12 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"workspace.transferPath",
 	"workspace.uploadStart",
 	"host.uploadStart",
+	"host.readFile",
+	"host.writeFile",
+	"host.createFile",
+	"host.createDirectory",
+	"host.deletePath",
+	"host.transferPath",
 	"workspace.uploadFinish",
 	"model.setDefault",
 	"provider.login",
@@ -399,7 +406,26 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 			};
 		case "host.readBytes":
 		case "host.uploadStart":
+		case "host.readFile":
+		case "host.createFile":
+		case "host.createDirectory":
+		case "host.deletePath":
 			return { directory: params.directory, path: params.path };
+		case "host.writeFile":
+			return {
+				directory: params.directory,
+				path: params.path,
+				bytes: typeof params.text === "string" ? Buffer.byteLength(params.text) : 0,
+			};
+		case "host.transferPath":
+			return {
+				directory: params.directory,
+				path: params.path,
+				destinationDirectory: params.destinationDirectory,
+				destinationPath: params.destinationPath,
+				mode: params.mode,
+				overwrite: params.overwrite === true,
+			};
 		case "workspace.uploadFinish":
 			return { uploadId: params.uploadId };
 		case "model.setDefault":
@@ -1211,17 +1237,24 @@ export class PierHost implements RequestHandler {
 			"host.logs": () => ({ lines: this.diagnostics.read() }),
 			"host.listDirectories": (_ctx, params) => listHostDirectories(params?.path),
 			"host.files": async (_ctx, params) => {
-				const directory = absoluteHostDirectory(params.directory);
+				const target = hostFileTarget(params.directory);
+				const { directory } = target;
 				const parent = dirname(directory);
+				const listing = await listWorkspaceDirectory(target.root, target.path);
 				return {
-					...(await listWorkspaceDirectory(directory)),
+					...listing,
+					path: "",
+					entries: listing.entries.map((entry) => ({ ...entry, path: target.local(entry.path) })),
 					directory,
 					separator: sep,
 					...(directory !== parent ? { parent } : {}),
 				};
 			},
-			"host.readBytes": (_ctx, params) =>
-				readWorkspaceBytes(absoluteHostDirectory(params.directory), params.path, params.offset, params.length),
+			"host.readBytes": async (_ctx, params) => {
+				const target = hostFileTarget(params.directory, params.path);
+				const result = await readWorkspaceBytes(target.root, target.path, params.offset, params.length);
+				return { ...result, path: target.local(result.path) };
+			},
 			"host.uploadStart": (ctx, params) =>
 				this.uploads.start(
 					ctx.connection.connectionId,
@@ -1230,6 +1263,44 @@ export class PierHost implements RequestHandler {
 					params.size,
 					params.overwrite,
 				),
+			"host.readFile": async (_ctx, params) => {
+				const target = hostFileTarget(params.directory, params.path);
+				const result = await readWorkspaceFile(target.root, target.path);
+				return { ...result, path: target.local(result.path) };
+			},
+			"host.writeFile": async (_ctx, params) => {
+				const target = hostFileTarget(params.directory, params.path);
+				const result = await writeWorkspaceFile(target.root, target.path, params.text, params.expectedModifiedAt);
+				return { ...result, path: target.local(result.path) };
+			},
+			"host.createFile": async (_ctx, params) => {
+				const target = hostFileTarget(params.directory, params.path);
+				const result = await createWorkspaceFile(target.root, target.path);
+				return { ...result, path: target.local(result.path) };
+			},
+			"host.createDirectory": async (_ctx, params) => {
+				const target = hostFileTarget(params.directory, params.path);
+				const result = await createWorkspaceDirectory(target.root, target.path);
+				return { path: target.local(result.path) };
+			},
+			"host.deletePath": async (_ctx, params) => {
+				const target = hostFileTarget(params.directory, params.path);
+				const result = await deleteWorkspacePath(target.root, target.path);
+				return { ...result, path: target.local(result.path) };
+			},
+			"host.transferPath": async (_ctx, params) => {
+				const source = hostFileTarget(params.directory, params.path);
+				const destination = hostFileTarget(params.destinationDirectory, params.destinationPath);
+				const result = await transferWorkspacePath(
+					source.root,
+					source.path,
+					destination.root,
+					destination.path,
+					params.mode,
+					params.overwrite,
+				);
+				return { ...result, sourcePath: source.local(result.sourcePath), path: destination.local(result.path) };
+			},
 			"host.stats": () => this.stats.sample(),
 			"host.packageManagers": async () => ({ managers: await detectPackageManagers() }),
 

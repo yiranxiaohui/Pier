@@ -13,7 +13,6 @@
 .host-sidebar-heading,
 .host-heading,
 .host-file-toolbar,
-.host-file-row,
 .host-legacy-files {
 	display: flex;
 	align-items: center;
@@ -52,8 +51,7 @@ button.host-choice.selected {
 	gap: 3px;
 }
 .host-choice-name strong,
-.host-choice-name small,
-.host-file-name span {
+.host-choice-name small {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -147,21 +145,166 @@ button.host-choice.selected {
 	flex: 1;
 	overflow: auto;
 	padding: 4px 12px;
+	outline: none;
+}
+.host-file-list.drop-target {
+	background: var(--accent-soft);
+	box-shadow: inset 0 0 0 2px var(--accent);
+}
+.host-file-toolbar-divider {
+	width: 1px;
+	height: 20px;
+	background: var(--border);
+}
+.host-file-toolbar button.ghost.icon.active {
+	color: var(--accent-text);
+}
+.host-file-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	padding: 8px 16px;
+	border-bottom: 1px solid var(--border);
+	background: var(--accent-soft);
+	color: var(--text-muted);
+	font-size: 12px;
+}
+/* Name, size, modified time and the hover actions share one grid in the header and every row. */
+.host-file-header,
+.host-file-entry {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr) auto 84px 120px;
+	align-items: center;
+	column-gap: 8px;
+}
+.host-file-header {
+	grid-template-columns: minmax(0, 1fr) 84px 120px 64px;
+	padding: 4px 12px 4px 18px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+}
+button.host-file-sort {
+	justify-content: flex-start;
+	gap: 4px;
+	padding: 3px 6px;
+	margin-left: -6px;
+	color: var(--text-muted);
+	font-size: 12px;
+	font-weight: 500;
+}
+button.host-file-sort.active {
+	color: var(--text);
 }
 .host-file-row {
-	min-height: 37px;
+	position: relative;
+	min-height: 36px;
 	border-bottom: 1px solid var(--border);
+	border-radius: 6px;
 	padding-right: 4px;
 }
-.host-file-name,
-button.host-file-name {
-	display: flex;
+.host-file-row:hover,
+.host-file-row.menu-open {
+	background: var(--bg-hover);
+}
+.host-file-row.selected {
+	background: var(--accent-soft);
+}
+.host-file-row.drop-target {
+	box-shadow: inset 0 0 0 2px var(--accent);
+}
+button.host-file-entry {
 	flex: 1;
 	min-width: 0;
+	height: 36px;
+	padding: 0 6px;
+	grid-template-columns: 20px minmax(0, 1fr) auto 84px 120px;
+	justify-content: stretch;
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	text-align: left;
+	font-weight: 400;
+}
+button.host-file-entry:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+.host-file-icon {
+	display: flex;
+	color: var(--text-muted);
+}
+.host-file-icon.dir {
+	color: var(--accent-text);
+}
+.host-file-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.host-file-link {
+	color: var(--text-faint);
+}
+.host-file-size,
+.host-file-time {
+	color: var(--text-muted);
+	font-size: 12px;
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+.host-file-size {
+	grid-column: 4;
+}
+.host-file-time {
+	grid-column: 5;
+}
+.host-file-actions {
+	display: flex;
+	justify-content: flex-end;
+	width: 64px;
+	gap: 2px;
+	visibility: hidden;
+}
+.host-file-row:hover .host-file-actions,
+.host-file-row.selected .host-file-actions,
+.host-file-row.menu-open .host-file-actions,
+.host-file-row:focus-within .host-file-actions {
+	visibility: visible;
+}
+.host-file-row.dim .host-file-label,
+.host-file-row.cut .host-file-entry,
+.host-file-row.dragging .host-file-entry {
+	opacity: 0.5;
+}
+.host-file-status {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 16px;
+	border-top: 1px solid var(--border);
+	color: var(--text-muted);
+	font-size: 12px;
+}
+.host-file-status > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.host-file-viewer.modal {
+	width: min(1100px, calc(100vw - 48px));
+	height: calc(100vh - 64px);
+}
+.host-file-viewer .modal-body {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	padding: 0 10px 10px;
+	overflow: hidden;
+}
+.host-file-row {
+	display: flex;
 	align-items: center;
-	justify-content: flex-start;
-	gap: 8px;
-	padding: 6px;
 }
 .host-notice {
 	color: var(--text-muted);

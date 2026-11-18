@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CLOSE_DEVICE_REVOKED, PierClient } from "@pier/client";
@@ -107,6 +116,78 @@ describe("computer-to-computer (peers)", () => {
 			"BAD_REQUEST",
 		);
 		expect((await client.request("workspace.list")).workspaces).toEqual([bWorkspace]);
+	});
+
+	it("manages files in unregistered directories of the paired host", async () => {
+		const peer = await pair();
+		const client = viaA(peer.id);
+		await client.connect();
+		const directory = join(b.root, "manage");
+		const other = join(b.root, "other");
+		mkdirSync(directory);
+		mkdirSync(other);
+		expect(await client.request("host.createDirectory", { directory, path: "docs/notes" })).toEqual({
+			path: "docs/notes",
+		});
+		const created = await client.request("host.createFile", { directory, path: "docs/notes/todo.md" });
+		expect(created).toMatchObject({ path: "docs/notes/todo.md", size: 0 });
+		await expectCode(client.request("host.createFile", { directory, path: "docs/notes/todo.md" }), "CONFLICT");
+		const written = await client.request("host.writeFile", {
+			directory,
+			path: "docs/notes/todo.md",
+			text: "# todo\n",
+			expectedModifiedAt: created.modifiedAt,
+		});
+		expect(written.size).toBe(7);
+		expect(
+			await client.request("host.readFile", { directory: join(directory, "docs"), path: "notes/todo.md" }),
+		).toMatchObject({ kind: "text", text: "# todo\n" });
+		expect(
+			await client.request("host.transferPath", {
+				directory: join(directory, "docs", "notes"),
+				path: "todo.md",
+				destinationDirectory: other,
+				destinationPath: "copy.md",
+				mode: "copy",
+			}),
+		).toEqual({ sourcePath: "todo.md", path: "copy.md", kind: "file" });
+		await client.request("host.transferPath", {
+			directory,
+			path: "docs",
+			destinationDirectory: directory,
+			destinationPath: "renamed",
+			mode: "move",
+		});
+		expect(readFileSync(join(directory, "renamed", "notes", "todo.md"), "utf8")).toBe("# todo\n");
+		expect(readFileSync(join(other, "copy.md"), "utf8")).toBe("# todo\n");
+		expect(await client.request("host.deletePath", { directory, path: "renamed" })).toEqual({
+			path: "renamed",
+			kind: "directory",
+		});
+		expect(existsSync(join(directory, "renamed"))).toBe(false);
+		await expectCode(client.request("host.deletePath", { directory, path: "../other" }), "BAD_REQUEST");
+		await expectCode(client.request("host.deletePath", { directory, path: "." }), "BAD_REQUEST");
+		await expectCode(client.request("host.createFile", { directory: "relative", path: "a" }), "BAD_REQUEST");
+		expect(existsSync(other)).toBe(true);
+		// A host directory is no boundary: links to other directories open like any other entry.
+		symlinkSync(other, join(directory, "linked"));
+		symlinkSync(join(other, "copy.md"), join(directory, "linked.md"));
+		expect((await client.request("host.files", { directory })).entries).toEqual([
+			expect.objectContaining({ name: "linked", path: "linked", kind: "directory", symlink: true }),
+			expect.objectContaining({ name: "linked.md", path: "linked.md", kind: "file", symlink: true }),
+		]);
+		expect(await client.request("host.readFile", { directory, path: "linked.md" })).toMatchObject({
+			path: "linked.md",
+			text: "# todo\n",
+		});
+		expect(
+			await client.request("host.readBytes", { directory, path: "linked/copy.md", offset: 0, length: 2 }),
+		).toMatchObject({ path: "linked/copy.md", data: Buffer.from("# ").toString("base64") });
+		expect(await client.request("host.deletePath", { directory, path: "linked" })).toEqual({
+			path: "linked",
+			kind: "other",
+		});
+		expect(existsSync(join(other, "copy.md"))).toBe(true);
 	});
 
 	it("pairs with the host key, then drives the other computer through the local gateway", async () => {
