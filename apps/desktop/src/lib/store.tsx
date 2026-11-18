@@ -2057,6 +2057,12 @@ export class PierStore {
 		return client.request("runtime.installStatus", { runtime, ...(refresh ? { refresh } : {}) });
 	}
 
+	async setAgentAutoUpdate(runtime: AgentConfigRuntime, enabled: boolean): Promise<void> {
+		const client = this.settingsClient;
+		if (!client) throw this.settingsOffline();
+		await client.request("runtime.setAutoUpdate", { runtime, enabled });
+	}
+
 	/** `source` needs protocol 1.50; older Hosts always download from the official route. */
 	async installAgent(
 		runtime: AgentConfigRuntime,

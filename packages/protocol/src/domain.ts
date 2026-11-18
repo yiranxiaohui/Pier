@@ -1324,6 +1324,8 @@ export interface AgentInstallationStatus {
 export interface AgentInstallationResult {
 	installation: AgentInstallationStatus;
 	agent: AgentRuntimeInfo;
+	/** Host preference for background updates of this runtime (1.56, default on). */
+	autoUpdate?: boolean;
 }
 
 /**

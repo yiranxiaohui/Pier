@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
-import { type ApprovalPolicy, ApprovalPolicySchema, type WorkspaceInfo } from "@pier/protocol";
+import {
+	type AgentConfigRuntime,
+	AgentConfigRuntimeSchema,
+	type AgentInstallSource,
+	AgentInstallSourceSchema,
+	type ApprovalPolicy,
+	ApprovalPolicySchema,
+	type WorkspaceInfo,
+} from "@pier/protocol";
 import { z } from "zod";
 
 const WorkspaceSchema = z.object({
@@ -43,6 +51,9 @@ export const PierConfigSchema = z.object({
 	workspaces: z.array(WorkspaceSchema),
 	/** Added in 0.2; absent in older files means remote access off. */
 	remote: RemoteConfigSchema.optional(),
+	agentUpdates: z
+		.partialRecord(AgentConfigRuntimeSchema, z.object({ enabled: z.boolean(), source: AgentInstallSourceSchema }))
+		.optional(),
 });
 
 export type PierConfig = z.infer<typeof PierConfigSchema>;
@@ -92,8 +103,9 @@ export class ConfigStore {
 		return parsed.data;
 	}
 
-	private save(): void {
-		writePrivateFile(this.path, `${JSON.stringify(this.config, null, 2)}\n`);
+	private save(config = this.config): void {
+		writePrivateFile(this.path, `${JSON.stringify(config, null, 2)}\n`);
+		this.config = config;
 	}
 
 	get hostId(): string {
@@ -106,6 +118,17 @@ export class ConfigStore {
 
 	get defaultPolicy(): ApprovalPolicy {
 		return this.config.defaultPolicy;
+	}
+
+	agentUpdate(runtime: AgentConfigRuntime): { enabled: boolean; source: AgentInstallSource } {
+		return this.config.agentUpdates?.[runtime] ?? { enabled: true, source: "official" };
+	}
+
+	setAgentUpdate(runtime: AgentConfigRuntime, patch: { enabled?: boolean; source?: AgentInstallSource }): void {
+		const previous = this.agentUpdate(runtime);
+		const next = { ...previous, ...patch };
+		if (next.enabled === previous.enabled && next.source === previous.source) return;
+		this.save({ ...this.config, agentUpdates: { ...this.config.agentUpdates, [runtime]: next } });
 	}
 
 	get remote(): RemoteConfig {

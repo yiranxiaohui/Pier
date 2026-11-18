@@ -10,10 +10,12 @@ import { UPDATE_ROUTES, updateDownloadUrl } from "@pier/client";
 import {
 	AGENT_INSTALL_SOURCES,
 	type AgentConfigRuntime,
+	AgentConfigRuntimeSchema,
 	type AgentInstallationStatus,
 	type AgentInstallSource,
 	PierProtocolError,
 } from "@pier/protocol";
+import { compareVersions } from "../peers/ssh/remote.ts";
 import { probeVersion } from "./executable.ts";
 import { configureInstallationPath } from "./installation-path.ts";
 import { publishAgentCommand, sharedAgentExecutable, sharedAgentPaths } from "./shared-installation.ts";
@@ -25,6 +27,8 @@ const CODEX_RELEASE = "https://api.github.com/repos/openai/codex/releases/latest
 const VERSION = /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/;
 const CHECKSUM = /^[a-f0-9]{64}$/i;
 const MAX_DOWNLOAD_BYTES = 600 * 1024 * 1024;
+const AUTO_UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
+const AUTO_UPDATE_DISABLED = new Error("后台自动更新已关闭");
 
 export function installationTarget(
 	platform = process.platform,
@@ -52,6 +56,7 @@ export interface AgentInstallerOptions {
 	configurePath?: typeof configureInstallationPath;
 	fetch?: typeof fetch;
 	probe?: typeof probeVersion;
+	autoUpdateTarget?: (runtime: AgentConfigRuntime) => { executable: string; source: AgentInstallSource } | undefined;
 	onInstalled?: (runtime: AgentConfigRuntime) => Promise<void> | void;
 }
 
@@ -69,6 +74,8 @@ interface Release {
 interface Job {
 	runtime: AgentConfigRuntime;
 	source: AgentInstallSource;
+	/** The active command to check; manual jobs may also do a first-time installation. */
+	autoExecutable?: string;
 	abort: AbortController;
 	done: Promise<void>;
 }
@@ -111,6 +118,7 @@ function extract(
 export class AgentInstaller {
 	private readonly statuses = new Map<AgentConfigRuntime, AgentInstallationStatus>();
 	private readonly jobs = new Map<AgentConfigRuntime, Job>();
+	private autoTimer?: ReturnType<typeof setTimeout>;
 	private closed = false;
 
 	constructor(
@@ -139,8 +147,41 @@ export class AgentInstaller {
 		return this.statuses.get(runtime) ?? { runtime, state: "idle" };
 	}
 
+	startAutoUpdates(): void {
+		const targetFor = this.options.autoUpdateTarget;
+		if (!targetFor || this.closed || this.autoTimer) return;
+		const check = () => {
+			for (const runtime of AgentConfigRuntimeSchema.options) {
+				if (this.jobs.has(runtime)) continue;
+				try {
+					const target = targetFor(runtime);
+					if (target) this.startJob(runtime, target.source, target.executable);
+				} catch (error) {
+					this.statuses.set(runtime, { runtime, state: "error", error: String(error) });
+				}
+			}
+			this.autoTimer = setTimeout(check, AUTO_UPDATE_INTERVAL);
+			this.autoTimer.unref();
+		};
+		this.autoTimer = setTimeout(check, 60_000);
+		this.autoTimer.unref();
+	}
+
+	disableAutoUpdate(runtime: AgentConfigRuntime): void {
+		const job = this.jobs.get(runtime);
+		if (job?.autoExecutable) job.abort.abort(AUTO_UPDATE_DISABLED);
+	}
+
 	/** Choosing another route while a job still fetches metadata or downloads restarts it on that route. */
 	start(runtime: AgentConfigRuntime, source: AgentInstallSource = "official"): AgentInstallationStatus {
+		return this.startJob(runtime, source);
+	}
+
+	private startJob(
+		runtime: AgentConfigRuntime,
+		source: AgentInstallSource,
+		autoExecutable?: string,
+	): AgentInstallationStatus {
 		if (this.closed) throw new PierProtocolError("CONFLICT", "Pier Host 正在退出");
 		if (!AGENT_INSTALL_SOURCES[runtime].includes(source)) {
 			throw new PierProtocolError("BAD_REQUEST", "这个 Agent 不支持所选下载线路");
@@ -151,7 +192,7 @@ export class AgentInstaller {
 		}
 		installationTarget();
 		previous?.abort.abort(new Error("已切换下载线路"));
-		const job: Job = { runtime, source, abort: new AbortController(), done: Promise.resolve() };
+		const job: Job = { runtime, source, autoExecutable, abort: new AbortController(), done: Promise.resolve() };
 		this.statuses.set(runtime, { runtime, state: "checking", source });
 		// Queue the job so it is registered before any asynchronous work can finish. A replaced job
 		// removes its staging files first, so two jobs never write the same installation.
@@ -286,8 +327,22 @@ export class AgentInstaller {
 			const paths = sharedAgentPaths(runtime, home);
 			const release = await this.release(runtime, job.source, signal);
 			this.update(job, { version: release.version });
-			const current = AgentInstaller.executable(this.directory, runtime, home);
-			const upToDate = current && (await (this.options.probe ?? probeVersion)(current)) === release.version;
+			const current = job.autoExecutable ?? AgentInstaller.executable(this.directory, runtime, home);
+			const installed = current && (await (this.options.probe ?? probeVersion)(current));
+			if (job.autoExecutable) {
+				signal.throwIfAborted();
+				if (!installed || !VERSION.test(installed))
+					throw new Error("无法确认已安装的 Agent 版本，将在下次后台检查时重试");
+				// Background checks only move forward to stable releases. Build metadata has no precedence.
+				if (
+					!/^\d+\.\d+\.\d+$/.test(release.version) ||
+					compareVersions(release.version, installed.replace(/\+.*/, "")) <= 0
+				) {
+					this.update(job, { state: "idle" });
+					return;
+				}
+			}
+			const upToDate = current && installed === release.version;
 			if (upToDate && sharedAgentExecutable(runtime, home)) {
 				signal.throwIfAborted();
 				await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
@@ -329,6 +384,14 @@ export class AgentInstaller {
 			signal.throwIfAborted();
 			const version = await (this.options.probe ?? probeVersion)(executable, 15_000);
 			if (version !== release.version) throw new Error("安装后版本验证失败，已保留之前的 Agent，请重试");
+			if (job.autoExecutable) {
+				// An external updater or uninstall may have changed the active CLI during the download.
+				const active = this.options.autoUpdateTarget?.(runtime)?.executable;
+				if (active !== job.autoExecutable || (await (this.options.probe ?? probeVersion)(active)) !== installed) {
+					this.update(job, { state: "idle" });
+					return;
+				}
+			}
 			signal.throwIfAborted();
 			const destination = join(root, `${release.version}-${randomUUID()}`);
 			await rename(staging, destination);
@@ -345,7 +408,11 @@ export class AgentInstaller {
 			await this.options.onInstalled?.(runtime);
 			this.update(job, { state: "ready" });
 		} catch (error) {
-			this.update(job, { state: "error", error: error instanceof Error ? error.message : String(error) });
+			if (signal.reason === AUTO_UPDATE_DISABLED) {
+				this.update(job, { state: "idle" });
+			} else {
+				this.update(job, { state: "error", error: error instanceof Error ? error.message : String(error) });
+			}
 		} finally {
 			clearTimeout(timeout);
 			if (staging) await rm(staging, { recursive: true, force: true }).catch(() => {});
@@ -354,6 +421,7 @@ export class AgentInstaller {
 
 	async shutdown(): Promise<void> {
 		this.closed = true;
+		clearTimeout(this.autoTimer);
 		for (const job of this.jobs.values()) job.abort.abort(new Error("Pier Host 已停止安装"));
 		await Promise.allSettled([...this.jobs.values()].map((j) => j.done));
 	}

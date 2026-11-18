@@ -451,6 +451,7 @@ export const MethodParamsSchemas = {
 	 * a download route the runtime accepts; it defaults to `official`.
 	 */
 	"runtime.install": z.object({ runtime: AgentConfigRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
+	"runtime.setAutoUpdate": z.object({ runtime: AgentConfigRuntimeSchema, enabled: z.boolean() }),
 
 	"session.list": z.object({ workspaceId: Id }),
 	/** `runtime` (1.22) picks the agent runtime; the default is `pi`. */
@@ -1043,6 +1044,7 @@ export interface MethodResults {
 	"runtime.list": { runtimes: AgentRuntimeInfo[] };
 	"runtime.installStatus": AgentInstallationResult;
 	"runtime.install": AgentInstallationResult;
+	"runtime.setAutoUpdate": { enabled: boolean };
 	"session.list": { sessions: SessionSummary[] };
 	"session.create": { session: SessionSummary };
 	"session.open": { session: SessionSummary };

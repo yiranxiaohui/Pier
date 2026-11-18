@@ -106,6 +106,10 @@ import { WorkspaceUploads } from "./workspace-uploads.ts";
 
 export const PIER_HOST_VERSION = "0.3.1";
 
+function agentPathOverride(runtime: AgentConfigRuntime): string {
+	return runtime === "codex" ? "PIER_CODEX_PATH" : "PIER_CLAUDE_PATH";
+}
+
 /**
  * How the single-file Pier running without its desktop (`pier run` or the installed service)
  * is updated, for the "unsupported" update status that paired computers show.
@@ -260,6 +264,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"extension.delete",
 	"update.install",
 	"runtime.install",
+	"runtime.setAutoUpdate",
 	"speech.configure",
 	"settings.update",
 	"settings.write",
@@ -318,6 +323,8 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 			return { runId: params.runId };
 		case "runtime.install":
 			return { runtime: params.runtime, ...(params.source ? { source: params.source } : {}) };
+		case "runtime.setAutoUpdate":
+			return { runtime: params.runtime, enabled: params.enabled };
 		case "session.prompt":
 		case "session.steer":
 		case "session.followUp":
@@ -567,16 +574,18 @@ export class PierHost implements RequestHandler {
 		const agents = options.agents ?? {};
 		const managedDirectory = join(this.pierDir, "agents");
 		const installationHome = options.agentInstaller?.homeDirectory;
+		const nativeRuntimes = {
+			"claude-code":
+				agents.claudeCode === false
+					? undefined
+					: new ClaudeCodeRuntime({ log, managedDirectory, installationHome, ...agents.claudeCode }),
+			codex:
+				agents.codex === false
+					? undefined
+					: new CodexRuntime({ log, managedDirectory, installationHome, ...agents.codex }),
+		};
 		this.pool = new SessionPool({
-			runtimes: [
-				new PiRuntime(env),
-				...(agents.claudeCode === false
-					? []
-					: [new ClaudeCodeRuntime({ log, managedDirectory, installationHome, ...agents.claudeCode })]),
-				...(agents.codex === false
-					? []
-					: [new CodexRuntime({ log, managedDirectory, installationHome, ...agents.codex })]),
-			],
+			runtimes: [new PiRuntime(env), ...Object.values(nativeRuntimes).filter((r) => r !== undefined)],
 			log,
 			config: this.config,
 			locksDir: locksDir(this.pierDir),
@@ -620,6 +629,14 @@ export class PierHost implements RequestHandler {
 		});
 		this.agentInstaller = new AgentInstaller(managedDirectory, {
 			...options.agentInstaller,
+			autoUpdateTarget: (runtime) => {
+				const settings = this.config.agentUpdate(runtime);
+				const agent = runtime === "codex" ? agents.codex : agents.claudeCode;
+				if (!settings.enabled || agent === false || agent?.executable || process.env[agentPathOverride(runtime)])
+					return;
+				const executable = nativeRuntimes[runtime]?.executable();
+				return executable ? { executable, source: settings.source } : undefined;
+			},
 			onInstalled: (runtime) => {
 				this.pool.runtime(runtime).installationChanged?.();
 				this.broadcast({ type: "runtime.changed", runtime });
@@ -724,6 +741,7 @@ export class PierHost implements RequestHandler {
 		host.pool.startSweeper();
 		await host.remote.apply();
 		host.tasks.start();
+		host.agentInstaller.startAutoUpdates();
 		return host;
 	}
 
@@ -1354,10 +1372,18 @@ export class PierHost implements RequestHandler {
 			"runtime.installStatus": async (_ctx, params) => ({
 				installation: this.agentInstaller.status(params.runtime),
 				agent: await this.pool.runtime(params.runtime).info(params.refresh),
+				autoUpdate: this.config.agentUpdate(params.runtime).enabled,
 			}),
+			"runtime.setAutoUpdate": (_ctx, { runtime, enabled }) => {
+				this.pool.runtime(runtime);
+				this.config.setAgentUpdate(runtime, { enabled });
+				if (!enabled) this.agentInstaller.disableAutoUpdate(runtime);
+				this.broadcast({ type: "runtime.changed", runtime });
+				return { enabled };
+			},
 			"runtime.install": async (ctx, params) => {
 				const agent = this.pool.runtime(params.runtime);
-				const override = params.runtime === "codex" ? "PIER_CODEX_PATH" : "PIER_CLAUDE_PATH";
+				const override = agentPathOverride(params.runtime);
 				if (process.env[override])
 					throw new PierProtocolError(
 						"CONFLICT",
@@ -1365,6 +1391,7 @@ export class PierHost implements RequestHandler {
 					);
 				// Publication retains the old command if Windows prevents replacing an executable in use.
 				const installation = this.agentInstaller.start(params.runtime, params.source);
+				this.config.setAgentUpdate(params.runtime, { source: installation.source ?? "official" });
 				const device = ctx.connection.device;
 				if (device)
 					this.broadcastLocal({
@@ -1372,7 +1399,7 @@ export class PierHost implements RequestHandler {
 						level: "info",
 						message: `${device.name} 正在远程安装或更新 ${agent.name}`,
 					});
-				return { installation, agent: await agent.info() };
+				return { installation, agent: await agent.info(), autoUpdate: this.config.agentUpdate(params.runtime).enabled };
 			},
 			"session.create": async (_ctx, params) => {
 				const session = await this.pool.create(this.requireWorkspace(params.workspaceId), params.name, params.runtime);

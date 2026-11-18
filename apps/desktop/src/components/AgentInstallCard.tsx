@@ -19,7 +19,7 @@ import { useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
 import { IconAlert, IconDownload, IconLoader, IconRefresh } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
 import { Select } from "./Select.tsx";
-import { SettingRow, SettingsCard, SettingsGroup } from "./SettingsUi.tsx";
+import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
 
 const LABELS: Record<AgentInstallationStatus["state"], string> = {
 	idle: "",
@@ -39,11 +39,13 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 	const [error, setError] = useState<string>();
 	const [loadError, setLoadError] = useState<string>();
 	const [starting, setStarting] = useState(false);
+	const [savingAutoUpdate, setSavingAutoUpdate] = useState(false);
 	const [refresh, setRefresh] = useState(0);
 	// Recent byte counts of a running download, so the card can show its speed.
 	const samples = useRef<DownloadSample[]>([]);
 	const [rate, setRate] = useState<number>();
 	const supported = hostSpeaksMinor(target.hostInfo, 32);
+	const supportsAutoUpdate = hostSpeaksMinor(target.hostInfo, 56);
 	// Hosts before 1.50 only download from the official route.
 	const routes = hostSpeaksMinor(target.hostInfo, 50);
 	const [source, setSource] = useState(() => readAgentInstallSource(target.node, runtime));
@@ -67,6 +69,7 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 		setError(undefined);
 		setLoadError(undefined);
 		setStarting(false);
+		setSavingAutoUpdate(false);
 		setSource(readAgentInstallSource(target.node, runtime));
 		samples.current = [];
 		setRate(undefined);
@@ -96,6 +99,8 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 				if (!["idle", "ready", "error"].includes(installation.state)) {
 					// Downloads refresh more often, so their progress moves smoothly.
 					timer = setTimeout(() => void load(), installation.state === "downloading" ? 1000 : 1500);
+				} else if (result.autoUpdate) {
+					timer = setTimeout(() => void load(), 30_000);
 				}
 			} catch (e) {
 				if (live) {
@@ -126,6 +131,22 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 			}
 		}
 	}, [store, runtime, identity, routes, source]);
+
+	async function setAutoUpdate(enabled: boolean) {
+		setSavingAutoUpdate(true);
+		setError(undefined);
+		try {
+			await store.setAgentAutoUpdate(runtime, enabled);
+			if (identityRef.current === identity) setData((prev) => prev && { ...prev, autoUpdate: enabled });
+		} catch (e) {
+			if (identityRef.current === identity) setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			if (identityRef.current === identity) {
+				setSavingAutoUpdate(false);
+				setRefresh((n) => n + 1);
+			}
+		}
+	}
 
 	const percent = downloadPercent(status);
 	const downloading = status?.state === "downloading";
@@ -182,6 +203,19 @@ export function AgentInstallCard({ runtime }: { runtime: AgentConfigRuntime }) {
 						<IconRefresh size={14} />
 					</button>
 				</SettingRow>
+				{supportsAutoUpdate ? (
+					<SettingRow
+						title="后台自动更新"
+						description={`Pier 运行时每 6 小时检查一次已安装的 ${name}。下载沿用上次手动安装的线路，默认使用官方线路。`}
+					>
+						<Switch
+							label={`${name} 后台自动更新`}
+							checked={data?.autoUpdate ?? true}
+							disabled={!target.online || data?.autoUpdate === undefined || savingAutoUpdate}
+							onChange={(enabled) => void setAutoUpdate(enabled)}
+						/>
+					</SettingRow>
+				) : null}
 				{routes ? (
 					<SettingRow
 						title="下载线路"

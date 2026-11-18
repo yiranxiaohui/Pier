@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentConfigRuntime } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ConfigStore } from "../src/config.ts";
 import { findExecutable } from "../src/runtimes/executable.ts";
 import { AgentInstaller, installationTarget } from "../src/runtimes/installation.ts";
 import { configureInstallationPath } from "../src/runtimes/installation-path.ts";
@@ -41,6 +42,7 @@ describe("verified native Agent installation", () => {
 	});
 	afterEach(async () => {
 		await Promise.all(installers.splice(0).map((i) => i.shutdown()));
+		vi.useRealTimers();
 		rmSync(root, { recursive: true, force: true });
 		vi.unstubAllEnvs();
 	});
@@ -75,6 +77,74 @@ describe("verified native Agent installation", () => {
 		vi.stubEnv("PATH", "");
 		expect(findExecutable("claude", undefined, executable)).toBe(executable);
 		expect(findExecutable("claude", join(root, "missing-override"), executable)).toBeUndefined();
+	});
+
+	it("periodically updates an installed CLI without a client, and skips current and newer versions", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const external = join(root, "external-claude");
+		writeFileSync(external, "2.9.9");
+		const download = claudeDownloads("2.10.0", Buffer.from("2.10.0"));
+		const onInstalled = vi.fn();
+		const installer = create({
+			fetch: download,
+			probe: async (path) => readFileSync(path, "utf8"),
+			autoUpdateTarget: (runtime) =>
+				runtime === "claude-code"
+					? { source: "official", executable: AgentInstaller.executable(root, runtime, root) ?? external }
+					: undefined,
+			onInstalled,
+		});
+		installer.startAutoUpdates();
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(await finished(installer, "claude-code")).toMatchObject({ state: "ready", version: "2.10.0" });
+		const installed = sharedAgentPaths("claude-code", root).executable;
+		expect(readFileSync(installed, "utf8")).toBe("2.10.0");
+		for (const version of ["2.10.0", "2.11.0+local"]) {
+			writeFileSync(installed, version);
+			download.mockClear();
+			await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+			await vi.waitFor(() => expect(installer.status("claude-code").state).toBe("idle"));
+			expect(download.mock.calls.map(([url]) => String(url))).toEqual([
+				"https://downloads.claude.ai/claude-code-releases/latest",
+				"https://downloads.claude.ai/claude-code-releases/2.10.0/manifest.json",
+			]);
+			expect(readFileSync(installed, "utf8")).toBe(version);
+		}
+		expect(onInstalled).toHaveBeenCalledTimes(1);
+		expect(installer.status("codex").state).toBe("idle");
+		await installer.shutdown();
+		download.mockClear();
+		await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+		expect(download).not.toHaveBeenCalled();
+	});
+
+	it("cancels a background check when disabled and allows a manual update while disabled", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		let enabled = true;
+		const download = claudeDownloads("2.1.0");
+		download.mockImplementationOnce(
+			(_url, init) =>
+				new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+				}),
+		);
+		const installer = create({
+			fetch: download,
+			probe: async () => "2.1.0",
+			autoUpdateTarget: (runtime) =>
+				runtime === "claude-code" && enabled ? { source: "npmmirror", executable: join(root, "external") } : undefined,
+		});
+		installer.startAutoUpdates();
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(installer.status("claude-code")).toMatchObject({ state: "checking", source: "npmmirror" });
+		enabled = false;
+		installer.disableAutoUpdate("claude-code");
+		await vi.waitFor(() => expect(installer.status("claude-code").state).toBe("idle"));
+		await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+		expect(download).toHaveBeenCalledTimes(1);
+		installer.start("claude-code");
+		installer.disableAutoUpdate("claude-code");
+		expect((await finished(installer, "claude-code")).state).toBe("ready");
 	});
 
 	it("keeps the previous executable when a download fails SHA-256 verification", async () => {
@@ -458,8 +528,14 @@ it("starts installation over the protocol, survives a disconnected client and re
 		const observer = await host.connect();
 		const recorder = new Recorder();
 		observer.onEvent(recorder.handler);
-		const changed = recorder.waitForType("runtime.changed");
 		const client = await host.connect();
+		expect((await client.request("runtime.installStatus", { runtime: "claude-code" })).autoUpdate).toBe(true);
+		await client.request("runtime.setAutoUpdate", { runtime: "claude-code", enabled: false });
+		const persisted = new ConfigStore(join(host.root, "pier", "config.json"));
+		expect(persisted.agentUpdate("claude-code").enabled).toBe(false);
+		expect(persisted.agentUpdate("codex").enabled).toBe(true);
+		expect((await observer.request("runtime.installStatus", { runtime: "claude-code" })).autoUpdate).toBe(false);
+		const changed = recorder.waitForType("runtime.changed", recorder.mark());
 		expect((await client.request("runtime.install", { runtime: "claude-code" })).installation.state).toBe("checking");
 		client.close();
 		await changed;
