@@ -387,11 +387,14 @@ export interface AppState {
 	subagentView?: { sessionId: string; subagentId: string } | undefined;
 	/** Bumped per workspace when its files may have changed (an agent run finished). */
 	filesVersion: Record<string, number>;
-	/**
-	 * The workspace file shown in the preview dialog. `composerKey` is the composer that the
-	 * dialog's "insert" button targets, when there is one.
-	 */
-	filePreview?: { workspaceId: string; path: string; composerKey?: string; fromMarkdown?: boolean } | undefined;
+	/** The files open in the file preview, one tab each, in tab order. */
+	filePreviews: FilePreviewTab[];
+	/** The id of the file preview tab on screen. */
+	activeFilePreview?: string | undefined;
+	/** How the file preview shows: a resizable panel on the right, or a full-window dialog. */
+	filePreviewMode: FilePreviewMode;
+	/** Width of the file preview panel in pixels; undefined follows the window width. */
+	filePreviewWidth?: number | undefined;
 	/** Bumped when pi extension or package settings changed, so the extensions page reloads. */
 	extensionsVersion: number;
 	/** Bumped when a pi settings file may have changed, so the pi settings page reloads. */
@@ -455,6 +458,22 @@ export const NEW_CHAT_DRAFT = "#new-chat";
 const FILES_PANEL_KEY = "pier.filesPanel";
 /** The views of the right-hand panel. */
 export type RightPanelTab = "files" | "git" | "subagent";
+const FILE_PREVIEW_KEY = "pier.filePreview";
+/** `panel`: tabs in a resizable panel on the window's right; `modal`: a dialog filling the window. */
+export type FilePreviewMode = "panel" | "modal";
+/** One file open in the file preview. */
+export interface FilePreviewTab {
+	/** Stable per file: opening the same file again shows its tab. */
+	id: string;
+	workspaceId: string;
+	path: string;
+	/** The composer the preview's "insert" button targets, when there is one. */
+	composerKey?: string;
+	/** Opened from a link in Markdown: read with the Markdown preview rules, read-only. */
+	fromMarkdown?: boolean;
+}
+export const FILE_PREVIEW_MIN_WIDTH = 360;
+export const FILE_PREVIEW_MAX_WIDTH = 2400;
 const SIDEBAR_KEY = "pier.sidebar";
 const WORKSPACE_ORDER_KEY = "pier.workspaceOrder";
 export const SIDEBAR_MIN_WIDTH = 180;
@@ -474,6 +493,11 @@ function clampSidebarWidth(width: number): number {
 function clampPanelWidth(width: number): number {
 	if (!Number.isFinite(width)) return FILES_PANEL_DEFAULT_WIDTH;
 	return Math.round(Math.min(FILES_PANEL_MAX_WIDTH, Math.max(FILES_PANEL_MIN_WIDTH, width)));
+}
+
+function clampPreviewWidth(width: unknown): number | undefined {
+	if (typeof width !== "number" || !Number.isFinite(width)) return undefined;
+	return Math.round(Math.min(FILE_PREVIEW_MAX_WIDTH, Math.max(FILE_PREVIEW_MIN_WIDTH, width)));
 }
 /** Refresh-timer keys for the device and provider lists (workspace ids are UUIDs, so no clash). */
 const DEVICES_KEY = "#devices";
@@ -606,6 +630,17 @@ export class PierStore {
 				return {};
 			}
 		})();
+		const preview = (() => {
+			try {
+				return (JSON.parse(localStorage.getItem(FILE_PREVIEW_KEY) ?? "{}") ?? {}) as {
+					mode?: unknown;
+					width?: unknown;
+				};
+			} catch {
+				return {};
+			}
+		})();
+		const previewWidth = clampPreviewWidth(preview.width);
 		const workspaceOrder = (() => {
 			try {
 				const saved: unknown = JSON.parse(localStorage.getItem(WORKSPACE_ORDER_KEY) ?? "[]");
@@ -646,6 +681,9 @@ export class PierStore {
 			filesPanel: panel.open === true,
 			filesPanelWidth: clampPanelWidth(panel.width ?? FILES_PANEL_DEFAULT_WIDTH),
 			rightPanelTab: panel.tab === "git" ? "git" : "files",
+			filePreviews: [],
+			filePreviewMode: preview.mode === "modal" ? "modal" : "panel",
+			...(previewWidth ? { filePreviewWidth: previewWidth } : {}),
 			filesVersion: {},
 			extensionsVersion: 0,
 			piSettingsVersion: 0,
@@ -712,6 +750,15 @@ export class PierStore {
 					width: this.state.filesPanelWidth,
 					// A subagent's conversation is not restored after a restart.
 					tab: this.state.rightPanelTab === "git" ? "git" : "files",
+				}),
+			);
+		}
+		if ("filePreviewMode" in next || "filePreviewWidth" in next) {
+			localStorage.setItem(
+				FILE_PREVIEW_KEY,
+				JSON.stringify({
+					mode: this.state.filePreviewMode,
+					...(this.state.filePreviewWidth ? { width: this.state.filePreviewWidth } : {}),
 				}),
 			);
 		}
@@ -2418,12 +2465,11 @@ export class PierStore {
 		return result;
 	}
 
-	/** A preview of a moved/deleted path must not keep showing stale source content. */
+	/** Previews of a moved/deleted path (or anything inside it) must not keep showing stale content. */
 	closeMovedFilePreview(workspaceId: string, path: string): void {
-		const preview = this.state.filePreview;
-		if (preview?.workspaceId === workspaceId && (preview.path === path || preview.path.startsWith(`${path}/`))) {
-			this.closeFilePreview();
-		}
+		const moved = (tab: FilePreviewTab) =>
+			tab.workspaceId === workspaceId && (tab.path === path || tab.path.startsWith(`${path}/`));
+		for (const tab of this.state.filePreviews.filter(moved)) this.closeFilePreview(tab.id);
 	}
 
 	/**
@@ -2449,16 +2495,69 @@ export class PierStore {
 		this.set((s) => ({ filesVersion: { ...s.filesVersion, [workspaceId]: (s.filesVersion[workspaceId] ?? 0) + 1 } }));
 	}
 
+	/** Show a workspace file in the preview: its existing tab, else a new one after the current tab. */
 	openFilePreview(workspaceId: string, path: string, composerKey?: string): void {
-		this.set({ filePreview: { workspaceId, path, ...(composerKey ? { composerKey } : {}) } });
+		this.showFilePreview({ workspaceId, path, ...(composerKey ? { composerKey } : {}) });
 	}
 
+	/** Show a file linked from Markdown (read with the Markdown preview rules) in the preview. */
 	openMarkdownFilePreview(workspaceId: string, path: string): void {
-		this.set({ filePreview: { workspaceId, path, fromMarkdown: true } });
+		this.showFilePreview({ workspaceId, path, fromMarkdown: true });
 	}
 
-	closeFilePreview(): void {
-		if (this.state.filePreview) this.set({ filePreview: undefined });
+	private showFilePreview(file: Omit<FilePreviewTab, "id">): void {
+		const id = `${file.fromMarkdown ? "markdown" : "file"}:${file.workspaceId}:${file.path}`;
+		const tabs = this.state.filePreviews;
+		const index = tabs.findIndex((tab) => tab.id === id);
+		if (index >= 0) {
+			const tab = tabs[index] as FilePreviewTab;
+			const composerKey = file.composerKey;
+			const filePreviews =
+				composerKey && composerKey !== tab.composerKey
+					? tabs.map((t) => (t.id === id ? { ...t, composerKey } : t))
+					: tabs;
+			this.set({ filePreviews, activeFilePreview: id });
+			return;
+		}
+		const active = tabs.findIndex((tab) => tab.id === this.state.activeFilePreview);
+		const at = active >= 0 ? active + 1 : tabs.length;
+		this.set({ filePreviews: [...tabs.slice(0, at), { ...file, id }, ...tabs.slice(at)], activeFilePreview: id });
+	}
+
+	selectFilePreview(id: string): void {
+		if (id !== this.state.activeFilePreview && this.state.filePreviews.some((tab) => tab.id === id)) {
+			this.set({ activeFilePreview: id });
+		}
+	}
+
+	/**
+	 * Close one preview tab (its right-hand neighbour, else its left one, takes over), or all of
+	 * them when `id` is omitted. Unsaved edits are the caller's to confirm.
+	 */
+	closeFilePreview(id?: string): void {
+		const tabs = this.state.filePreviews;
+		if (id === undefined) {
+			if (tabs.length || this.state.activeFilePreview) this.set({ filePreviews: [], activeFilePreview: undefined });
+			return;
+		}
+		const index = tabs.findIndex((tab) => tab.id === id);
+		if (index < 0) return;
+		const filePreviews = tabs.filter((tab) => tab.id !== id);
+		const activeFilePreview =
+			this.state.activeFilePreview === id
+				? (filePreviews[index] ?? filePreviews[index - 1])?.id
+				: this.state.activeFilePreview;
+		this.set({ filePreviews, activeFilePreview });
+	}
+
+	setFilePreviewMode(mode: FilePreviewMode): void {
+		if (mode !== this.state.filePreviewMode) this.set({ filePreviewMode: mode });
+	}
+
+	/** Set the preview panel's width; undefined goes back to following the window width. */
+	setFilePreviewWidth(width: number | undefined): void {
+		const filePreviewWidth = clampPreviewWidth(width);
+		if (filePreviewWidth !== this.state.filePreviewWidth) this.set({ filePreviewWidth });
 	}
 
 	/** Called by a mounted composer; returns the unregister function. */
@@ -3034,7 +3133,7 @@ export class PierStore {
 	}
 
 	openScheduledTasks(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: true, filePreview: undefined });
+		this.set({ settings: undefined, scheduledTasksOpen: true });
 		for (const node of this.clients.keys()) void this.loadTasks(node);
 	}
 

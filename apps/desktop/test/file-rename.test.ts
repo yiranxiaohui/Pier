@@ -70,7 +70,8 @@ describe("workspace file renaming", () => {
 				{ path: "folder-old/keep.txt", name: "keep.txt" },
 			],
 		});
-		expect(store.getState().filePreview).toBeUndefined();
+		expect(store.getState().filePreviews).toEqual([]);
+		expect(store.getState().activeFilePreview).toBeUndefined();
 	});
 
 	it("keeps previews and clipboard entries from other workspaces", async () => {
@@ -80,7 +81,7 @@ describe("workspace file renaming", () => {
 		store.openFilePreview("other-workspace", "file");
 		await store.renamePath("workspace", "file", "renamed");
 		expect(getWorkspaceClipboard()).toBe(clipboard);
-		expect(store.getState().filePreview?.path).toBe("file");
+		expect(store.getState().filePreviews.map((tab) => tab.path)).toEqual(["file"]);
 	});
 
 	it("preserves state on conflict and permits retrying with another name", async () => {
@@ -91,7 +92,7 @@ describe("workspace file renaming", () => {
 		request.mockRejectedValueOnce(new PierProtocolError("CONFLICT", "Already exists"));
 		await expect(store.renamePath("workspace", "file", "existing")).rejects.toMatchObject({ code: "CONFLICT" });
 		expect(getWorkspaceClipboard()).toBe(clipboard);
-		expect(store.getState().filePreview?.path).toBe("file");
+		expect(store.getState().filePreviews.map((tab) => tab.path)).toEqual(["file"]);
 		expect(store.getState().filesVersion.workspace).toBeUndefined();
 		await store.renamePath("workspace", "file", "available");
 		expect(getWorkspaceClipboard()?.entries[0]?.path).toBe("available");

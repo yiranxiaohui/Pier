@@ -1,0 +1,354 @@
+/*
+ * File preview (FilePreview.tsx): the opened files as browser-like tabs, either in a resizable
+ * panel on the window's right (`data-mode="panel"`) or in a dialog filling the window
+ * (`data-mode="modal"`). Each tab's content is a `.file-viewer` (files.css).
+ */
+
+.file-preview {
+	/* The saved width (set inline as --preview-width) or a share of the window, at most the room
+	   left beside the rail, sidebar, file panel and a usable conversation (--preview-room, set
+	   inline), but never narrower than 360px. */
+	--preview-size: min(
+		var(--preview-width, clamp(440px, 46vw, 980px)),
+		max(360px, var(--preview-room, calc(100vw - 480px)))
+	);
+	--preview-duration: 0.3s;
+	--preview-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.file-preview-window {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* ---- tab strip ------------------------------------------------------------------- */
+
+.file-preview-header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: 44px;
+	padding: 0 8px;
+	border-bottom: 1px solid var(--border);
+}
+
+.file-preview-tabs {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	height: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+}
+
+.file-preview-tabs::-webkit-scrollbar {
+	display: none;
+}
+
+.file-preview-tab {
+	display: flex;
+	flex: 0 1 auto;
+	align-items: center;
+	min-width: 88px;
+	max-width: 220px;
+	height: 30px;
+	border-radius: 8px;
+	color: var(--text-faint);
+	transition:
+		background 0.15s var(--ease),
+		color 0.15s var(--ease);
+}
+
+.file-preview-tab:hover {
+	background: var(--bg-hover);
+	color: var(--text-muted);
+}
+
+.file-preview-tab.active {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+.file-preview-tab button {
+	border: none;
+	background: transparent;
+	color: inherit;
+	box-shadow: none;
+}
+
+.file-preview-tab button:hover:not(:disabled) {
+	background: transparent;
+}
+
+button.file-preview-tab-label {
+	flex: 1;
+	justify-content: flex-start;
+	gap: 6px;
+	min-width: 0;
+	height: 100%;
+	padding: 0 4px 0 10px;
+	border-radius: inherit;
+	font-size: 12.5px;
+	font-weight: 500;
+}
+
+.file-preview-tab-label > svg {
+	flex: none;
+	opacity: 0.8;
+}
+
+.file-preview-tab-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.file-preview-tab-folder {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-size: 11.5px;
+	font-weight: 400;
+	color: var(--text-faint);
+}
+
+button.file-preview-tab-close {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	margin-right: 5px;
+	padding: 0;
+	border-radius: 6px;
+	color: var(--text-faint);
+	opacity: 0;
+}
+
+.file-preview-tab:hover .file-preview-tab-close,
+.file-preview-tab.active .file-preview-tab-close,
+.file-preview-tab.dirty .file-preview-tab-close,
+.file-preview-tab-close:focus-visible {
+	opacity: 1;
+}
+
+.file-preview-tab button.file-preview-tab-close:hover:not(:disabled) {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+/* Unsaved edits show a dot in place of the close button, which comes back on hover. */
+.file-preview-tab-dot {
+	display: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.file-preview-tab.dirty .file-preview-tab-dot {
+	display: block;
+}
+
+.file-preview-tab.dirty .file-preview-tab-close > svg,
+.file-preview-tab.dirty .file-preview-tab-close:hover > .file-preview-tab-dot,
+.file-preview-tab.dirty .file-preview-tab-close:focus-visible > .file-preview-tab-dot {
+	display: none;
+}
+
+.file-preview-tab.dirty .file-preview-tab-close:hover > svg,
+.file-preview-tab.dirty .file-preview-tab-close:focus-visible > svg {
+	display: block;
+}
+
+.file-preview-header-actions {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+}
+
+/* ---- pages ----------------------------------------------------------------------- */
+
+.file-preview-pages {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+/* Every open tab stays mounted (edits, scroll, rendered pages); only the active one shows. */
+.file-preview-page {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	container-type: inline-size;
+}
+
+.file-preview-page[hidden] {
+	display: none;
+}
+
+/* A narrow panel keeps only the icons of the longer toolbar buttons. */
+@container (max-width: 640px) {
+	.file-viewer-action-label {
+		display: none;
+	}
+}
+
+/* ---- full-window dialog ---------------------------------------------------------- */
+
+.file-preview[data-mode="modal"] {
+	position: fixed;
+	inset: 0;
+	z-index: 40;
+	display: flex;
+	padding: 16px;
+	background: rgba(5, 6, 10, 0.5);
+	backdrop-filter: blur(10px) saturate(1.2);
+	-webkit-backdrop-filter: blur(10px) saturate(1.2);
+	animation: fade-in 0.15s var(--ease);
+}
+
+.file-preview[data-mode="modal"].collapsed {
+	display: none;
+}
+
+.file-preview[data-mode="modal"] > .file-preview-window {
+	flex: 1;
+	background: var(--bg-raised);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-xl);
+	box-shadow: var(--shadow-lg), var(--highlight);
+	animation: pop-in 0.18s var(--ease);
+}
+
+.file-preview[data-mode="modal"] .file-preview-header {
+	height: 48px;
+	padding: 0 10px 0 12px;
+}
+
+.file-preview[data-mode="modal"] .file-viewer {
+	padding: 12px 18px 18px;
+}
+
+/* ---- right-hand panel ------------------------------------------------------------ */
+
+/*
+ * Like the file panel: a shell whose width animates, anchored to the right edge so the
+ * window is clipped from the left, while the window itself slides and fades.
+ */
+.file-preview[data-mode="panel"] {
+	display: flex;
+	justify-content: flex-end;
+	width: var(--preview-size);
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	transition: width var(--preview-duration) var(--preview-ease);
+}
+
+.file-preview[data-mode="panel"].collapsed {
+	width: 0;
+}
+
+/* Width changes follow the pointer immediately while dragging. */
+body.resizing-preview .file-preview[data-mode="panel"] {
+	transition: none;
+}
+
+.file-preview[data-mode="panel"] > .file-preview-window {
+	position: relative;
+	flex: none;
+	/* 1px on the left keeps the panel's outline clear of the clipping shell. */
+	width: calc(var(--preview-size) - 9px);
+	margin: 8px 8px 8px 1px;
+	background: var(--bg);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--panel-shadow);
+	transform: none;
+	animation: preview-in var(--preview-duration) var(--preview-ease);
+	transition:
+		opacity 0.22s var(--ease) 0.04s,
+		transform var(--preview-duration) var(--preview-ease);
+}
+
+.file-preview[data-mode="panel"].collapsed > .file-preview-window {
+	opacity: 0;
+	transform: translateX(28px);
+	transition:
+		opacity 0.14s ease-out,
+		transform var(--preview-duration) var(--preview-ease);
+}
+
+@keyframes preview-in {
+	from {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+}
+
+.file-preview-resize {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: 6px;
+	cursor: col-resize;
+	touch-action: none;
+	z-index: 3;
+}
+
+.file-preview-resize:focus-visible {
+	outline: none;
+}
+
+/* Like the other panels' strips: it stays clear; a short grip shows in its middle. */
+.file-preview-resize::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 1px;
+	width: 4px;
+	height: 40px;
+	margin-top: -20px;
+	border-radius: 2px;
+	background: var(--text-faint);
+	opacity: 0;
+	transition: opacity 0.15s var(--ease);
+}
+
+.file-preview-resize:hover::after {
+	opacity: 0.45;
+	transition-delay: 0.2s;
+}
+
+.file-preview-resize:focus-visible::after,
+body.resizing-preview .file-preview-resize::after {
+	background: var(--accent);
+	opacity: 1;
+	transition-delay: 0s;
+}
+
+body.resizing-preview {
+	cursor: col-resize;
+	user-select: none;
+}
+
+/* A rendered HTML page must not swallow the pointer while the panel is resized. */
+body.resizing-preview iframe {
+	pointer-events: none;
+}
+
+/* Kept mounted while the settings or scheduled tasks replace the main screen; last, so it wins over both modes. */
+.file-preview[data-mode][hidden] {
+	display: none;
+}

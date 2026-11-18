@@ -1,8 +1,8 @@
 import type { WorkspaceInfo } from "@pier/protocol";
 import { type CSSProperties, useEffect, useState } from "react";
 import { DirectoryPicker } from "./components/DirectoryPicker.tsx";
+import { FilePreview } from "./components/FilePreview.tsx";
 import { FilesPanel } from "./components/FilesPanel.tsx";
-import { FilePreview } from "./components/FileViewer.tsx";
 import { GitPanel } from "./components/GitPanel.tsx";
 import { Welcome, WorkspaceHome } from "./components/Home.tsx";
 import { HostBanner } from "./components/HostPanels.tsx";
@@ -211,8 +211,12 @@ export function App() {
 						<StatusBar />
 					</div>
 				)}
+				<FilePreview
+					hidden={!!settings || scheduled}
+					screenWorkspaceId={screenWorkspace?.id}
+					screenComposerKey={screen.composerKey}
+				/>
 			</div>
-			{settings ? null : <FilePreview />}
 			<Toasts />
 			<AuthDialog />
 			<PairingRequestDialog />

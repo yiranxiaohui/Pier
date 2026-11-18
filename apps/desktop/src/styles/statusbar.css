@@ -9,7 +9,8 @@
 
 .window-body {
 	display: grid;
-	grid-template-columns: 60px minmax(0, 1fr);
+	/* Navigation rail, the screen, and the file preview panel (FilePreview.tsx) when it is open. */
+	grid-template-columns: 60px minmax(0, 1fr) auto;
 	grid-template-rows: minmax(0, 1fr);
 	flex: 1;
 	min-width: 0;

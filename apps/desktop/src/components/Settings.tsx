@@ -3,6 +3,7 @@ import { type ComponentType, type ReactNode, useCallback, useEffect, useRef, use
 import { POLICY_DESCRIPTION, POLICY_LABEL } from "../lib/format.ts";
 import { pageDescribesHost, pageFollowsHost, pageIsReadOnly } from "../lib/settings-target.ts";
 import {
+	type FilePreviewMode,
 	LOCAL_NODE,
 	type SettingsSection,
 	useAppState,
@@ -116,7 +117,7 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 				label: "常规",
 				icon: IconSettings,
 				keywords:
-					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light",
+					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light 文件预览 预览 弹窗 全屏 右侧面板 标签页",
 			},
 			{
 				id: "models",
@@ -192,7 +193,7 @@ function sectionMatches(item: SectionDef, q: string): boolean {
 }
 const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	account: "管理云链API 账号、额度与令牌，连接你的 Agent。",
-	general: "让 Pier 更合你的习惯，调整外观、语音与启动方式。",
+	general: "让 Pier 更合你的习惯，调整外观、文件预览、语音与启动方式。",
 	models: "连接模型服务，选择适合你的默认模型。",
 	workspaces: "管理项目目录，为每个工作区选择合适的工具审批策略。",
 	extensions: "发现与管理 pi 扩展，为工作流程添加更多能力。",
@@ -344,11 +345,45 @@ function AppearanceSettings() {
 	);
 }
 
+const FILE_PREVIEW_OPTIONS: Array<{ value: FilePreviewMode; label: string }> = [
+	{ value: "panel", label: "右侧面板（默认）" },
+	{ value: "modal", label: "全屏弹窗" },
+];
+
+/** Where opened files show on this device, whichever computer the settings manage. */
+function FilePreviewSettings() {
+	const store = useStore();
+	const mode = useAppState((s) => s.filePreviewMode);
+	return (
+		<SettingsGroup title="文件预览" description="选择打开文件时的显示方式，仅对这台设备生效。">
+			<SettingsCard>
+				<SettingRow
+					title="显示方式"
+					description={
+						mode === "panel"
+							? "在对话右侧展开面板，每个文件一个标签页，可边看边聊；拖动面板左边缘调整宽度。"
+							: "弹窗铺满整个窗口，多个文件同样以标签页切换；关闭弹窗后回到对话。"
+					}
+				>
+					<Select
+						className="setting-select compact"
+						ariaLabel="文件预览显示方式"
+						value={mode}
+						onChange={(value) => store.setFilePreviewMode(value)}
+						options={FILE_PREVIEW_OPTIONS}
+					/>
+				</SettingRow>
+			</SettingsCard>
+		</SettingsGroup>
+	);
+}
+
 function GeneralSettings() {
 	const remote = useAppState((s) => s.settingsNode !== LOCAL_NODE);
 	return (
 		<>
 			<AppearanceSettings />
+			<FilePreviewSettings />
 			<SettingsGroup title="语音输入" description="在本机设置识别方式，让想法更快变成文字。">
 				<SettingsCard>
 					<SettingRow title="语音识别服务" stack>

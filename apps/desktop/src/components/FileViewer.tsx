@@ -26,7 +26,6 @@ import {
 	IconShieldAlert,
 } from "./Icons.tsx";
 import { CopyButton, Markdown, MarkdownFiles } from "./Markdown.tsx";
-import { Modal } from "./Modal.tsx";
 import { Highlighted } from "./ToolCard.tsx";
 
 function errorText(error: unknown): string {
@@ -149,20 +148,29 @@ function TextView({ file }: { file: WorkspaceFileContent }) {
 /**
  * Preview of one workspace file: text with line numbers and syntax highlighting, rendered
  * Markdown / HTML, or an image. Text files that were read in full can be edited and saved back.
- * `onInsert` inserts the path into the composer when present.
+ * `onInsert` inserts the path into the composer when present (and closes the file after it
+ * with `closeOnInsert`). The file name shows on its tab in `FilePreview`, so the viewer reports
+ * unsaved edits through `onDirtyChange`; bumping `closeRequest` asks to close the file, which
+ * first offers to save unsaved edits.
  */
 export function FileViewer({
 	workspaceId,
 	path,
 	onClose,
 	onInsert,
+	closeOnInsert = true,
 	fromMarkdown = false,
+	onDirtyChange,
+	closeRequest = 0,
 }: {
 	workspaceId: string;
 	path: string;
 	onClose: () => void;
 	onInsert?: (() => void) | undefined;
-	fromMarkdown?: boolean;
+	closeOnInsert?: boolean;
+	fromMarkdown?: boolean | undefined;
+	onDirtyChange?: ((dirty: boolean) => void) | undefined;
+	closeRequest?: number;
 }) {
 	const store = useStore();
 	const [confirmed, setConfirmed] = useState(() => !isSensitiveFile(path));
@@ -236,7 +244,7 @@ export function FileViewer({
 	const authorizationPath = fromMarkdown ? filePreviewAuthorizationPath(error) : undefined;
 	const canAuthorize = !!authorizationPath && hostAuthorizesFilePreviews(previewHost, previewNode !== LOCAL_NODE);
 
-	const name = path.split("/").pop() ?? path;
+	const name = path.split(/[\\/]/).pop() || path;
 	const isMarkdown = MARKDOWN.test(path) && file?.kind === "text";
 	const isHtml = HTML.test(path) && file?.kind === "text" && !file.truncated;
 	// Paired computers on protocol 1.10+ accept edits; older ones are read-only from here.
@@ -283,6 +291,20 @@ export function FileViewer({
 		if (dirty) setClosePrompt(true);
 		else onClose();
 	};
+
+	useEffect(() => {
+		onDirtyChange?.(dirty);
+	}, [dirty, onDirtyChange]);
+
+	// Close requests from the tab strip (changes after mount); the latest handler sees the latest edits.
+	const closeHandler = useRef(requestClose);
+	closeHandler.current = requestClose;
+	const handledCloseRequest = useRef(closeRequest);
+	useEffect(() => {
+		if (closeRequest === handledCloseRequest.current) return;
+		handledCloseRequest.current = closeRequest;
+		closeHandler.current();
+	}, [closeRequest]);
 
 	const download = async () => {
 		if (!workspace || !previewDownloadPath || downloading) return;
@@ -444,7 +466,7 @@ export function FileViewer({
 	}
 
 	return (
-		<Modal title={dirty ? `${name} •` : name} onClose={requestClose} wide className="file-viewer">
+		<div className="file-viewer">
 			<div className="file-viewer-toolbar">
 				<span className="file-viewer-meta" title={path}>
 					<span className="file-viewer-path">{path}</span>
@@ -463,7 +485,7 @@ export function FileViewer({
 							onClick={() => absolutePath && store.revealPath(absolutePath)}
 						>
 							<IconFolderOpen size={14} />
-							打开所在文件夹
+							<span className="file-viewer-action-label">打开所在文件夹</span>
 						</button>
 					) : null}
 					{editing ? (
@@ -512,7 +534,7 @@ export function FileViewer({
 							{editable ? (
 								<button type="button" className="ghost small" title="编辑文件" onClick={startEditing}>
 									<IconPencil size={13} />
-									编辑
+									<span className="file-viewer-action-label">编辑</span>
 								</button>
 							) : null}
 							{file?.kind === "text" && file.text ? <CopyButton text={file.text} label="复制内容" /> : null}
@@ -541,7 +563,7 @@ export function FileViewer({
 									title="插入路径到输入框"
 									onClick={() => {
 										onInsert();
-										requestClose();
+										if (closeOnInsert) requestClose();
 									}}
 								>
 									<IconMessagePlus size={14} />
@@ -561,25 +583,6 @@ export function FileViewer({
 				</span>
 			</div>
 			<div className="file-viewer-body">{body}</div>
-		</Modal>
-	);
-}
-
-/** The preview dialog opened from the file panel or a composer file chip. */
-export function FilePreview() {
-	const store = useStore();
-	const preview = useAppState((s) => s.filePreview);
-	const known = useAppState((s) => !!preview && s.workspaces.some((w) => w.id === preview.workspaceId));
-	if (!preview || !known) return null;
-	const { workspaceId, path, composerKey, fromMarkdown } = preview;
-	return (
-		<FileViewer
-			key={`${workspaceId}:${path}:${fromMarkdown ?? false}`}
-			workspaceId={workspaceId}
-			path={path}
-			fromMarkdown={fromMarkdown}
-			onClose={() => store.closeFilePreview()}
-			onInsert={composerKey ? () => store.insertFileIntoComposer(composerKey, path) : undefined}
-		/>
+		</div>
 	);
 }

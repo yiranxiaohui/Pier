@@ -336,30 +336,28 @@ body.resizing-panel {
 
 /* ---- file viewer ----------------------------------------------------------------- */
 
-.modal.file-viewer {
-	width: min(1100px, calc(100vw - 48px));
-	height: calc(100vh - 64px);
-}
-
-.file-viewer .modal-body {
+/* One file in the preview (FilePreview.tsx lays out its tabs and window). */
+.file-viewer {
 	display: flex;
 	flex: 1;
 	flex-direction: column;
+	min-width: 0;
 	min-height: 0;
-	padding-bottom: 18px;
+	padding: 10px 12px 12px;
 	overflow: hidden;
 }
 
 .file-viewer-toolbar {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
-	gap: 12px;
+	gap: 6px 12px;
 	margin-bottom: 10px;
 }
 
 .file-viewer-meta {
 	display: flex;
-	flex: 1;
+	flex: 1 1 220px;
 	flex-direction: column;
 	gap: 2px;
 	min-width: 0;
@@ -378,9 +376,13 @@ body.resizing-panel {
 
 .file-viewer-actions {
 	display: flex;
+	flex-wrap: wrap;
 	flex-shrink: 0;
+	justify-content: flex-end;
 	align-items: center;
 	gap: 4px;
+	max-width: 100%;
+	margin-left: auto;
 }
 
 .file-viewer-actions .segmented {
