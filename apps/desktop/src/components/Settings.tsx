@@ -73,8 +73,9 @@ function pagesOf(item: SectionDef): SectionDef[] {
 }
 
 /**
- * pi's own pages under its “Agent 配置” tab: its settings.json, and its extension packages, which
- * only pi loads (Skills and MCP shared by every agent stay on their own page).
+ * pi's own pages under its “Agent 配置” tab: its settings.json, its model providers and default
+ * model (models.json and auth.json, which only pi reads), and its extension packages, which only pi
+ * loads (Skills and MCP shared by every agent stay on their own page).
  */
 const PI_PAGES: SectionDef[] = [
 	{
@@ -83,6 +84,14 @@ const PI_PAGES: SectionDef[] = [
 		icon: IconSliders,
 		keywords:
 			"pi 配置 安装 更新 版本 install update settings settings.json 配置文件 思考 压缩 重试 超时 代理 proxy shell 工具 tools 传输 缓存 主题 终端 json 编辑",
+		online: true,
+	},
+	{
+		id: "models",
+		label: "模型与服务商",
+		icon: IconSparkles,
+		keywords:
+			"pi 模型 服务商 provider models.json auth.json api key 密钥 登录 默认模型 自定义接口 中转 base url ollama lm studio vllm 云链",
 		online: true,
 	},
 	{
@@ -158,13 +167,6 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light 文件预览 预览 弹窗 全屏 右侧面板 标签页",
 			},
 			{
-				id: "models",
-				label: "模型与服务商",
-				icon: IconSparkles,
-				keywords: "模型 服务商 provider api key 登录 默认模型 自定义接口 中转 ollama",
-				online: true,
-			},
-			{
 				id: "workspaces",
 				label: "工作区",
 				icon: IconFolder,
@@ -232,7 +234,7 @@ function matchingPage(item: SectionDef, q: string): SectionDef | undefined {
 const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	account: "管理云链API 账号、额度与令牌，连接你的 Agent。",
 	general: "让 Pier 更合你的习惯，调整外观、文件预览、语音与启动方式。",
-	models: "连接模型服务，选择适合你的默认模型。",
+	models: "为 pi 连接模型服务商，选择 pi 新会话的默认模型。",
 	workspaces: "管理项目目录，为每个工作区选择合适的工具审批策略。",
 	extensions: "发现与管理 pi 的扩展包，为 pi 的工作流程添加更多能力。",
 	resources: "统一管理 Agent 的技能与 MCP 服务器。",
@@ -929,7 +931,7 @@ const TAB_KEYS: Record<string, (index: number, count: number) => number> = {
 
 /**
  * The tabs under a page title (the agents in “Agent 配置”), or the secondary tabs under one of
- * them (pi's settings and extensions). Arrow keys, Home and End move between them.
+ * them (pi's settings, models and extensions). Arrow keys, Home and End move between them.
  */
 function SettingsTabs({
 	tabs,
@@ -968,17 +970,26 @@ function SettingsTabs({
 				>
 					<tab.icon size={secondary ? 13 : 14} />
 					{tab.label}
+					<NavBadge item={tab} />
 				</button>
 			))}
 		</div>
 	);
 }
 
-function NavBadge({ id }: { id: SettingsSection }): ReactNode {
+/**
+ * A dot on a navigation entry or tab whose pages need attention: pi has no usable model (on
+ * “Agent 配置”, its pi tab and the models tab), or an update is available.
+ */
+function NavBadge({ item }: { item: SectionDef }): ReactNode {
 	const noModels = useAppState((s) => s.providers?.availableCount === 0);
 	const update = useAppState((s) => computerUpdateStatus(s.settingsNode, s));
-	if (id === "models" && noModels) return <span className="nav-dot warn" title="还没有可用模型" />;
-	if (id === "about" && update && updatePending(update)) return <span className="nav-dot accent" title="有可用更新" />;
+	if (noModels && pagesOf(item).some((page) => page.id === "models")) {
+		return <span className="nav-dot warn" title="pi 还没有可用模型" />;
+	}
+	if (item.id === "about" && update && updatePending(update)) {
+		return <span className="nav-dot accent" title="有可用更新" />;
+	}
 	return null;
 }
 
@@ -1022,7 +1033,7 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 	// The page last shown under each entry with tabs, so coming back to it returns there.
 	const lastTab = useRef<Partial<Record<SettingsSection, SettingsSection>>>({});
 	if (nav.tabs) lastTab.current[nav.id] = current.id;
-	// Likewise under each tab with secondary tabs (pi's settings or extensions).
+	// Likewise under each tab with secondary tabs (pi's settings, models or extensions).
 	const lastSubtab = useRef<Partial<Record<SettingsSection, SettingsSection>>>({});
 	if (tab?.tabs) lastSubtab.current[tab.id] = current.id;
 	const openNav = (item: SectionDef) => {
@@ -1095,7 +1106,7 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 								>
 									<item.icon size={15} />
 									<span className="settings-nav-label">{item.label}</span>
-									<NavBadge id={item.id} />
+									<NavBadge item={item} />
 								</button>
 							))}
 						</div>

@@ -46,6 +46,7 @@ beforeEach(() => {
 		nodes: {},
 		update: {},
 		peerUpdates: {},
+		providers: undefined,
 	});
 	computers.length = 0;
 	for (const id of ["local", "peer"])
@@ -168,10 +169,37 @@ describe("selected host settings UI", () => {
 
 describe("settings navigation", () => {
 	// Offline, so the pages themselves (which talk to the host) are not rendered.
-	const render = (section: "pi" | "extensions" | "claude") => {
+	const render = (section: "pi" | "models" | "extensions" | "claude") => {
 		target.online = false;
 		return renderToStaticMarkup(createElement(SettingsPage, { section }));
 	};
+
+	it("keeps pi's models and providers under Agent 配置 → pi instead of a navigation entry of their own", () => {
+		const html = render("models");
+		expect(html).not.toContain('settings-nav-label">模型与服务商<');
+		expect(html).toMatch(/settings-nav-item selected"[^>]*>.*?settings-nav-label">Agent 配置</);
+		expect(html).toMatch(/aria-selected="true" id="settings-tab-pi"/);
+		expect(html).toMatch(/aria-selected="true" id="settings-subtab-models"/);
+		expect(html).toContain('aria-labelledby="settings-tab-pi settings-subtab-models"');
+		// pi's secondary tabs: its settings, then its models, then its extensions.
+		expect(html.match(/id="settings-subtab-(\w+)"/g)).toEqual([
+			'id="settings-subtab-pi"',
+			'id="settings-subtab-models"',
+			'id="settings-subtab-extensions"',
+		]);
+	});
+
+	it("marks Agent 配置, its pi tab and the models tab while pi has no usable model", () => {
+		state.providers = { availableCount: 0 } as AppState["providers"];
+		let html = render("models");
+		expect(html.match(/nav-dot warn/g)).toHaveLength(3);
+		expect(html).toMatch(/settings-nav-label">Agent 配置<\/span><span class="nav-dot warn"/);
+		expect(html).toMatch(/id="settings-tab-pi"[^>]*>.*?pi<span class="nav-dot warn"/);
+		expect(html).toMatch(/id="settings-subtab-models"[^>]*>.*?模型与服务商<span class="nav-dot warn"/);
+		state.providers = { availableCount: 2 } as AppState["providers"];
+		html = render("models");
+		expect(html).not.toContain("nav-dot warn");
+	});
 
 	it("keeps pi's extensions under Agent 配置 → pi instead of a navigation entry of their own", () => {
 		const html = render("extensions");

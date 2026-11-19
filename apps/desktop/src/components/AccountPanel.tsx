@@ -759,7 +759,7 @@ function PiRelayRow({
 			const target = { id: yunlianGroupId(entry.name), name, siteUrl: overview.site.url };
 			const next = relayProvider(target, used.models, provider?.custom, used.modelsError);
 			await store.saveCustomProvider(next, { apiKeyRef: used.keyRef }, !provider?.custom);
-			store.toast("info", `已把 pi 接入${entry.name}，可以在「模型与服务商」中查看和编辑`);
+			store.toast("info", `已把 pi 接入${entry.name}，可以在「Agent 配置 → pi → 模型与服务商」中查看和编辑`);
 		});
 
 	return (
@@ -773,7 +773,7 @@ function PiRelayRow({
 					<div className="muted small">
 						{provider
 							? `已添加为服务商「${provider.name}」· ${provider.availableCount || provider.modelCount} 个模型；更新会重新读取令牌可用的模型。`
-							: `读取令牌可用的全部模型，添加为 pi 的服务商「${name}」，可以在「模型与服务商」中查看和编辑。`}
+							: `读取令牌可用的全部模型，添加为 pi 的服务商「${name}」，可以在「Agent 配置 → pi → 模型与服务商」中查看和编辑。`}
 					</div>
 				</div>
 				<div className="row-actions">
@@ -1187,7 +1187,7 @@ function GroupRow({
 							`读取模型失败：${fetchError}。接入时会再读取一次。`
 						) : null}
 						使用上方选择的令牌，密钥由 Pier Host 直接写入配置（Claude Code / Codex 的配置文件与终端中的 claude / codex
-						共用）。之后可以在「模型与服务商」与「Agent 配置」中查看和修改。
+						共用）。之后可以在「Agent 配置」中查看和修改。
 					</p>
 				</div>
 			) : null}
@@ -1413,7 +1413,7 @@ function Dashboard({
 			>
 				<p className="muted small settings-note">
 					这里列出已添加和已配置的分组。点「添加分组」选择要使用的分组，再选择它的令牌（或新建令牌），然后选择配置到哪个
-					Agent： pi（添加为服务商「{site.name} · 分组名」，可以在「模型与服务商」中查看和编辑）
+					Agent： pi（添加为服务商「{site.name} · 分组名」，可以在「Agent 配置 → pi → 模型与服务商」中查看和编辑）
 					{agents ? "、Claude Code 或 Codex（写入它们的用户配置文件），同一个分组可以同时接入多个。" : "。"}
 				</p>
 				<div className="provider-list">

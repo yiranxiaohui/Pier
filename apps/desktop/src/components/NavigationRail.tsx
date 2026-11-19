@@ -10,22 +10,21 @@ import {
 	IconLoader,
 	IconServer,
 	IconSettings,
-	IconSparkles,
 	IconUser,
 } from "./Icons.tsx";
 import { useOutsideClick } from "./SessionControls.tsx";
 import { SIDEBAR_SHORTCUT } from "./Sidebar.tsx";
 import { SidebarUpdate, updatePending } from "./UpdatePanel.tsx";
 
+/** Every page under “Agent 配置”: pi's settings, models and extensions, and the other agents. */
+const AGENT_CONFIG_PAGES: SettingsSection[] = ["pi", "models", "extensions", "claude", "codex", "opencode"];
+
 const SHORTCUTS: Array<{
 	section: SettingsSection;
 	label: string;
 	icon: ComponentType<{ size?: number }>;
 	pages?: SettingsSection[];
-}> = [
-	{ section: "models", label: "模型与服务商", icon: IconSparkles },
-	{ section: "pi", label: "Agent 配置", icon: IconBot, pages: ["pi", "extensions", "claude", "codex"] },
-];
+}> = [{ section: "pi", label: "Agent 配置", icon: IconBot, pages: AGENT_CONFIG_PAGES }];
 
 /** App navigation stays available even when the workspace list is collapsed or settings are open. */
 export function NavigationRail() {
@@ -143,7 +142,8 @@ export function NavigationRail() {
 				<div className="navigation-divider" />
 				{SHORTCUTS.map((item) => {
 					const selected = !!settings && (item.pages ? item.pages.includes(settings) : settings === item.section);
-					const attention = item.section === "models" && noModels;
+					// pi's models live under “Agent 配置”, which leads straight to them while pi has none here.
+					const attention = !!item.pages?.includes("models") && noModels;
 					return (
 						<button
 							type="button"
@@ -151,8 +151,8 @@ export function NavigationRail() {
 							className={`navigation-button${selected ? " selected" : ""}`}
 							aria-label={item.label}
 							aria-current={selected ? "page" : undefined}
-							title={`${item.label}${attention ? " · 还没有可用模型" : ""}`}
-							onClick={() => store.openSettings(item.section)}
+							title={`${item.label}${attention ? " · pi 还没有可用模型" : ""}`}
+							onClick={() => (attention ? store.openSettings("models", LOCAL_NODE) : store.openSettings(item.section))}
 						>
 							<item.icon size={20} />
 							{attention ? <span className="navigation-badge warning" /> : null}

@@ -390,7 +390,7 @@ pi 终端界面自带的命令（`/model`、`/compact`、`/new`、`/fork`、`/na
 
 两条线路是同一个站点、同一套账号，因此 `account.setLine` 只改变 Host 访问站点的地址：已保存的登录随之改用新线路（刷新 Cookie 与访问令牌照常可用），站点信息缓存失效；等待两步验证码的密码登录被丢弃。切换前发起、之后才完成的浏览器登录也保存到当前线路。所选线路与登录一起保存在 `account.json` 的 `line` 字段（默认线路不写），退出登录后保留；旧版本 Host 读到其他线路的登录时当作未登录。使用 `accountSite` 的 Host 只有一条线路 `custom`。
 
-桌面端在个人中心顶部显示线路选择（Host 返回多条线路时），切换后把那台电脑上 Base URL 由云链API线路派生的服务商（`yunlian`、`yunlian-<分组>` 以及指向任一线路的自定义服务商）一并改为新线路的地址（密钥不变，手动改过 Base URL 的不动）；之后把分组配置到 pi、Claude Code 或 Codex 也使用当前线路。「模型与服务商」中的「云链API」浏览器授权使用本机个人中心的线路。
+桌面端在个人中心顶部显示线路选择（Host 返回多条线路时），切换后把那台电脑上 Base URL 由云链API线路派生的服务商（`yunlian`、`yunlian-<分组>` 以及指向任一线路的自定义服务商）一并改为新线路的地址（密钥不变，手动改过 Base URL 的不动）；之后把分组配置到 pi、Claude Code 或 Codex 也使用当前线路。「Agent 配置 → pi → 模型与服务商」中的「云链API」浏览器授权使用本机个人中心的线路。
 
 #### 浏览器登录（1.16）
 
@@ -414,7 +414,7 @@ pi 终端界面自带的命令（`/model`、`/compact`、`/new`、`/fork`、`/na
 | `loopback.respond` 🔒 | `{ relayId, requestId, status, title, detail }` | `{ responded }`；在浏览器中显示页面；浏览器已断开或已经回复过时为 `false` |
 | `loopback.close` 🔒 | `{ relayId }` | `{ closed }` |
 
-桌面端把每个分组的令牌保存为自定义服务商 `yunlian-<分组>`（名称为「云链API · 分组」，Base URL 为 `<站点>/v1`）；「模型与服务商」中浏览器授权添加的是 `yunlian`。
+桌面端把每个分组的令牌保存为自定义服务商 `yunlian-<分组>`（名称为「云链API · 分组」，Base URL 为 `<站点>/v1`）；「Agent 配置 → pi → 模型与服务商」中浏览器授权添加的是 `yunlian`。
 
 ### 扩展与扩展包（1.8）
 

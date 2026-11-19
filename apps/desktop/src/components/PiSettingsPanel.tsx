@@ -413,7 +413,7 @@ export function PiSettings() {
 																? `${own.defaultProvider}/${own.defaultModel}`
 																: "未设置"
 														}`
-													: "在「模型与服务商」中设置全局默认模型；工作区的默认模型可以在 JSON 中编辑。"
+													: "在上方的「模型与服务商」中设置全局默认模型；工作区的默认模型可以在 JSON 中编辑。"
 											}
 										>
 											<button type="button" onClick={() => store.openSettings("models")}>

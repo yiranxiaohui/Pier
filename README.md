@@ -199,7 +199,7 @@ bunx expo run:ios --device
 ## 快速上手
 
 1. **打开 Pier**：Windows 从开始菜单打开，macOS 从 Finder 的应用目录打开，Linux 从应用菜单或 `pier` 打开；Linux 服务器用一键脚本安装后，在终端运行 `pier` 打开 CLI。需要登录后自动运行时，在桌面端「设置 → 常规 → 开机自启」开启。
-2. **准备 Agent**：pi、Claude Code、Codex 都可以在「设置 → Agent 配置」中一键安装（pi 也可以自己用 `curl -fsSL https://pi.dev/install.sh | sh` 安装，Pier 会自动找到它）；pi 在「设置 → 模型与服务商」中登录服务商或填写 API Key，Claude Code / Codex 按提示登录。
+2. **准备 Agent**：pi、Claude Code、Codex 都可以在「设置 → Agent 配置」中一键安装（pi 也可以自己用 `curl -fsSL https://pi.dev/install.sh | sh` 安装，Pier 会自动找到它）；pi 在「设置 → Agent 配置 → pi → 模型与服务商」中登录服务商或填写 API Key，Claude Code / Codex 按提示登录。
    使用 OpenCode 时，在运行 Host 的电脑上安装 `opencode` 并配置模型。详见[使用指南](docs/guide.md#opencode)。
 3. **开始会话**：添加工作区（项目目录），新建会话时在输入框下方选择 pi、Claude Code、Codex 或 OpenCode。
 4. **连接手机**：在桌面端「远程主机 → 本机 → 连接管理」开启远程访问并显示配对二维码，在手机 App 中点「添加电脑」扫码。服务器上在 `pier` CLI 中依次输入 `/remote on`、`/pair`，用手机 App 扫描终端中的二维码（也可粘贴配对链接），再输入 `/pair yes` 确认。

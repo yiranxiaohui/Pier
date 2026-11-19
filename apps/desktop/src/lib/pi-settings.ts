@@ -52,7 +52,7 @@ export const SETTINGS_GROUPS: GroupDef[] = [
 	{
 		id: "model",
 		title: "模型与思考",
-		description: "默认模型在「模型与服务商」中设置。",
+		description: "默认模型在上方的「模型与服务商」中设置。",
 		fields: [
 			{
 				path: ["defaultThinkingLevel"],
