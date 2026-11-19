@@ -1,4 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -563,5 +565,104 @@ describe("Codex runtime", () => {
 		await rec.waitFor((frame) => frame.event.type === "session.status" && frame.event.state === "idle");
 		expect(state().runState).toBe("idle");
 		expect(state().errorMessage).toBeUndefined();
+	});
+
+	describe("with a custom provider", () => {
+		let provider: Server;
+		let requests: Array<{ url: string | undefined; authorization: string | undefined }>;
+		let baseUrl: string;
+
+		beforeEach(async () => {
+			requests = [];
+			provider = createServer((req, res) => {
+				requests.push({ url: req.url, authorization: req.headers.authorization });
+				res.setHeader("Content-Type", "application/json");
+				res.end(
+					JSON.stringify({
+						data: [
+							{ id: "deepseek-flash", supported_endpoint_types: ["openai"] },
+							{ id: "deepseek-pro", supported_endpoint_types: ["openai"] },
+							{ id: "gpt-mini", supported_endpoint_types: ["openai", "openai-response"] },
+							{ id: "image-1", supported_endpoint_types: ["image-generation", "openai"] },
+						],
+					}),
+				);
+			});
+			await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+			baseUrl = `http://127.0.0.1:${(provider.address() as AddressInfo).port}/v1`;
+		});
+		afterEach(() => new Promise<void>((resolve) => provider.close(() => resolve())));
+
+		/** Point Codex's (fake) configuration at the relay, like `config.toml` would. */
+		function configure(settings: Record<string, unknown>, url = baseUrl) {
+			writeFileSync(
+				join(codexDir, "config.json"),
+				JSON.stringify({
+					model_provider: "relay",
+					model_providers: {
+						relay: {
+							name: "Relay",
+							base_url: url,
+							wire_api: "responses",
+							experimental_bearer_token: "sk-relay",
+							query_params: { "api-version": "1" },
+						},
+					},
+					...settings,
+				}),
+			);
+			runtime().configChanged();
+		}
+
+		/** The model a prompt in the session runs with. */
+		async function promptModel(session: SessionSummary): Promise<unknown> {
+			const { rec } = await open(session);
+			await client.request("session.prompt", { sessionId: session.id, text: "hello" });
+			await rec.waitForType("agent_settled");
+			const last = await runtime().server().request<Record<string, unknown>>("fake/lastTurn", { threadId: session.id });
+			return last?.model;
+		}
+
+		it("lists the provider's models, the configured model first, and runs turns with it", async () => {
+			configure({ model: "deepseek-pro", model_context_window: 500000 });
+			const models = await client.request("model.list", { workspaceId: workspace.id, runtime: "codex" });
+			expect(models.models.map((m) => m.id)).toEqual(["deepseek-pro", "deepseek-flash", "gpt-mini"]);
+			expect(models).toMatchObject({
+				current: { id: "deepseek-pro", reasoning: false, thinkingLevels: ["off"], contextWindow: 500000 },
+				thinkingLevel: "off",
+			});
+			// A model of Codex's catalog keeps its description.
+			expect(models.models[2]).toMatchObject({ id: "gpt-mini", thinkingLevels: ["low"] });
+			expect(requests).toEqual([{ url: "/v1/models?api-version=1", authorization: "Bearer sk-relay" }]);
+
+			const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+			expect(await promptModel(session)).toBe("deepseek-pro");
+			expect(
+				await client.request("model.set", { sessionId: session.id, provider: "codex", modelId: "deepseek-flash" }),
+			).toMatchObject({ model: { id: "deepseek-flash" } });
+			await expect(
+				client.request("model.set", { sessionId: session.id, provider: "codex", modelId: "gpt-test" }),
+			).rejects.toThrow(/Unknown model/);
+		});
+
+		it("starts threads on the provider's first model when no model is configured", async () => {
+			configure({});
+			const models = await client.request("model.list", { workspaceId: workspace.id, runtime: "codex" });
+			expect(models.current?.id).toBe("deepseek-flash");
+			const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+			expect(await promptModel(session)).toBe("deepseek-flash");
+		});
+
+		it("falls back to Codex's catalog with the configured model when the provider lists none", async () => {
+			const closed = createServer();
+			await new Promise<void>((resolve) => closed.listen(0, "127.0.0.1", resolve));
+			const port = (closed.address() as AddressInfo).port;
+			await new Promise<void>((resolve) => closed.close(() => resolve()));
+			configure({ model: "deepseek-pro" }, `http://127.0.0.1:${port}/v1`);
+			const models = await client.request("model.list", { workspaceId: workspace.id, runtime: "codex" });
+			expect(models.models.map((m) => m.id)).toEqual(["deepseek-pro", "gpt-test", "gpt-mini"]);
+			const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+			expect(await promptModel(session)).toBe("deepseek-pro");
+		});
 	});
 });

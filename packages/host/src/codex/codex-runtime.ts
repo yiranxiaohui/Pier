@@ -15,6 +15,7 @@ import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.
 import { CodexAppServer } from "./app-server.ts";
 import { CODEX_CAPABILITIES, CodexSession, type CodexSessionHost } from "./codex-session.ts";
 import { codexPolicy, convertTurns, storedSubagents, toModelInfo } from "./convert.ts";
+import { type CodexModelConfig, codexModelConfig, codexModelList, fetchProviderModels } from "./provider-models.ts";
 
 export interface CodexRuntimeOptions {
 	installationHome?: string;
@@ -37,6 +38,10 @@ export function codexHome(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 const MODELS_TTL_MS = 10 * 60 * 1000;
+/** A custom provider that did not list its models is asked again after this long. */
+const MODELS_RETRY_MS = 30 * 1000;
+/** How long a custom provider gets to list its models. */
+const PROVIDER_MODELS_TIMEOUT_MS = 6000;
 const LIST_LIMIT = 200;
 /** The shared app server stops after this long without open Codex sessions. */
 const IDLE_SHUTDOWN_MS = 5 * 60 * 1000;
@@ -45,6 +50,18 @@ interface CountCacheEntry {
 	mtimeMs: number;
 	size: number;
 	count: number;
+}
+
+/** The models offered in one workspace (its project config may pick another provider or model). */
+interface ModelsEntry {
+	list: ModelInfo[];
+	expires: number;
+	/** The list is what the custom provider reported, not Codex's catalog. */
+	fromProvider: boolean;
+}
+
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /** Codex, driven through `codex app-server` with the user's own Codex install and login. */
@@ -57,8 +74,11 @@ export class CodexRuntime implements AgentRuntime {
 	private readonly sessions = new Map<string, CodexSession>();
 	/** Sessions that follow sub-agent threads, by sub-agent thread id. */
 	private readonly adopted = new Map<string, CodexSession>();
-	private models: { list: ModelInfo[]; at: number } | undefined;
-	private modelsPromise: Promise<ModelInfo[]> | undefined;
+	/** Models by workspace directory (`""` without one). */
+	private readonly models = new Map<string, ModelsEntry>();
+	private readonly modelsPending = new Map<string, Promise<ModelsEntry>>();
+	/** Bumped when the configuration changes, so lists read before are not cached. */
+	private modelsGeneration = 0;
 	private versionPromise: Promise<string | undefined> | undefined;
 	private versionFor: string | undefined;
 	private readonly counts = new Map<string, CountCacheEntry>();
@@ -83,7 +103,7 @@ export class CodexRuntime implements AgentRuntime {
 	installationChanged(): void {
 		this.versionFor = undefined;
 		this.versionPromise = undefined;
-		this.models = undefined;
+		this.forgetModels();
 		this.appServerFor = undefined;
 	}
 
@@ -152,11 +172,11 @@ export class CodexRuntime implements AgentRuntime {
 		};
 	}
 
-	private sessionHost(): CodexSessionHost {
+	private sessionHost(cwd: string): CodexSessionHost {
 		return {
 			server: () => this.server(),
-			model: (id) => this.models?.list.find((m) => m.id === id),
-			defaultModel: () => this.models?.list[0],
+			model: (id) => this.models.get(cwd)?.list.find((m) => m.id === id),
+			defaultModel: () => this.models.get(cwd)?.list[0],
 			register: (session) => {
 				this.sessions.set(session.id, session);
 				return () => {
@@ -229,17 +249,18 @@ export class CodexRuntime implements AgentRuntime {
 	}
 
 	async create(options: ManagedSessionOptions): Promise<ManagedSession> {
-		await this.listModels().catch(() => []);
 		const workspace = options.workspace();
+		await this.listModels(workspace.path).catch(() => []);
 		const policy = codexPolicy(workspace.policy);
 		const response = await this.server().request<Json>("thread/start", {
 			cwd: workspace.path,
 			approvalPolicy: policy.approvalPolicy,
 			sandbox: policy.sandbox,
 		});
-		return CodexSession.start(options, this.sessionHost(), {
+		const model = this.threadModel(workspace.path, response.model);
+		return CodexSession.start(options, this.sessionHost(workspace.path), {
 			thread: (response.thread ?? {}) as Json,
-			...(typeof response.model === "string" ? { model: response.model } : {}),
+			...(model ? { model } : {}),
 			effort: (response.reasoningEffort as string | null | undefined) ?? null,
 			serviceTier: response.serviceTier as string | null | undefined,
 		});
@@ -279,8 +300,8 @@ export class CodexRuntime implements AgentRuntime {
 	}
 
 	async open(options: ManagedSessionOptions, stored: StoredSession): Promise<ManagedSession> {
-		await this.listModels().catch(() => []);
 		const workspace = options.workspace();
+		await this.listModels(workspace.path).catch(() => []);
 		const policy = codexPolicy(workspace.policy);
 		const usage = this.captureTokenUsage();
 		try {
@@ -294,7 +315,7 @@ export class CodexRuntime implements AgentRuntime {
 			const thread = (response.thread ?? {}) as Json;
 			const turns = await this.readTurns(stored.id);
 			const tokenUsage = usage.of(stored.id);
-			return CodexSession.start(options, this.sessionHost(), {
+			return CodexSession.start(options, this.sessionHost(workspace.path), {
 				thread: { ...thread, name: thread.name ?? stored.name },
 				...(typeof response.model === "string" ? { model: response.model } : {}),
 				effort: (response.reasoningEffort as string | null | undefined) ?? null,
@@ -341,7 +362,7 @@ export class CodexRuntime implements AgentRuntime {
 			const thread = (response.thread ?? {}) as Json;
 			const turns = await this.readTurns(String(thread.id));
 			const tokenUsage = usage.of(String(thread.id));
-			session = CodexSession.start(options, this.sessionHost(), {
+			session = CodexSession.start(options, this.sessionHost(workspace.path), {
 				thread,
 				...(typeof response.model === "string" ? { model: response.model } : {}),
 				effort: (response.reasoningEffort as string | null | undefined) ?? null,
@@ -362,39 +383,103 @@ export class CodexRuntime implements AgentRuntime {
 		return true;
 	}
 
-	async listModels(): Promise<ModelInfo[]> {
+	/**
+	 * The models offered in `cwd`, the default first (see `codexModelList`): Codex's catalog, or what
+	 * the configured custom provider lists, and the configured model.
+	 */
+	async listModels(cwd?: string): Promise<ModelInfo[]> {
 		if (!this.executable()) return [];
-		if (this.models && Date.now() - this.models.at < MODELS_TTL_MS) return this.models.list;
-		this.modelsPromise ??= (async () => {
-			try {
-				const list: ModelInfo[] = [];
-				let cursor: string | null | undefined;
-				let defaultId: string | undefined;
-				do {
-					const page = await this.server().request<{ data?: Json[]; nextCursor?: string | null }>("model/list", {
-						...(cursor ? { cursor } : {}),
-					});
-					for (const model of page.data ?? []) {
-						if (model.hidden === true) continue;
-						const info = toModelInfo(model);
-						if (model.isDefault === true) defaultId = info.id;
-						list.push(info);
-					}
-					cursor = page.nextCursor;
-				} while (cursor);
-				// The default model first: new threads use it unless one is picked.
-				list.sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId));
-				this.models = { list, at: Date.now() };
-				return list;
-			} finally {
-				this.modelsPromise = undefined;
-			}
-		})();
-		return this.modelsPromise;
+		const key = cwd ?? "";
+		const cached = this.models.get(key);
+		if (cached && Date.now() < cached.expires) return cached.list;
+		let pending = this.modelsPending.get(key);
+		if (!pending) {
+			const generation = this.modelsGeneration;
+			pending = this.loadModels(cwd)
+				.then((entry) => {
+					if (generation === this.modelsGeneration) this.models.set(key, entry);
+					return entry;
+				})
+				.finally(() => {
+					if (this.modelsPending.get(key) === pending) this.modelsPending.delete(key);
+				});
+			this.modelsPending.set(key, pending);
+		}
+		return (await pending).list;
 	}
 
-	async newSessionDefaults(_cwd: string): Promise<{ model?: ModelInfo; thinkingLevel: ThinkingLevel }> {
-		const models = await this.listModels();
+	private async loadModels(cwd: string | undefined): Promise<ModelsEntry> {
+		const [catalog, config] = await Promise.all([this.catalogModels(), this.modelConfig(cwd)]);
+		let providerModels: string[] | undefined;
+		let ttl = MODELS_TTL_MS;
+		if (config.provider) {
+			try {
+				providerModels = await fetchProviderModels(config.provider, AbortSignal.timeout(PROVIDER_MODELS_TIMEOUT_MS));
+			} catch (error) {
+				ttl = MODELS_RETRY_MS;
+				this.log(`Codex provider ${config.provider.id} did not list its models: ${errorText(error)}`);
+			}
+		}
+		return {
+			list: codexModelList(catalog, config, providerModels),
+			expires: Date.now() + ttl,
+			fromProvider: !!providerModels?.length,
+		};
+	}
+
+	/** Codex's own catalog (`model/list`), its default first. */
+	private async catalogModels(): Promise<ModelInfo[]> {
+		const list: ModelInfo[] = [];
+		let cursor: string | null | undefined;
+		let defaultId: string | undefined;
+		do {
+			const page = await this.server().request<{ data?: Json[]; nextCursor?: string | null }>("model/list", {
+				...(cursor ? { cursor } : {}),
+			});
+			for (const model of page.data ?? []) {
+				if (model.hidden === true) continue;
+				const info = toModelInfo(model);
+				if (model.isDefault === true) defaultId = info.id;
+				list.push(info);
+			}
+			cursor = page.nextCursor;
+		} while (cursor);
+		// The default model first: new threads use it unless one is picked.
+		list.sort((a, b) => Number(b.id === defaultId) - Number(a.id === defaultId));
+		return list;
+	}
+
+	/** The model settings Codex applies in `cwd` (none when this Codex cannot report them). */
+	private async modelConfig(cwd: string | undefined): Promise<CodexModelConfig> {
+		try {
+			const response = await this.server().request<{ config?: Json }>("config/read", { ...(cwd ? { cwd } : {}) });
+			return codexModelConfig(response.config, this.options.env ?? process.env);
+		} catch (error) {
+			this.log(`Codex config/read failed: ${errorText(error)}`);
+			return {};
+		}
+	}
+
+	/**
+	 * The model a new thread in `cwd` runs: the one Codex started it with, unless the configured
+	 * custom provider does not list it (no `model` is configured, so Codex picked its catalog
+	 * default); then the provider's first model, which Pier shows as the default.
+	 */
+	private threadModel(cwd: string, reported: unknown): string | undefined {
+		const model = typeof reported === "string" ? reported : undefined;
+		const entry = this.models.get(cwd);
+		if (!entry?.fromProvider || (model && entry.list.some((m) => m.id === model))) return model;
+		return entry.list[0]?.id ?? model;
+	}
+
+	private forgetModels(): void {
+		this.modelsGeneration++;
+		this.models.clear();
+		this.modelsPending.clear();
+	}
+
+	async newSessionDefaults(cwd: string): Promise<{ model?: ModelInfo; thinkingLevel: ThinkingLevel }> {
+		const models = await this.listModels(cwd);
 		const model = models[0];
 		const levels = model?.thinkingLevels ?? ["off"];
 		const thinkingLevel: ThinkingLevel = levels.includes("medium") ? "medium" : (levels.at(-1) ?? "off");
@@ -411,7 +496,7 @@ export class CodexRuntime implements AgentRuntime {
 	 * Codex session uses it so providers and profiles are read again.
 	 */
 	configChanged(): void {
-		this.models = undefined;
+		this.forgetModels();
 		if (this.sessions.size > 0 || !this.appServer) return;
 		const server = this.appServer;
 		this.appServer = undefined;

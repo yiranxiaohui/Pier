@@ -1,6 +1,6 @@
 // A small stand-in for `codex app-server` (newline-delimited JSON-RPC over stdio) used by the
 // Codex runtime tests. State lives in memory; rollout files are created in FAKE_CODEX_DIR.
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -98,6 +98,15 @@ const MODELS = [
 ];
 
 const active = new Map();
+
+/**
+ * The effective configuration (`config/read`): `config.json` in FAKE_CODEX_DIR when a test wrote
+ * one (`model`, `model_provider`, `model_providers`, ...), like Codex reads `config.toml` anew.
+ */
+function config() {
+	const file = join(dir, "config.json");
+	return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -402,13 +411,18 @@ const handlers = {
 		return { userAgent: "fake", codexHome: dir, platformFamily: "unix", platformOs: "linux" };
 	},
 	"model/list": () => ({ data: MODELS, nextCursor: null }),
+	"config/read": () => ({ config: { model: null, model_provider: null, model_providers: {}, ...config() } }),
 	"thread/start": (params) => {
-		const thread = newThread(params.cwd);
+		const { model, model_provider } = config();
+		const thread = newThread(params.cwd, {
+			...(model ? { model } : {}),
+			...(model_provider ? { modelProvider: model_provider } : {}),
+		});
 		notify("thread/started", { thread: threadView(thread) });
 		return {
 			thread: threadView(thread),
-			model: "gpt-test",
-			modelProvider: "openai",
+			model: thread.model,
+			modelProvider: thread.modelProvider,
 			reasoningEffort: null,
 			serviceTier: thread.serviceTier,
 		};
