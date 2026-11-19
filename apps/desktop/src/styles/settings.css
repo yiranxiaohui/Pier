@@ -447,6 +447,42 @@ button.settings-tab.active:hover:not(:disabled) {
 	font-weight: 600;
 }
 
+/* Secondary tabs under one of those tabs (pi's settings and extensions), underlined so they read
+   as a level below the tabs and apart from the segmented controls inside the pages. */
+.settings-subtabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: -6px 0 24px;
+	border-bottom: 1px solid var(--border);
+}
+
+button.settings-subtab {
+	gap: 6px;
+	margin-bottom: -1px;
+	padding: 7px 12px 9px;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: 6px 6px 0 0;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 13px;
+	font-weight: 500;
+}
+
+button.settings-subtab:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--text);
+}
+
+button.settings-subtab.active,
+button.settings-subtab.active:hover:not(:disabled) {
+	border-bottom-color: var(--accent);
+	background: transparent;
+	color: var(--accent-text);
+	font-weight: 600;
+}
+
 .settings-intro {
 	margin: 0 0 24px;
 	padding: 12px 16px;
@@ -634,7 +670,8 @@ code.setting-value {
 /* The selected settings page's icon takes the accent (kept after the rule above for biome's
    specificity ordering). */
 button.settings-nav-item.selected .icon-svg,
-button.settings-tab.active .icon-svg {
+button.settings-tab.active .icon-svg,
+button.settings-subtab.active .icon-svg {
 	color: var(--accent-text);
 }
 

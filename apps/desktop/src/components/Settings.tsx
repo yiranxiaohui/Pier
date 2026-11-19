@@ -34,6 +34,7 @@ import {
 	IconRefresh,
 	IconSearch,
 	IconSettings,
+	IconSliders,
 	IconSparkles,
 	IconUser,
 	IconX,
@@ -59,9 +60,40 @@ interface SectionDef {
 	keywords: string;
 	/** Needs a live connection to the host. */
 	online?: boolean;
-	/** Pages shown as tabs under this navigation entry (the entry's own id is the first tab). */
+	/**
+	 * Pages shown as tabs under this navigation entry, or as secondary tabs under this tab (the
+	 * entry's own id is the first tab).
+	 */
 	tabs?: SectionDef[];
 }
+
+/** The pages a navigation entry or tab stands for: itself, or the pages of its tabs. */
+function pagesOf(item: SectionDef): SectionDef[] {
+	return item.tabs ? item.tabs.flatMap(pagesOf) : [item];
+}
+
+/**
+ * pi's own pages under its “Agent 配置” tab: its settings.json, and its extension packages, which
+ * only pi loads (Skills and MCP shared by every agent stay on their own page).
+ */
+const PI_PAGES: SectionDef[] = [
+	{
+		id: "pi",
+		label: "设置",
+		icon: IconSliders,
+		keywords:
+			"pi 配置 安装 更新 版本 install update settings settings.json 配置文件 思考 压缩 重试 超时 代理 proxy shell 工具 tools 传输 缓存 主题 终端 json 编辑",
+		online: true,
+	},
+	{
+		id: "extensions",
+		label: "扩展",
+		icon: IconPuzzle,
+		keywords:
+			"pi 扩展 插件 extension package 扩展包 扩展市场 npm git 安装 卸载 更新 启用 停用 技能 skill 提示词 prompt 主题",
+		online: true,
+	},
+];
 
 /**
  * Agents whose own configuration files the “Agent 配置” page edits, one tab each. A new agent
@@ -72,9 +104,9 @@ const AGENT_PAGES: SectionDef[] = [
 		id: "pi",
 		label: "pi",
 		icon: IconPi,
-		keywords:
-			"pi 配置 安装 更新 版本 install update settings settings.json 配置文件 思考 压缩 重试 超时 代理 proxy shell 工具 tools 传输 缓存 主题 终端 json 编辑",
+		keywords: "pi",
 		online: true,
+		tabs: PI_PAGES,
 	},
 	{
 		id: "claude",
@@ -132,13 +164,6 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 				online: true,
 			},
 			{
-				id: "extensions",
-				label: "扩展",
-				icon: IconPuzzle,
-				keywords: "扩展 插件 extension package 扩展包 npm git 安装 卸载 更新 启用 停用 技能 skill 提示词 prompt 主题",
-				online: true,
-			},
-			{
 				id: "resources",
 				label: "Skills 与 MCP",
 				icon: IconPuzzle,
@@ -167,22 +192,41 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 /** Navigation entries, each standing for itself or for the pages of its tabs. */
 const NAV_ITEMS = GROUPS.flatMap((group) => group.items);
 /** Every page, tabs included. */
-const SECTIONS = NAV_ITEMS.flatMap((item) => item.tabs ?? [item]);
+const SECTIONS = NAV_ITEMS.flatMap(pagesOf);
 
 /** The navigation entry a page belongs to. */
 function navItemOf(page: SettingsSection): SectionDef | undefined {
-	return NAV_ITEMS.find((item) => item.id === page || item.tabs?.some((tab) => tab.id === page));
+	return NAV_ITEMS.find((item) => pagesOf(item).some((p) => p.id === page));
+}
+
+/** The tab of a navigation entry (or the secondary tab of a tab) that a page belongs to. */
+function tabOf(item: SectionDef | undefined, page: SettingsSection): SectionDef | undefined {
+	return item?.tabs?.find((tab) => pagesOf(tab).some((p) => p.id === page));
 }
 
 function sectionMatches(item: SectionDef, q: string): boolean {
 	return !q || `${item.label} ${item.keywords}`.toLowerCase().includes(q);
+}
+
+/** Whether an entry, one of its tabs or one of their pages matches the search. */
+function itemMatches(item: SectionDef, q: string): boolean {
+	return sectionMatches(item, q) || (item.tabs?.some((tab) => itemMatches(tab, q)) ?? false);
+}
+
+/** The first page under an entry's tabs that matches the search, by itself or through its tab. */
+function matchingPage(item: SectionDef, q: string): SectionDef | undefined {
+	for (const tab of item.tabs ?? []) {
+		const page = sectionMatches(tab, q) ? pagesOf(tab)[0] : matchingPage(tab, q);
+		if (page) return page;
+	}
+	return undefined;
 }
 const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	account: "管理云链API 账号、额度与令牌，连接你的 Agent。",
 	general: "让 Pier 更合你的习惯，调整外观、文件预览、语音与启动方式。",
 	models: "连接模型服务，选择适合你的默认模型。",
 	workspaces: "管理项目目录，为每个工作区选择合适的工具审批策略。",
-	extensions: "发现与管理 pi 扩展，为工作流程添加更多能力。",
+	extensions: "发现与管理 pi 的扩展包，为 pi 的工作流程添加更多能力。",
 	resources: "统一管理 Agent 的技能与 MCP 服务器。",
 	pi: "安装或更新 pi，调整它的模型、工具与运行偏好。",
 	claude: "管理 Claude Code 的模型、权限与运行偏好。",
@@ -861,6 +905,65 @@ function RemoteUnavailable({ blocker }: { blocker?: string | undefined }) {
 	);
 }
 
+/** The DOM id of a tab, or of a secondary tab (pi's tab and its settings page share the id `pi`). */
+function tabElementId(tab: SectionDef, secondary = false): string {
+	return `settings-${secondary ? "subtab" : "tab"}-${tab.id}`;
+}
+
+const TAB_KEYS: Record<string, (index: number, count: number) => number> = {
+	ArrowRight: (index, count) => (index + 1) % count,
+	ArrowLeft: (index, count) => (index - 1 + count) % count,
+	Home: () => 0,
+	End: (_, count) => count - 1,
+};
+
+/**
+ * The tabs under a page title (the agents in “Agent 配置”), or the secondary tabs under one of
+ * them (pi's settings and extensions). Arrow keys, Home and End move between them.
+ */
+function SettingsTabs({
+	tabs,
+	active,
+	label,
+	onOpen,
+	secondary = false,
+}: {
+	tabs: SectionDef[];
+	active: SectionDef;
+	label: string;
+	onOpen: (tab: SectionDef) => void;
+	secondary?: boolean;
+}) {
+	const kind = secondary ? "settings-subtab" : "settings-tab";
+	return (
+		<div className={`${kind}s`} role="tablist" aria-label={label}>
+			{tabs.map((tab, index) => (
+				<button
+					type="button"
+					role="tab"
+					key={tab.id}
+					aria-selected={tab === active}
+					id={tabElementId(tab, secondary)}
+					aria-controls="settings-page-body"
+					tabIndex={tab === active ? 0 : -1}
+					onKeyDown={(event) => {
+						const next = tabs[TAB_KEYS[event.key]?.(index, tabs.length) ?? -1];
+						if (!next) return;
+						event.preventDefault();
+						onOpen(next);
+						document.getElementById(tabElementId(next, secondary))?.focus();
+					}}
+					className={`${kind}${tab === active ? " active" : ""}`}
+					onClick={() => onOpen(tab)}
+				>
+					<tab.icon size={secondary ? 13 : 14} />
+					{tab.label}
+				</button>
+			))}
+		</div>
+	);
+}
+
 function NavBadge({ id }: { id: SettingsSection }): ReactNode {
 	const noModels = useAppState((s) => s.providers?.availableCount === 0);
 	const update = useAppState((s) => computerUpdateStatus(s.settingsNode, s));
@@ -900,22 +1003,29 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 	const q = query.trim().toLowerCase();
 	const groups = GROUPS.map((group) => ({
 		...group,
-		items: group.items.filter((item) => sectionMatches(item, q) || item.tabs?.some((tab) => sectionMatches(tab, q))),
+		items: group.items.filter((item) => itemMatches(item, q)),
 	})).filter((group) => group.items.length);
 	const current = SECTIONS.find((item) => item.id === section) ?? GENERAL;
 	const nav = navItemOf(current.id) ?? GENERAL;
-	// The tab last shown under each entry with tabs, so coming back to it returns there.
+	const tab = tabOf(nav, current.id);
+	const subtab = tabOf(tab, current.id);
+	// The page last shown under each entry with tabs, so coming back to it returns there.
 	const lastTab = useRef<Partial<Record<SettingsSection, SettingsSection>>>({});
 	if (nav.tabs) lastTab.current[nav.id] = current.id;
+	// Likewise under each tab with secondary tabs (pi's settings or extensions).
+	const lastSubtab = useRef<Partial<Record<SettingsSection, SettingsSection>>>({});
+	if (tab?.tabs) lastSubtab.current[tab.id] = current.id;
 	const openNav = (item: SectionDef) => {
 		if (!item.tabs) {
 			store.openSettings(item.id);
 			return;
 		}
-		const matching = q ? item.tabs.find((tab) => sectionMatches(tab, q)) : undefined;
+		const matching = q ? matchingPage(item, q) : undefined;
 		if (!matching && item.id === nav.id) return;
 		store.openSettings(matching?.id ?? lastTab.current[item.id] ?? item.id);
 	};
+	const openTab = (item: SectionDef) =>
+		store.openSettings(item.tabs ? (lastSubtab.current[item.id] ?? item.id) : item.id);
 	const Page = PAGES[current.id];
 	const followsHost = pageFollowsHost(current.id);
 	const remoteTarget = followsHost && !target.local;
@@ -1019,54 +1129,25 @@ export function SettingsPage({ section, footer }: { section: SettingsSection; fo
 								<p className="settings-subtitle">{PAGE_DESCRIPTIONS[current.id]}</p>
 							</div>
 						</header>
-						{nav.tabs ? (
-							<div className="settings-tabs" role="tablist" aria-label={nav.label}>
-								{nav.tabs.map((tab) => (
-									<button
-										type="button"
-										role="tab"
-										key={tab.id}
-										aria-selected={tab.id === current.id}
-										id={`settings-tab-${tab.id}`}
-										aria-controls="settings-page-body"
-										tabIndex={tab.id === current.id ? 0 : -1}
-										onKeyDown={(event) => {
-											const tabs = nav.tabs ?? [];
-											const index = tabs.indexOf(tab);
-											const next =
-												event.key === "ArrowRight"
-													? (index + 1) % tabs.length
-													: event.key === "ArrowLeft"
-														? (index - 1 + tabs.length) % tabs.length
-														: event.key === "Home"
-															? 0
-															: event.key === "End"
-																? tabs.length - 1
-																: -1;
-											const nextTab = tabs[next];
-											if (!nextTab) return;
-											event.preventDefault();
-											store.openSettings(nextTab.id);
-											document.getElementById(`settings-tab-${nextTab.id}`)?.focus();
-										}}
-										className={`settings-tab${tab.id === current.id ? " active" : ""}`}
-										onClick={() => store.openSettings(tab.id)}
-									>
-										<tab.icon size={14} />
-										{tab.label}
-									</button>
-								))}
-							</div>
+						{nav.tabs && tab ? <SettingsTabs tabs={nav.tabs} active={tab} label={nav.label} onOpen={openTab} /> : null}
+						{tab?.tabs && subtab ? (
+							<SettingsTabs
+								tabs={tab.tabs}
+								active={subtab}
+								label={`${tab.label} ${nav.label}`}
+								onOpen={openTab}
+								secondary
+							/>
 						) : null}
 						{remoteTarget && !pageDescribesHost(current.id) ? (
 							<RemoteTargetBanner readOnly={pageIsReadOnly(current.id)} />
 						) : null}
-						{nav.tabs ? (
+						{tab ? (
 							<div
 								id="settings-page-body"
 								className="settings-page-body"
 								role="tabpanel"
-								aria-labelledby={`settings-tab-${current.id}`}
+								aria-labelledby={subtab ? `${tabElementId(tab)} ${tabElementId(subtab, true)}` : tabElementId(tab)}
 							>
 								{body}
 							</div>

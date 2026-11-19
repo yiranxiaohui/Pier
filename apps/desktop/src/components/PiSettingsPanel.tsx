@@ -398,7 +398,7 @@ export function PiSettings() {
 									<SettingsCard>
 										<SettingRow
 											title="扩展、技能、提示词与主题"
-											description="settings.json 中的 packages、extensions、skills、prompts、themes 在「扩展」页面管理。"
+											description="settings.json 中的 packages、extensions、skills、prompts、themes 在上方的「扩展」中管理。"
 										>
 											<button type="button" onClick={() => store.openSettings("extensions")}>
 												打开扩展

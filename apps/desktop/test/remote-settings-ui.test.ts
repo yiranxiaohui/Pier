@@ -165,3 +165,33 @@ describe("selected host settings UI", () => {
 		expect(renderToStaticMarkup(createElement(LogsSettings))).toContain("读取日志失败：connection lost");
 	});
 });
+
+describe("settings navigation", () => {
+	// Offline, so the pages themselves (which talk to the host) are not rendered.
+	const render = (section: "pi" | "extensions" | "claude") => {
+		target.online = false;
+		return renderToStaticMarkup(createElement(SettingsPage, { section }));
+	};
+
+	it("keeps pi's extensions under Agent 配置 → pi instead of a navigation entry of their own", () => {
+		const html = render("extensions");
+		expect(html).not.toContain('settings-nav-label">扩展<');
+		expect(html).toMatch(/settings-nav-item selected"[^>]*>.*?settings-nav-label">Agent 配置</);
+		expect(html).toContain("<strong>Agent 配置</strong>");
+		expect(html).toMatch(/aria-selected="true" id="settings-tab-pi"/);
+		expect(html).toMatch(/aria-selected="true" id="settings-subtab-extensions"/);
+		expect(html).toMatch(/aria-selected="false" id="settings-subtab-pi"/);
+		expect(html).toContain('aria-labelledby="settings-tab-pi settings-subtab-extensions"');
+	});
+
+	it("opens pi's settings as its first secondary tab and shows none for other agents", () => {
+		let html = render("pi");
+		expect(html).toMatch(/aria-selected="true" id="settings-tab-pi"/);
+		expect(html).toMatch(/aria-selected="true" id="settings-subtab-pi"/);
+		expect(html).toContain('aria-labelledby="settings-tab-pi settings-subtab-pi"');
+		html = render("claude");
+		expect(html).toMatch(/aria-selected="true" id="settings-tab-claude"/);
+		expect(html).not.toContain("settings-subtab");
+		expect(html).toContain('aria-labelledby="settings-tab-claude"');
+	});
+});

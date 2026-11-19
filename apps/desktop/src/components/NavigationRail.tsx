@@ -8,7 +8,6 @@ import {
 	IconDownload,
 	IconHome,
 	IconLoader,
-	IconPuzzle,
 	IconServer,
 	IconSettings,
 	IconSparkles,
@@ -25,8 +24,7 @@ const SHORTCUTS: Array<{
 	pages?: SettingsSection[];
 }> = [
 	{ section: "models", label: "模型与服务商", icon: IconSparkles },
-	{ section: "extensions", label: "扩展", icon: IconPuzzle },
-	{ section: "pi", label: "Agent 配置", icon: IconBot, pages: ["pi", "claude", "codex"] },
+	{ section: "pi", label: "Agent 配置", icon: IconBot, pages: ["pi", "extensions", "claude", "codex"] },
 ];
 
 /** App navigation stays available even when the workspace list is collapsed or settings are open. */
