@@ -158,6 +158,43 @@ function ThinkingPanel({
 	);
 }
 
+/** The gap between the chip and the menu that opens above it (`.dropdown-menu.up`). */
+const MENU_GAP = 8;
+/** Room kept between the menu and the top of the area it shows in. */
+const MENU_MARGIN = 8;
+/** The model list's usual height; it is also never taller than half the window. */
+const LIST_MAX_HEIGHT = 360;
+/** The list keeps at least this height, so a couple of models always show. */
+const LIST_MIN_HEIGHT = 96;
+
+/** The top of the area `el` can be seen in: the window, cut by every ancestor that clips its overflow. */
+function visibleTop(el: HTMLElement): number {
+	let top = 0;
+	for (let node = el.parentElement; node; node = node.parentElement) {
+		if (getComputedStyle(node).overflowY !== "visible") top = Math.max(top, node.getBoundingClientRect().top);
+	}
+	return top;
+}
+
+/**
+ * How tall the model list can be for the whole menu to fit above the chip. The new-chat screen's
+ * composer sits in the middle of a scrolling pane, so with many models the menu used to grow past
+ * the pane's top, which cut off its header and search box.
+ */
+function fitListHeight(
+	anchor: HTMLElement | null,
+	menu: HTMLElement | null,
+	frame: HTMLElement | null,
+	body: HTMLElement | null,
+	list: HTMLElement | null,
+): number | undefined {
+	if (!anchor || !menu || !frame || !body || !list) return undefined;
+	const room = anchor.getBoundingClientRect().top - MENU_GAP - MENU_MARGIN - visibleTop(anchor);
+	// Everything in the menu but the list: its padding and border, the header, search box and "manage" row.
+	const rest = menu.offsetHeight - frame.offsetHeight + body.offsetHeight - list.offsetHeight;
+	return Math.round(Math.max(LIST_MIN_HEIGHT, Math.min(LIST_MAX_HEIGHT, window.innerHeight / 2, room - rest)));
+}
+
 /**
  * The model's name on the composer chip. Claude Code calls its default model "Default (recommended)";
  * the note helps while choosing, so the list keeps it, but on the chip it only takes room.
@@ -231,7 +268,12 @@ function ModelMenu({
 	const [motion, setMotion] = useState<"forward" | "back" | undefined>();
 	/** The open menu's content height, so it can animate when the view or list changes. */
 	const [height, setHeight] = useState<number | undefined>();
+	/** The model list's height limit, fitted to the room above the chip. */
+	const [listHeight, setListHeight] = useState<number | undefined>();
+	const menu = useRef<HTMLDivElement>(null);
+	const frame = useRef<HTMLDivElement>(null);
 	const body = useRef<HTMLDivElement>(null);
+	const list = useRef<HTMLDivElement>(null);
 	const [models, setModels] = useState<ModelInfo[] | undefined>();
 	const [error, setError] = useState<string | undefined>();
 	const [filter, setFilter] = useState("");
@@ -261,6 +303,24 @@ function ModelMenu({
 			setHeight(undefined);
 		};
 	}, [open]);
+
+	// The list shows in the "models" view, and in place of the main view until there is a model.
+	const listView = view === "models" || !model;
+	useLayoutEffect(() => {
+		if (!open || !listView) return;
+		const fit = () => {
+			const next = fitListHeight(ref.current, menu.current, frame.current, body.current, list.current);
+			if (next !== undefined) setListHeight(next);
+		};
+		fit();
+		// The chip moves when the window is resized or the new-chat screen scrolls.
+		window.addEventListener("resize", fit);
+		document.addEventListener("scroll", fit, true);
+		return () => {
+			window.removeEventListener("resize", fit);
+			document.removeEventListener("scroll", fit, true);
+		};
+	}, [open, listView, ref]);
 
 	const go = (next: "main" | "models") => {
 		setMotion(next === "models" ? "forward" : "back");
@@ -334,8 +394,8 @@ function ModelMenu({
 				<IconChevronUp size={13} className="chip-caret" />
 			</button>
 			{open ? (
-				<div className={`dropdown-menu up right model-menu${view === "models" ? " list" : ""}`}>
-					<div className="model-menu-frame" style={height === undefined ? undefined : { height }}>
+				<div ref={menu} className={`dropdown-menu up right model-menu${view === "models" ? " list" : ""}`}>
+					<div ref={frame} className="model-menu-frame" style={height === undefined ? undefined : { height }}>
 						<div ref={body}>
 							<div key={view} className={`model-menu-view${motion ? ` ${motion}` : ""}`}>
 								{view === "main" && model ? (
@@ -400,7 +460,11 @@ function ModelMenu({
 												onChange={(e) => setFilter(e.target.value)}
 											/>
 										</div>
-										<div className="model-menu-list">
+										<div
+											ref={list}
+											className="model-menu-list"
+											style={listHeight === undefined ? undefined : { maxHeight: listHeight }}
+										>
 											{error ? <div className="dropdown-empty error">{error}</div> : null}
 											{!models && !error ? <div className="dropdown-empty">加载中…</div> : null}
 											{models && !visible.length ? (
