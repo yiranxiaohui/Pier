@@ -219,7 +219,10 @@ function AgentPicker({
 								onClick={() => {
 									setOpen(false);
 									if (!r.available && installable(r.id)) {
-										store.openSettings(r.id === "codex" ? "codex" : r.id === "pi" ? "pi" : "claude", node);
+										store.openSettings(
+											r.id === "codex" ? "codex" : r.id === "pi" ? "pi" : r.id === "opencode" ? "opencode" : "claude",
+											node,
+										);
 										return;
 									}
 									store.setNewChatRuntime(workspace.id, r.id);
@@ -244,9 +247,9 @@ function AgentPicker({
 	);
 }
 
-/** Agents Pier can install from the settings page. */
+/** Agents Pier can install (or, for OpenCode, explain how to install) from the settings page. */
 function installable(id: string): boolean {
-	return id === "claude-code" || id === "codex" || id === "pi";
+	return id === "claude-code" || id === "codex" || id === "pi" || id === "opencode";
 }
 
 function agentDescription(id: string): string {

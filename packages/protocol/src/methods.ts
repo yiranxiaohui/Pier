@@ -54,6 +54,7 @@ import {
 	type LoopbackCallbackPage,
 	type LoopbackRequest,
 	type ModelInfo,
+	NativeAgentRuntimeSchema,
 	type NewApiAuthorizeResult,
 	type NewApiAuthorizeStart,
 	type NewApiLoginResult,
@@ -497,7 +498,7 @@ export const MethodParamsSchemas = {
 	 * `pi update --self`, or pi's official installer when pi is not installed.
 	 */
 	"runtime.install": z.object({ runtime: AgentInstallRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
-	"runtime.setAutoUpdate": z.object({ runtime: AgentConfigRuntimeSchema, enabled: z.boolean() }),
+	"runtime.setAutoUpdate": z.object({ runtime: NativeAgentRuntimeSchema, enabled: z.boolean() }),
 
 	"session.list": z.object({ workspaceId: Id }),
 	/** `runtime` (1.22) picks the agent runtime; the default is `pi`. */
@@ -814,13 +815,13 @@ export const MethodParamsSchemas = {
 	}),
 
 	/**
-	 * Configuration files of Claude Code or Codex (1.23): the user file and, with `workspaceId`,
-	 * that workspace's files, as stored (not merged).
+	 * Configuration files of Claude Code, Codex (1.23) or OpenCode (1.62): the user file and, with
+	 * `workspaceId`, that workspace's files, as stored (not merged).
 	 */
 	"agentConfig.get": z.object({ runtime: AgentConfigRuntimeSchema, workspaceId: Id.optional() }),
 	/**
-	 * Set or remove individual settings of one file, keeping everything else (TOML comments and
-	 * formatting included). Like `settings.update`; `project` and `local` scopes need `workspaceId`.
+	 * Set or remove individual settings of one file, keeping everything else (TOML and JSONC
+	 * comments and formatting included). Like `settings.update`; `project` and `local` scopes need `workspaceId`.
 	 * A change with `apiKeyRef` (1.25) sets the key behind a reference from `account.useToken` /
 	 * `newapi.useToken` instead of `value`, so the key never reaches the client.
 	 */
@@ -839,7 +840,10 @@ export const MethodParamsSchemas = {
 			.min(1)
 			.max(200),
 	}),
-	/** Replace one file with `text` (a JSON object, or TOML for Codex). Like `settings.write`. */
+	/**
+	 * Replace one file with `text` (a JSON object, TOML for Codex, a JSONC object for OpenCode).
+	 * Like `settings.write`.
+	 */
 	"agentConfig.write": z.object({
 		runtime: AgentConfigRuntimeSchema,
 		scope: AgentConfigScopeSchema,

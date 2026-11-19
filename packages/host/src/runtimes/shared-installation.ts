@@ -3,13 +3,13 @@ import { realpathSync, statSync } from "node:fs";
 import { copyFile, lstat, mkdir, readdir, rename, rm, symlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import type { AgentConfigRuntime } from "@pier/protocol";
+import type { NativeAgentRuntime } from "@pier/protocol";
 
-export function agentCommand(runtime: AgentConfigRuntime): string {
+export function agentCommand(runtime: NativeAgentRuntime): string {
 	return runtime === "codex" ? "codex" : "claude";
 }
 
-export function sharedAgentPaths(runtime: AgentConfigRuntime, home = homedir(), platform = process.platform) {
+export function sharedAgentPaths(runtime: NativeAgentRuntime, home = homedir(), platform = process.platform) {
 	const bin = join(home, ".local", "bin");
 	return {
 		bin,
@@ -18,7 +18,7 @@ export function sharedAgentPaths(runtime: AgentConfigRuntime, home = homedir(), 
 	};
 }
 
-export function sharedAgentExecutable(runtime: AgentConfigRuntime, home = homedir()): string | undefined {
+export function sharedAgentExecutable(runtime: NativeAgentRuntime, home = homedir()): string | undefined {
 	try {
 		const path = sharedAgentPaths(runtime, home).executable;
 		return statSync(path).isFile() ? realpathSync(path) : undefined;
@@ -29,7 +29,7 @@ export function sharedAgentExecutable(runtime: AgentConfigRuntime, home = homedi
 
 /** Publish verified binaries without following/replacing the targets of existing CLI symlinks. */
 export async function publishAgentCommand(
-	runtime: AgentConfigRuntime,
+	runtime: NativeAgentRuntime,
 	executable: string,
 	home: string,
 	platform = process.platform,

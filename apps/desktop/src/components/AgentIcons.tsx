@@ -51,6 +51,11 @@ export const IconCodex = makeAgentIcon(
 	/>,
 );
 
+/** OpenCode has no bundled brand mark; a terminal stands for it. */
+export function IconOpenCode(props: AgentIconProps) {
+	return <IconTerminal {...props} />;
+}
+
 export function AgentIcon({ runtime, ...props }: AgentIconProps & { runtime: AgentRuntimeId }) {
 	switch (runtime) {
 		case "pi":
@@ -60,7 +65,7 @@ export function AgentIcon({ runtime, ...props }: AgentIconProps & { runtime: Age
 		case "codex":
 			return <IconCodex {...props} />;
 		case "opencode":
-			return <IconTerminal {...props} />;
+			return <IconOpenCode {...props} />;
 		default:
 			return <IconBot {...props} />;
 	}

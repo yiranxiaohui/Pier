@@ -31,6 +31,7 @@ describe("settings pages of the managed computer", () => {
 			"pi",
 			"claude",
 			"codex",
+			"opencode",
 			"about",
 			"remote",
 			"logs",
@@ -65,6 +66,8 @@ describe("settings pages of the managed computer", () => {
 		expect(remotePageBlocker("pi", "studio", host("1.18"))).toBeUndefined();
 		expect(remotePageBlocker("claude", "studio", host("1.22"))).toMatch(/1\.23/);
 		expect(remotePageBlocker("codex", "studio", host("1.23"))).toBeUndefined();
+		expect(remotePageBlocker("opencode", "studio", host("1.61"))).toMatch(/1\.62/);
+		expect(remotePageBlocker("opencode", "studio", host("1.62"))).toBeUndefined();
 		// The general and about pages explain compatibility on their own.
 		expect(remotePageBlocker("general", "studio", host("1.0"))).toBeUndefined();
 		expect(remotePageBlocker("about", "studio", host("1.0"))).toBeUndefined();

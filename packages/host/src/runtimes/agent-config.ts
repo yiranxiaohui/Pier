@@ -8,35 +8,65 @@ import {
 	type AgentConfigScope,
 	PierProtocolError,
 } from "@pier/protocol";
+import { type ParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser";
 import { applySettingsChange, type SettingsChange } from "../pi/settings-files.ts";
+import { patchJsonc } from "./jsonc-patch.ts";
 
 type JsonObject = Record<string, unknown>;
+
+/**
+ * One scope's file: `name`, unless one of `prefer` exists. `prefer` lists the names the runtime
+ * reads, the one whose settings win first, so edits land where they take effect.
+ */
+interface FileSpec {
+	name: string;
+	prefer?: readonly string[];
+}
 
 interface Layout {
 	format: AgentConfigFormat;
 	/** Lowest precedence first. */
 	scopes: AgentConfigScope[];
 	/** The user file, relative to the configuration directory. */
-	user: string;
+	user: FileSpec;
 	/** Workspace files, relative to the workspace. */
-	workspace: Partial<Record<AgentConfigScope, string>>;
+	workspace: Partial<Record<AgentConfigScope, FileSpec>>;
+	/** Settings a new file starts with (OpenCode's `$schema`). */
+	newFile?: JsonObject;
 }
 
-/** Where Claude Code and Codex keep their settings (see their settings references). */
+/** Where Claude Code, Codex and OpenCode keep their settings (see their settings references). */
 const LAYOUTS: Record<AgentConfigRuntime, Layout> = {
 	"claude-code": {
 		format: "json",
 		scopes: ["user", "project", "local"],
-		user: "settings.json",
-		workspace: { project: join(".claude", "settings.json"), local: join(".claude", "settings.local.json") },
+		user: { name: "settings.json" },
+		workspace: {
+			project: { name: join(".claude", "settings.json") },
+			local: { name: join(".claude", "settings.local.json") },
+		},
 	},
 	codex: {
 		format: "toml",
 		scopes: ["user", "project"],
-		user: "config.toml",
-		workspace: { project: join(".codex", "config.toml") },
+		user: { name: "config.toml" },
+		workspace: { project: { name: join(".codex", "config.toml") } },
+	},
+	// OpenCode merges `config.json`, `opencode.json` and `opencode.jsonc` of its global directory in
+	// this order, later files winning, and the project's `opencode.json` and `opencode.jsonc` alike.
+	opencode: {
+		format: "jsonc",
+		scopes: ["user", "project"],
+		user: { name: "opencode.json", prefer: ["opencode.jsonc", "opencode.json", "config.json"] },
+		workspace: { project: { name: "opencode.json", prefer: ["opencode.jsonc", "opencode.json"] } },
+		newFile: { $schema: "https://opencode.ai/config.json" },
 	},
 };
+
+function filePath(directory: string, spec: FileSpec): string {
+	const found = spec.prefer?.find((name) => existsSync(join(directory, name)));
+	return join(directory, found ?? spec.name);
+}
 
 function isObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof Date);
@@ -58,10 +88,27 @@ function canonical(value: JsonObject): string {
 	);
 }
 
+/** `line:column` (1-based) of an offset in `text`. */
+function position(text: string, offset: number): string {
+	const before = text.slice(0, offset).split("\n");
+	return `${before.length}:${(before.at(-1)?.length ?? 0) + 1}`;
+}
+
+/** JSON with comments and trailing commas, as OpenCode reads it. */
+function parseJsoncText(text: string): { settings?: JsonObject; error?: string } {
+	const errors: ParseError[] = [];
+	const parsed = parseJsonc(text, errors, { allowTrailingComma: true }) as unknown;
+	const first = errors[0];
+	if (first) return { error: `${printParseErrorCode(first.error)} at ${position(text, first.offset)}` };
+	if (!isObject(parsed)) return { error: "The settings file must contain a JSON object" };
+	return { settings: parsed };
+}
+
 function parseText(format: AgentConfigFormat, text: string): { settings?: JsonObject; error?: string } {
 	if (!text.trim()) return { settings: {} };
 	try {
 		if (format === "toml") return { settings: parseToml(text) as JsonObject };
+		if (format === "jsonc") return parseJsoncText(text);
 		const parsed = JSON.parse(text) as unknown;
 		if (!isObject(parsed)) return { error: "The settings file must contain a JSON object" };
 		return { settings: parsed };
@@ -182,7 +229,40 @@ function withoutPath(object: JsonObject, path: readonly string[]): JsonObject {
 	return copy;
 }
 
+/**
+ * The changes that turn `before` into `after`, as `[path, value]` pairs (`undefined` removes the
+ * key): objects present in both are compared key by key, anything else is replaced whole.
+ */
+function differences(before: JsonObject, after: JsonObject, path: string[] = []): Array<[string[], unknown]> {
+	const found: Array<[string[], unknown]> = [];
+	for (const key of Object.keys(before)) {
+		if (!Object.hasOwn(after, key)) found.push([[...path, key], undefined]);
+	}
+	for (const [key, value] of Object.entries(after)) {
+		const old = Object.hasOwn(before, key) ? before[key] : undefined;
+		if (isObject(old) && isObject(value)) found.push(...differences(old, value, [...path, key]));
+		else if (old === undefined || JSON.stringify(old) !== JSON.stringify(value)) found.push([[...path, key], value]);
+	}
+	return found;
+}
+
+/** Edit the JSONC document in place so comments, ordering and formatting survive. */
+function patchJsoncDocument(previous: string, settings: JsonObject): string {
+	const original = parseJsoncText(previous).settings ?? {};
+	let text = previous;
+	for (const [path, value] of differences(original, settings)) text = patchJsonc(text, path, value);
+	return text;
+}
+
 function serialize(format: AgentConfigFormat, settings: JsonObject, previous: string | undefined): string {
+	if (format === "jsonc") {
+		// A new file is written like the JSON ones; an existing one is edited where it changes.
+		if (!previous?.trim()) return `${JSON.stringify(settings, null, 2)}\n`;
+		const text = patchJsoncDocument(previous, settings);
+		const reparsed = parseJsoncText(text);
+		if (reparsed.settings && canonical(reparsed.settings) === canonical(settings)) return text;
+		throw new PierProtocolError("INTERNAL", "Could not update the JSONC file without changing other settings");
+	}
 	if (format === "toml") {
 		// Edit the existing document so comments, ordering and formatting survive. New tables inside
 		// existing ones (another `[model_providers.x]`) become sections next to their siblings; if
@@ -205,9 +285,10 @@ function serialize(format: AgentConfigFormat, settings: JsonObject, previous: st
 }
 
 /**
- * Reads and edits Claude Code's `settings.json` files and Codex's `config.toml` files directly,
- * keeping keys Pier does not know about (and, for TOML, comments and formatting). Neither CLI
- * locks its files, so writes are plain replacements.
+ * Reads and edits Claude Code's `settings.json` files, Codex's `config.toml` files and OpenCode's
+ * `opencode.json(c)` files directly, keeping keys Pier does not know about (and, for TOML and
+ * JSONC, comments and formatting). None of these CLIs locks its files, so writes are plain
+ * replacements.
  */
 export class AgentConfigFiles {
 	constructor(private readonly configDirs: Record<AgentConfigRuntime, () => string>) {}
@@ -226,11 +307,11 @@ export class AgentConfigFiles {
 
 	pathFor(runtime: AgentConfigRuntime, scope: AgentConfigScope, workspacePath?: string): string {
 		const layout = LAYOUTS[runtime];
-		if (scope === "user") return join(this.configDir(runtime), layout.user);
-		const relative = layout.workspace[scope];
-		if (!relative) throw new PierProtocolError("BAD_REQUEST", `${runtime} has no ${scope} settings`);
+		if (scope === "user") return filePath(this.configDir(runtime), layout.user);
+		const spec = layout.workspace[scope];
+		if (!spec) throw new PierProtocolError("BAD_REQUEST", `${runtime} has no ${scope} settings`);
 		if (!workspacePath) throw new PierProtocolError("BAD_REQUEST", `The ${scope} scope needs a workspaceId`);
-		return join(workspacePath, relative);
+		return filePath(workspacePath, spec);
 	}
 
 	read(runtime: AgentConfigRuntime, scope: AgentConfigScope, workspacePath?: string): AgentConfigFile {
@@ -258,7 +339,8 @@ export class AgentConfigFiles {
 		if (JSON.stringify(toJson(settings)) === before) {
 			return { file: this.describe(runtime, scope, path, current), changed: false };
 		}
-		const text = serialize(format, settings, current);
+		const start = LAYOUTS[runtime].newFile;
+		const text = serialize(format, current?.trim() || !start ? settings : { ...start, ...settings }, current);
 		this.writeText(path, text);
 		return { file: this.describe(runtime, scope, path, text), changed: true };
 	}
@@ -275,7 +357,7 @@ export class AgentConfigFiles {
 		const path = this.pathFor(runtime, scope, workspacePath);
 		const content = stripBom(text);
 		const { settings, error } = parseText(format, content);
-		if (!settings || (format === "json" && !content.trim())) {
+		if (!settings || (format !== "toml" && !content.trim())) {
 			throw new PierProtocolError("BAD_REQUEST", `Invalid settings: ${error ?? "the file must contain a JSON object"}`);
 		}
 		if (expectedModifiedAt !== undefined) {

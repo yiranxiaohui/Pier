@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import type { PierClient } from "@pier/client";
@@ -14,13 +16,18 @@ let reply: string | undefined;
 let aborts: number;
 let rules: unknown[];
 let prompt: Record<string, unknown>;
+let configDir: string;
 const id = "ses_pier";
 function event(type: string, properties: unknown) {
 	controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type, properties })}\n\n`));
 }
 
 beforeEach(async () => {
-	host = await startTestHost({ agents: { opencode: { executable: process.execPath } } });
+	configDir = mkdtempSync(join(tmpdir(), "pier-opencode-config-"));
+	host = await startTestHost({
+		agents: { opencode: { executable: process.execPath } },
+		agentConfigDirs: { opencode: configDir },
+	});
 	client = await host.connect();
 	workspace = (await client.request("workspace.add", { path: host.workspaceDir, policy: "ask" })).workspace;
 	const session = { id, directory: workspace.path, title: "OpenCode test", time: { created: 1, updated: 2 } };
@@ -87,6 +94,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
 	await host.close();
+	rmSync(configDir, { recursive: true, force: true });
 });
 
 it("discovers OpenCode and isolates sessions by their native workspace directory", async () => {
@@ -130,4 +138,35 @@ it.each(["deny", "abort"])("handles %s while OpenCode waits for approval", async
 	}
 	expect(rules).toEqual([]);
 	expect((await client.request("session.snapshot", { sessionId: id })).session.state).toBe("idle");
+});
+
+it("restarts the OpenCode server after its configuration changes, once no turn runs", async () => {
+	const runtime = host.host.pool.runtime("opencode") as OpenCodeRuntime;
+	const restart = vi.spyOn(runtime.server, "restart").mockResolvedValue();
+	const change = (model: string) =>
+		client.request("agentConfig.update", {
+			runtime: "opencode",
+			scope: "user",
+			changes: [{ path: ["model"], value: model }],
+		});
+	const get = await client.request("agentConfig.get", { runtime: "opencode" });
+	expect(get).toMatchObject({ format: "jsonc", configDir, available: true });
+
+	await change("a/one");
+	expect(restart).toHaveBeenCalledTimes(1);
+
+	const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "opencode" });
+	const rec = new Recorder();
+	await client.subscribe(session.id, rec.handler);
+	await client.request("session.prompt", { sessionId: id, text: "Check directory" });
+	const frame = await rec.waitForType("ui.request");
+	await change("a/two");
+	expect(restart).toHaveBeenCalledTimes(1);
+	await client.request("ui.respond", {
+		sessionId: id,
+		requestId: (frame.event.request as { id: string }).id,
+		response: { decision: "deny" },
+	});
+	await rec.waitForType("agent_settled");
+	await vi.waitFor(() => expect(restart).toHaveBeenCalledTimes(2));
 });

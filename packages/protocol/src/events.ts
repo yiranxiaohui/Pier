@@ -159,8 +159,8 @@ export type PierHostEvent =
 	 */
 	| { type: "settings.changed"; scope: "user" | "project"; workspaceId?: string }
 	/**
-	 * A Claude Code or Codex configuration file was changed through `agentConfig.update` /
-	 * `agentConfig.write` (1.23). `workspaceId` is set for a workspace's files. Sent to every connection.
+	 * A Claude Code, Codex or OpenCode configuration file was changed through `agentConfig.update` /
+	 * `agentConfig.write` (1.23; OpenCode 1.62). `workspaceId` is set for a workspace's files. Sent to every connection.
 	 */
 	| { type: "agentConfig.changed"; runtime: AgentConfigRuntime; scope: AgentConfigScope; workspaceId?: string }
 	/** A CLI was installed or updated (1.32); refresh runtime availability and models. */

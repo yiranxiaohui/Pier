@@ -1,12 +1,15 @@
 import type {
 	AgentConfigFile,
+	AgentConfigFormat,
 	AgentConfigResult,
 	AgentConfigRuntime,
 	AgentConfigScope,
+	AgentRuntimeInfo,
 	WorkspaceInfo,
 } from "@pier/protocol";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+	AGENT_COMMAND,
 	AGENT_CONFIG_META,
 	agentUnhandledKeys,
 	CLAUDE_ENV_GROUP,
@@ -14,6 +17,11 @@ import {
 	codexProfileIds,
 	codexProviderFields,
 	codexProviderIds,
+	formatJsoncText,
+	opencodeModelChanges,
+	opencodeProviderFields,
+	opencodeProviderIds,
+	opencodeProviderModels,
 	SCOPE_LABEL,
 	validateConfigText,
 	validProviderId,
@@ -28,9 +36,9 @@ import {
 	type SettingsObject,
 	sameValue,
 } from "../lib/config-fields.ts";
-import { useAppState, useSettingsWorkspaces, useStore } from "../lib/store.tsx";
+import { useAppState, useSettingsTarget, useSettingsWorkspaces, useStore } from "../lib/store.tsx";
 import { AgentInstallCard } from "./AgentInstallCard.tsx";
-import { ConfigGroups, FieldRow, resolveFallback, TextFileEditor } from "./ConfigFields.tsx";
+import { ConfigGroups, DraftList, FieldRow, resolveFallback, TextFileEditor } from "./ConfigFields.tsx";
 import {
 	IconAlert,
 	IconBraces,
@@ -78,6 +86,19 @@ const WORKSPACE_FILES: Record<AgentConfigRuntime, Array<{ scope: AgentConfigScop
 		{ scope: "local", label: "本地设置", file: ".claude/settings.local.json" },
 	],
 	codex: [{ scope: "project", label: "项目设置", file: ".codex/config.toml" }],
+	opencode: [{ scope: "project", label: "项目设置", file: "opencode.json" }],
+};
+
+const FORMAT: Record<AgentConfigRuntime, AgentConfigFormat> = {
+	"claude-code": "json",
+	codex: "toml",
+	opencode: "jsonc",
+};
+
+const NEW_FILE_PLACEHOLDER: Record<AgentConfigFormat, string> = {
+	json: "{}",
+	jsonc: '{\n  "$schema": "https://opencode.ai/config.json"\n}',
+	toml: 'model = "gpt-5-codex"',
 };
 
 function Intro({ runtime }: { runtime: AgentConfigRuntime }) {
@@ -88,6 +109,17 @@ function Intro({ runtime }: { runtime: AgentConfigRuntime }) {
 				<code>~/.claude/settings.json</code>）对所有项目生效，工作区的 <code>.claude/settings.json</code>{" "}
 				（项目设置，通常随代码提交）覆盖全局，<code>.claude/settings.local.json</code>
 				（本地设置，不提交）再覆盖项目设置。 修改会立即写入文件，对之后新建或重新打开的会话生效。
+			</p>
+		);
+	}
+	if (runtime === "opencode") {
+		return (
+			<p className="settings-intro">
+				可视化编辑 OpenCode 的 <code>opencode.json</code>（也支持 <code>.jsonc</code>
+				，注释与格式会保留），与终端中的 <code>opencode</code> 共用同一份配置。全局设置（
+				<code>~/.config/opencode/opencode.json</code>）对所有项目生效，工作区根目录的 <code>opencode.json</code>{" "}
+				覆盖全局中的同名项。修改会立即写入文件，Pier 在 OpenCode 没有进行中的回合时重新加载配置。表单按 OpenCode 1.x
+				的格式写入，OpenCode 2 同样可以读取。
 			</p>
 		);
 	}
@@ -108,6 +140,10 @@ export function CodexSettings() {
 	return <AgentConfigPage runtime="codex" />;
 }
 
+export function OpenCodeSettings() {
+	return <AgentConfigPage runtime="opencode" />;
+}
+
 function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	const store = useStore();
 	const meta = AGENT_CONFIG_META[runtime];
@@ -121,11 +157,13 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	const [saving, setSaving] = useState<string>();
 	const [query, setQuery] = useState("");
 	const [modelIds, setModelIds] = useState<string[]>([]);
+	/** Providers the runtime offers models of (OpenCode's built-in and logged-in ones). */
+	const [modelProviders, setModelProviders] = useState<string[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
 	const [modelsError, setModelsError] = useState(false);
 	const { scope, workspaceId } = parseTarget(target);
 	const workspace = workspaceId ? workspaces.find((w) => w.id === workspaceId) : undefined;
-	const format = data?.format ?? (runtime === "codex" ? "toml" : "json");
+	const format = data?.format ?? FORMAT[runtime];
 	const textLabel = format === "toml" ? "TOML" : "JSON";
 
 	useEffect(() => {
@@ -154,6 +192,8 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	const file = files && index >= 0 ? files[index] : undefined;
 	const own = file?.settings;
 	const broken = file !== undefined && file.settings === undefined;
+	/** The edited file's own name (OpenCode's may be `opencode.jsonc`). */
+	const fileName = file?.path.split(/[\\/]/).pop() || meta.fileName;
 
 	// Load from the managed computer, including when no workspace has been added there.
 	// Config edits and refreshes can change the provider and the models its CLI offers.
@@ -165,7 +205,12 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 		store
 			.listAgentModels(runtime)
 			.then((result) => {
-				if (live) setModelIds(result.models.map((model) => model.id));
+				if (!live) return;
+				// OpenCode names models `provider/model`.
+				setModelIds(
+					result.models.map((model) => (runtime === "opencode" ? `${model.provider}/${model.id}` : model.id)),
+				);
+				setModelProviders([...new Set(result.models.map((model) => model.provider))]);
 			})
 			.catch(() => {
 				if (live) setModelsError(true);
@@ -225,13 +270,15 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	const allSettings = (files ?? []).map((f) => f.settings);
 	const providerIds = [...new Set(allSettings.flatMap((s) => codexProviderIds(s)))];
 	const profileIds = [...new Set(allSettings.flatMap((s) => codexProfileIds(s)))];
+	/** Fields offered the runtime's model list (OpenCode also picks its light model from it). */
+	const modelField = (key: string) => key === "model" || (runtime === "opencode" && key === "small_model");
 
 	const row = (field: FieldDef) => {
 		const key = field.path.join(".");
 		const blocked = scope !== "user" && field.globalOnly;
 		const fallback = resolveFallback(field, lower, builtinDefault(field));
 		const suggestions =
-			key === "model" && field.kind.type === "string"
+			modelField(key) && field.kind.type === "string"
 				? [...(field.kind.suggestions ?? []), ...modelIds]
 				: key === "model_provider"
 					? [...CODEX_BUILTIN_PROVIDERS, ...providerIds]
@@ -245,7 +292,7 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 				own={getPath(own, field.path)}
 				fallback={fallback.value}
 				inheritedFrom={fallback.from}
-				fileName={meta.fileName}
+				fileName={fileName}
 				disabled={Boolean(blocked) || (saving !== undefined && saving !== key)}
 				disabledReason={blocked ? "只能在全局设置中配置" : undefined}
 				saving={saving === key}
@@ -265,7 +312,7 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	return (
 		<>
 			<Intro runtime={runtime} />
-			<AgentInstallCard runtime={runtime} />
+			{runtime === "opencode" ? <OpenCodeInstallCard /> : <AgentInstallCard runtime={runtime} />}
 
 			<SettingsGroup>
 				<SettingsCard>
@@ -316,7 +363,7 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 				<div className="banner info inline models-error">
 					<IconInfo size={15} />
 					<span>
-						这台电脑上没有找到 {meta.name}（<code>{runtime === "codex" ? "codex" : "claude"}</code>{" "}
+						这台电脑上没有找到 {meta.name}（<code>{AGENT_COMMAND[runtime]}</code>{" "}
 						命令）。仍然可以编辑配置文件，安装后生效。
 					</span>
 				</div>
@@ -381,11 +428,11 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 						<TextFileEditor
 							key={file.path}
 							file={file}
-							fileName={meta.fileName}
+							fileName={fileName}
 							validate={(text) => validateConfigText(format, text)}
-							format={format === "json" ? formatJson : undefined}
-							emptyText={format === "json" ? "{}\n" : ""}
-							placeholder={format === "json" ? "{}" : 'model = "gpt-5-codex"'}
+							format={format === "json" ? formatJson : format === "jsonc" ? formatJsoncText : undefined}
+							emptyText={format === "toml" ? "" : "{}\n"}
+							placeholder={NEW_FILE_PLACEHOLDER[format]}
 							externalHint={`可能是终端中的 ${meta.name} 或其他设备`}
 							save={(text, expected) => store.writeAgentConfig(runtime, scope, workspace?.id, text, expected)}
 							onSaved={replaceFile}
@@ -412,16 +459,20 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 							) : null}
 							<ConfigGroups groups={groups} searching={Boolean(q)} row={row} />
 							{runtime === "codex" ? (
-								<CodexProviders
+								<CodexProviders own={own} lower={lower} query={q} saving={saving} fileName={fileName} apply={apply} />
+							) : null}
+							{runtime === "opencode" ? (
+								<OpenCodeProviders
 									own={own}
 									lower={lower}
 									query={q}
 									saving={saving}
-									fileName={meta.fileName}
+									fileName={fileName}
+									builtinProviders={modelProviders}
 									apply={apply}
 								/>
 							) : null}
-							{!groups.length && !(runtime === "codex" && !q) ? (
+							{!groups.length && !(runtime !== "claude-code" && !q) ? (
 								<SettingsCard>
 									<div className="settings-empty">没有匹配的设置，可以在 {textLabel} 中直接编辑。</div>
 								</SettingsCard>
@@ -436,7 +487,9 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 													? `表单中未列出的设置：${extraKeys.join("、")}。可以在 ${textLabel} 中编辑。`
 													: runtime === "claude-code"
 														? "Hooks（hooks）、状态栏（statusLine）、署名（attribution）等可以在 JSON 中编辑。"
-														: "MCP 服务器（mcp_servers）、配置档（profiles）、功能开关（features）等可以在 TOML 中编辑。"
+														: runtime === "opencode"
+															? "MCP 服务器（mcp）、自定义 Agent（agent）、命令（command）、格式化程序（formatter）等可以在 JSON 中编辑。"
+															: "MCP 服务器（mcp_servers）、配置档（profiles）、功能开关（features）等可以在 TOML 中编辑。"
 											}
 										>
 											<button type="button" onClick={() => setMode("text")}>
@@ -638,6 +691,271 @@ function CodexProviders({
 						添加
 					</button>
 				</SettingRow>
+			</SettingsCard>
+		</SettingsGroup>
+	);
+}
+
+/** OpenCode's `provider`: custom endpoints and overrides of built-in providers, one card each. */
+function OpenCodeProviders({
+	own,
+	lower,
+	query,
+	saving,
+	fileName,
+	builtinProviders,
+	apply,
+}: {
+	own: SettingsObject | undefined;
+	lower: ReadonlyArray<{ settings: SettingsObject | undefined; name: string }>;
+	query: string;
+	saving: string | undefined;
+	fileName: string;
+	/** Providers OpenCode already offers models of: adding one overrides it instead of defining a new one. */
+	builtinProviders: readonly string[];
+	apply: (key: string, changes: SettingsChange[]) => Promise<boolean>;
+}) {
+	const store = useStore();
+	const [newId, setNewId] = useState("");
+	const [confirm, setConfirm] = useState<string>();
+	const ids = opencodeProviderIds(own);
+	const inheritedIds = [...new Set(lower.flatMap((f) => opencodeProviderIds(f.settings)))].filter(
+		(id) => !ids.includes(id),
+	);
+	const matches = (id: string) =>
+		!query ||
+		id.toLowerCase().includes(query) ||
+		opencodeProviderFields(id).some((f) => fieldMatches(f, query)) ||
+		opencodeProviderModels(own, id).some((model) => model.toLowerCase().includes(query));
+	if (query && !"服务商 provider 中转 base url baseurl api key 模型 models npm".includes(query) && !ids.some(matches))
+		return null;
+
+	const add = async () => {
+		const id = newId.trim();
+		if (!validProviderId(id)) {
+			store.toast("error", "服务商 ID 只能包含字母、数字、- 和 _，且以字母或数字开头");
+			return;
+		}
+		if (ids.includes(id)) {
+			store.toast("error", `服务商 ${id} 已经存在`);
+			return;
+		}
+		// A built-in provider keeps its own package and name; a new one is an OpenAI-compatible relay.
+		const ok = await apply(
+			`provider:${id}`,
+			builtinProviders.includes(id)
+				? [{ path: ["provider", id], value: {} }]
+				: [
+						{ path: ["provider", id, "npm"], value: "@ai-sdk/openai-compatible" },
+						{ path: ["provider", id, "name"], value: id },
+					],
+		);
+		if (ok) setNewId("");
+	};
+
+	return (
+		<SettingsGroup title="服务商">
+			<p className="muted small settings-note">
+				兼容 OpenAI 接口的中转或自建服务，以及内置服务商（如
+				anthropic、openai）的地址与密钥覆盖（provider）。在上方「默认模型」中以「服务商 ID/模型」选择这里的模型。
+				{inheritedIds.length ? ` 其他文件中还定义了：${inheritedIds.join("、")}。` : ""}
+			</p>
+			{ids.filter(matches).map((id) => {
+				const busy = saving !== undefined;
+				const models = opencodeProviderModels(own, id);
+				return (
+					<SettingsCard key={id} className="pi-settings-card config-provider">
+						<SettingRow
+							title={
+								<span className="pi-setting-title">
+									<code>{id}</code>
+									{saving === `provider:${id}` ? <IconLoader size={12} className="spin" /> : null}
+								</span>
+							}
+							description={<code>provider.{id}</code>}
+						>
+							<button
+								type="button"
+								className={confirm === id ? "danger" : "ghost"}
+								disabled={busy}
+								onClick={() => {
+									if (confirm !== id) {
+										setConfirm(id);
+										return;
+									}
+									setConfirm(undefined);
+									void apply(`provider:${id}`, [{ path: ["provider", id] }]);
+								}}
+								onBlur={() => setConfirm((c) => (c === id ? undefined : c))}
+							>
+								<IconTrash size={14} />
+								{confirm === id ? "确认删除" : "删除"}
+							</button>
+						</SettingRow>
+						{opencodeProviderFields(id).map((field) => {
+							const key = field.path.join(".");
+							return (
+								<FieldRow
+									key={key}
+									field={field}
+									own={getPath(own, field.path)}
+									fallback={builtinDefault(field)}
+									fileName={fileName}
+									disabled={saving !== undefined && saving !== key}
+									saving={saving === key}
+									onChanges={(f, changes) => void apply(f.path.join("."), changes)}
+								/>
+							);
+						})}
+						<SettingRow
+							stack
+							title={
+								<span className="pi-setting-title">
+									模型
+									{models.length ? <span className="mini-tag accent">{models.length} 个</span> : null}
+									{saving === `provider:${id}:models` ? <IconLoader size={12} className="spin" /> : null}
+								</span>
+							}
+							description={
+								<>
+									<span>
+										这个服务商提供的模型 ID，每行一个，选择时显示为「{id}/模型 ID」；覆盖内置服务商时可以留空。{" "}
+									</span>
+									<span className="pi-setting-meta">
+										<code>provider.{id}.models</code>
+									</span>
+								</>
+							}
+						>
+							<DraftList
+								value={models.length ? models : undefined}
+								placeholder={"gpt-5.1\nclaude-sonnet-4-5"}
+								disabled={saving !== undefined}
+								onCommit={(items) => void apply(`provider:${id}:models`, opencodeModelChanges(models, items ?? [], id))}
+							/>
+						</SettingRow>
+					</SettingsCard>
+				);
+			})}
+			<SettingsCard>
+				<SettingRow
+					title="添加服务商"
+					description="服务商 ID，例如 relay；与已有服务商同名（如 anthropic）时只覆盖填写的项。"
+				>
+					<input
+						className="pi-setting-input mono"
+						value={newId}
+						placeholder="relay"
+						disabled={saving !== undefined}
+						spellCheck={false}
+						autoCapitalize="off"
+						autoCorrect="off"
+						onChange={(e) => setNewId(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") void add();
+						}}
+					/>
+					<button type="button" disabled={!newId.trim() || saving !== undefined} onClick={() => void add()}>
+						<IconPlus size={14} />
+						添加
+					</button>
+				</SettingRow>
+			</SettingsCard>
+		</SettingsGroup>
+	);
+}
+
+/** OpenCode installs and updates itself: what Pier found on the computer, and how to install or log in. */
+function OpenCodeInstallCard() {
+	const store = useStore();
+	const target = useSettingsTarget();
+	const version = useAppState((s) => s.agentConfigVersion);
+	const [info, setInfo] = useState<AgentRuntimeInfo>();
+	const [error, setError] = useState<string>();
+	const [loading, setLoading] = useState(false);
+	const [refresh, setRefresh] = useState(0);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: switching computers clears the previous one's status.
+	useEffect(() => {
+		setInfo(undefined);
+		setError(undefined);
+	}, [target.node]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reload on another computer, a config change or an explicit refresh.
+	useEffect(() => {
+		if (!target.online) return;
+		let live = true;
+		setLoading(true);
+		store
+			.listSettingsRuntimes()
+			.then((runtimes) => {
+				if (!live) return;
+				setInfo(runtimes.find((r) => r.id === "opencode"));
+				setError(undefined);
+			})
+			.catch((e: unknown) => {
+				if (live) setError(errorText(e));
+			})
+			.finally(() => {
+				if (live) setLoading(false);
+			});
+		return () => {
+			live = false;
+		};
+	}, [store, target.node, target.online, version, refresh]);
+
+	const where = target.local ? "本机" : target.name;
+	const executable = info?.available ? info.executable : undefined;
+	// Both POSIX shells and PowerShell accept single-quoted paths, with different quote escaping.
+	const windows = target.hostInfo?.platform === "win32";
+	const quoted = executable ? `'${executable.replaceAll("'", windows ? "''" : "'\\''")}'` : "";
+	const login = executable ? `${windows ? "& " : ""}${quoted} auth login` : "opencode auth login";
+	const install = "npm install -g opencode-ai";
+
+	return (
+		<SettingsGroup title="安装与登录">
+			<SettingsCard>
+				<SettingRow
+					title={
+						info?.available
+							? `OpenCode${info.version ? ` v${info.version}` : " · 已安装"}`
+							: info
+								? "OpenCode · 未安装"
+								: "OpenCode"
+					}
+					description={
+						info?.available
+							? `Pier 使用${where}上你自己安装的 opencode，与终端中的是同一份；安装和更新使用 OpenCode 自己的渠道，在终端运行 opencode upgrade 即可更新。`
+							: `在${where}安装 OpenCode 后即可创建 OpenCode 会话，例如在终端运行 ${install}。安装在其他位置时，可在启动 Host 前设置 PIER_OPENCODE_PATH。`
+					}
+				>
+					{info && !info.available ? <CopyButton text={install} label="复制安装命令" /> : null}
+					<button
+						type="button"
+						className="ghost icon"
+						title="重新检测"
+						disabled={!target.online || loading}
+						onClick={() => setRefresh((n) => n + 1)}
+					>
+						{loading ? <IconLoader size={14} className="spin" /> : <IconRefresh size={14} />}
+					</button>
+				</SettingRow>
+				<SettingRow
+					title="账号登录"
+					description="在这台电脑的终端运行登录命令，选择服务商并保存凭据；也可以在下方「服务商」中填写接口地址与 API Key。"
+				>
+					<CopyButton text={login} label="复制登录命令" />
+				</SettingRow>
+				{executable ? <SettingRow title="当前程序" description={<span className="mono">{executable}</span>} /> : null}
+				{error ? (
+					<SettingRow
+						title={
+							<span className="error">
+								<IconAlert size={14} /> {error}
+							</span>
+						}
+					/>
+				) : null}
 			</SettingsCard>
 		</SettingsGroup>
 	);

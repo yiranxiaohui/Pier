@@ -5,8 +5,8 @@ import { parseProtocolVersion } from "@pier/protocol";
  * Settings pages that manage the Pier of the computer chosen in the settings screen (this one
  * or a paired one), with the protocol minor version that computer needs for this computer to
  * manage the page remotely: paired devices may manage providers, the 云链API account and
- * extensions since 1.10, pi's settings files since 1.15, and Claude Code's and Codex's
- * configuration files since 1.23. The general and about pages show any computer's Pier (about
+ * extensions since 1.10, pi's settings files since 1.15, Claude Code's and Codex's
+ * configuration files since 1.23, and OpenCode's since 1.62. The general and about pages show any computer's Pier (about
  * updates it since 1.13 and explains older versions itself). Remote access, devices and peers
  * can be inspected (not modified) and diagnostic logs read since 1.55.
  */
@@ -20,6 +20,7 @@ export const HOST_SETTINGS_PAGES = {
 	pi: 15,
 	claude: 23,
 	codex: 23,
+	opencode: 62,
 	about: 0,
 	remote: 55,
 	logs: 55,

@@ -6,6 +6,7 @@ import {
 	formatValue,
 	type GroupDef,
 	getPath,
+	isRuleObject,
 	isValidValue,
 	type JsonScalar,
 	parseListInput,
@@ -522,10 +523,13 @@ export function FieldRow(props: FieldRowProps) {
 	const { field, own, fallback, inheritedFrom, fileName, disabled, saving, onChanges, disabledReason, extra } = props;
 	const isMap = field.kind.type === "map";
 	const set = isMap ? mapKeys(field, own).length > 0 : own !== undefined;
-	const valid = own === undefined || isValidValue(field.kind, own);
+	const rules = isRuleObject(field, own);
+	const valid = own === undefined || rules || isValidValue(field.kind, own);
 	const stacked = field.kind.type === "list" || field.kind.type === "tools" || isMap;
 	const key = field.path.join(".");
-	const fallbackText = `${inheritedFrom ? `继承${inheritedFrom}` : "默认"}：${formatValue(field, fallback)}`;
+	const fallbackText = rules
+		? "按规则细分，在 JSON 中查看与修改；选择一项会替换这些规则"
+		: `${inheritedFrom ? `继承${inheritedFrom}` : "默认"}：${formatValue(field, fallback)}`;
 	const control = <FieldControl {...props} disabled={disabled || saving} />;
 	const reset = () => {
 		if (isMap)
@@ -542,8 +546,11 @@ export function FieldRow(props: FieldRowProps) {
 				<span className="pi-setting-title">
 					{field.label}
 					{set ? (
-						<span className={`mini-tag${valid ? " accent" : " warn"}`} title={valid ? undefined : JSON.stringify(own)}>
-							{valid ? "已设置" : "值无效"}
+						<span
+							className={`mini-tag${valid ? " accent" : " warn"}`}
+							title={valid && !rules ? undefined : JSON.stringify(own)}
+						>
+							{rules ? "细分规则" : valid ? "已设置" : "值无效"}
 						</span>
 					) : null}
 					{field.globalOnly ? <span className="mini-tag">仅全局</span> : null}

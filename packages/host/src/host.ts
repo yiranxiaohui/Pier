@@ -22,6 +22,7 @@ import {
 	type MethodName,
 	MethodParamsSchemas,
 	type MethodResult,
+	type NativeAgentRuntime,
 	type ParsedMethodParams,
 	type PierHostEvent,
 	PierProtocolError,
@@ -55,7 +56,7 @@ import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
 import { errorMessage, type ManagedSession } from "./managed-session.ts";
 import { LoopbackRelays } from "./oauth-loopback.ts";
-import { OpenCodeRuntime, type OpenCodeRuntimeOptions } from "./opencode/opencode-runtime.ts";
+import { OpenCodeRuntime, type OpenCodeRuntimeOptions, opencodeConfigDir } from "./opencode/opencode-runtime.ts";
 import { detectPackageManagers } from "./package-managers.ts";
 import {
 	accountPath,
@@ -133,7 +134,7 @@ const PI_METHODS: ReadonlySet<MethodName> = new Set<MethodName>([
 	"extension.delete",
 ]);
 
-function agentPathOverride(runtime: AgentConfigRuntime): string {
+function agentPathOverride(runtime: NativeAgentRuntime): string {
 	return runtime === "codex" ? "PIER_CODEX_PATH" : "PIER_CLAUDE_PATH";
 }
 
@@ -200,8 +201,9 @@ export interface PierHostOptions {
 		opencode?: OpenCodeRuntimeOptions | false;
 	};
 	/**
-	 * Configuration directories of Claude Code and Codex for `agentConfig.*` (tests). Default to
-	 * the runtimes' own (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`, else `~/.claude` / `~/.codex`).
+	 * Configuration directories of Claude Code, Codex and OpenCode for `agentConfig.*` (tests).
+	 * Default to the runtimes' own (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` / `XDG_CONFIG_HOME`, else
+	 * `~/.claude` / `~/.codex` / `~/.config/opencode`).
 	 */
 	agentConfigDirs?: Partial<Record<AgentConfigRuntime, string>>;
 	/** Shared skill home (tests); defaults to the current user's home. */
@@ -740,6 +742,9 @@ export class PierHost implements RequestHandler {
 				options.agentConfigDirs?.["claude-code"] ??
 				claudeConfigDir(agents.claudeCode ? agents.claudeCode.configDir : undefined),
 			codex: () => options.agentConfigDirs?.codex ?? codexHome(agents.codex ? agents.codex.env : undefined),
+			opencode: () =>
+				options.agentConfigDirs?.opencode ??
+				opencodeConfigDir({ ...process.env, ...(agents.opencode ? agents.opencode.env : undefined) }),
 		});
 		this.skills = new SkillManager({
 			home: options.resourceHome ?? homedir(),
@@ -1105,8 +1110,9 @@ export class PierHost implements RequestHandler {
 	}
 
 	/**
-	 * A Claude Code or Codex configuration file changed: the runtime forgets what it read from
-	 * it (models), and every connection is told. Open sessions keep their settings until reopened.
+	 * A Claude Code, Codex or OpenCode configuration file changed: the runtime forgets what it read
+	 * from it (models), and every connection is told. Open sessions keep their settings until
+	 * reopened (OpenCode's shared server reloads once no turn is running).
 	 */
 	private applyAgentConfigChange(
 		runtime: AgentConfigRuntime,

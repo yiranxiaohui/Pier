@@ -1,12 +1,19 @@
 /**
- * The Claude Code and Codex settings shown in Settings → Claude Code / Codex: Claude Code's
- * `settings.json` files and Codex's `config.toml` files (from their settings references).
- * Anything not described here stays editable as text, and the host keeps unknown keys (and
- * TOML comments) when a field is changed.
+ * The Claude Code, Codex and OpenCode settings shown in Settings → Agent 配置: Claude Code's
+ * `settings.json` files, Codex's `config.toml` files and OpenCode's `opencode.json(c)` files
+ * (from their settings references). Anything not described here stays editable as text, and the
+ * host keeps unknown keys (and TOML / JSONC comments) when a field is changed.
  */
 
 import { parse as parseToml } from "@decimalturn/toml-patch";
 import type { AgentConfigFormat, AgentConfigRuntime, AgentConfigScope } from "@pier/protocol";
+import {
+	applyEdits,
+	format as formatJsonc,
+	type ParseError,
+	parse as parseJsonc,
+	printParseErrorCode,
+} from "jsonc-parser";
 import type { FieldDef, GroupDef, SettingsObject } from "./config-fields.ts";
 
 const TOKENS = { unit: "tokens", min: 0 };
@@ -659,6 +666,210 @@ export function validProviderId(id: string): boolean {
 	return /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
 }
 
+// ---- OpenCode ----------------------------------------------------------------------------
+// OpenCode 1.x's configuration format (`provider`, `permission`, …), which OpenCode 2 also reads.
+
+const OPENCODE_PERMISSION = [
+	{ value: "allow", label: "允许" },
+	{ value: "ask", label: "询问" },
+	{ value: "deny", label: "拒绝" },
+];
+
+function opencodePermission(tool: string, label: string, description?: string): FieldDef {
+	return {
+		path: ["permission", tool],
+		label,
+		...(description ? { description } : {}),
+		kind: { type: "enum", options: OPENCODE_PERMISSION },
+		defaultLabel: "OpenCode 默认",
+		rules: true,
+	};
+}
+
+export const OPENCODE_GROUPS: GroupDef[] = [
+	{
+		id: "model",
+		title: "模型",
+		fields: [
+			{
+				path: ["model"],
+				label: "默认模型",
+				description: "新会话使用的模型，格式为「服务商/模型」。在 Pier 中为会话选择的模型优先。",
+				kind: { type: "string", placeholder: "anthropic/claude-sonnet-4-5", mono: true, select: true },
+				defaultLabel: "OpenCode 默认",
+			},
+			{
+				path: ["small_model"],
+				label: "轻量模型",
+				description: "生成标题等轻量任务使用的模型，格式同上。",
+				kind: { type: "string", placeholder: "anthropic/claude-haiku-4-5", mono: true, select: true },
+				defaultLabel: "自动选择",
+			},
+			{
+				path: ["default_agent"],
+				label: "默认 Agent",
+				description: "未指定时使用的主 Agent：内置的 build（可修改文件）、plan（只读规划），或自定义的主 Agent。",
+				kind: { type: "string", placeholder: "build", mono: true, suggestions: ["build", "plan"] },
+				defaultLabel: "build",
+			},
+			{
+				path: ["enabled_providers"],
+				label: "只启用这些服务商",
+				description: "服务商 ID，每行一个；设置后其他服务商都不加载。",
+				kind: { type: "list", placeholder: "anthropic\nopenai" },
+				defaultLabel: "全部",
+			},
+			{
+				path: ["disabled_providers"],
+				label: "停用的服务商",
+				description: "即使已登录或配置了密钥也不加载，每行一个。",
+				kind: { type: "list", placeholder: "openrouter" },
+				defaultLabel: "无",
+			},
+		],
+	},
+	{
+		id: "permission",
+		title: "权限",
+		description:
+			'按命令或路径细分的规则（如 bash 下 "git push *": "ask"）可以在 JSON 中编辑。Pier 中的会话按工作区的审批策略处理：非「自动放行」时，OpenCode 允许的修改与命令仍会询问你，拒绝的规则始终生效。',
+		fields: [
+			opencodePermission("edit", "修改文件", "编辑、写入与打补丁。"),
+			opencodePermission("bash", "运行命令"),
+			opencodePermission("webfetch", "抓取网页"),
+			opencodePermission("external_directory", "访问工作区外的路径"),
+		],
+	},
+	{
+		id: "behavior",
+		title: "会话与工具",
+		fields: [
+			{
+				path: ["instructions"],
+				label: "额外的指令文件",
+				description: "除 AGENTS.md 外一并加载的文件或 glob，每行一个。",
+				kind: { type: "list", placeholder: "CONTRIBUTING.md\ndocs/guidelines/*.md" },
+				defaultLabel: "无",
+			},
+			{
+				path: ["compaction", "auto"],
+				label: "自动压缩",
+				description: "上下文快满时自动压缩对话。",
+				kind: { type: "boolean", default: true },
+			},
+			{
+				path: ["snapshot"],
+				label: "文件快照",
+				description: "记录 Agent 的文件改动以便撤销；很大的仓库可以关闭。",
+				kind: { type: "boolean", default: true },
+			},
+			{
+				path: ["shell"],
+				label: "Shell",
+				description: "运行命令使用的 shell。",
+				kind: { type: "string", placeholder: "/bin/zsh", mono: true },
+				defaultLabel: "系统默认",
+			},
+			{
+				path: ["share"],
+				label: "会话分享",
+				kind: {
+					type: "enum",
+					options: [
+						{ value: "manual", label: "手动（/share）" },
+						{ value: "auto", label: "自动分享新会话" },
+						{ value: "disabled", label: "禁止分享" },
+					],
+					default: "manual",
+				},
+			},
+			{
+				path: ["autoupdate"],
+				label: "检查更新",
+				description: "OpenCode 启动时检查新版本并提示（运行 opencode upgrade 更新）。",
+				globalOnly: true,
+				terminal: true,
+				kind: {
+					type: "enum",
+					options: [
+						{ value: true, label: "检查并提示" },
+						{ value: "notify", label: "检查并提示（notify）" },
+						{ value: false, label: "不检查" },
+					],
+					default: true,
+				},
+			},
+		],
+	},
+];
+
+/** AI SDK packages OpenCode providers commonly use. */
+export const OPENCODE_PACKAGES = ["@ai-sdk/openai-compatible", "@ai-sdk/openai", "@ai-sdk/anthropic", "@ai-sdk/google"];
+
+/** Fields of one entry of OpenCode's `provider`. */
+export function opencodeProviderFields(id: string): FieldDef[] {
+	const base = ["provider", id];
+	return [
+		{
+			path: [...base, "name"],
+			label: "显示名称",
+			kind: { type: "string", placeholder: id },
+			defaultLabel: id,
+		},
+		{
+			path: [...base, "npm"],
+			label: "接口类型",
+			description:
+				"OpenCode 调用接口所用的 AI SDK 包：兼容 OpenAI 的中转选 @ai-sdk/openai-compatible；覆盖内置服务商（如 anthropic）的地址时留空。",
+			kind: { type: "string", placeholder: "@ai-sdk/openai-compatible", mono: true, suggestions: OPENCODE_PACKAGES },
+			defaultLabel: "内置服务商的默认值",
+		},
+		{
+			path: [...base, "options", "baseURL"],
+			label: "API 地址",
+			description: "一般以 /v1 结尾。",
+			kind: { type: "string", placeholder: "https://api.example.com/v1", mono: true },
+			defaultLabel: "服务商默认",
+		},
+		{
+			path: [...base, "options", "apiKey"],
+			label: "API Key",
+			description: "可写成 {env:变量名} 从环境变量读取；也可以在终端运行 opencode auth login 保存。",
+			kind: { type: "string", placeholder: "sk-… 或 {env:RELAY_API_KEY}", secret: true },
+			defaultLabel: "无",
+		},
+	];
+}
+
+/** Ids of the providers defined in an OpenCode config. */
+export function opencodeProviderIds(settings: SettingsObject | undefined): string[] {
+	const providers = settings?.provider;
+	if (typeof providers !== "object" || providers === null || Array.isArray(providers)) return [];
+	return Object.keys(providers).filter((id) => {
+		const entry = (providers as SettingsObject)[id];
+		return typeof entry === "object" && entry !== null && !Array.isArray(entry);
+	});
+}
+
+/** Model ids an OpenCode provider entry defines (`provider.<id>.models`). */
+export function opencodeProviderModels(settings: SettingsObject | undefined, id: string): string[] {
+	const provider = (settings?.provider as SettingsObject | undefined)?.[id];
+	const models = typeof provider === "object" && provider !== null ? (provider as SettingsObject).models : undefined;
+	return typeof models === "object" && models !== null && !Array.isArray(models) ? Object.keys(models) : [];
+}
+
+/**
+ * The changes that make an OpenCode provider define exactly `ids` as its models: new ones as
+ * empty entries (OpenCode names them by id), keeping the details of the ones that stay.
+ */
+export function opencodeModelChanges(current: readonly string[], ids: readonly string[], provider: string) {
+	const base = ["provider", provider, "models"];
+	return [
+		...current.filter((id) => !ids.includes(id)).map((id) => ({ path: [...base, id] })),
+		...ids.filter((id) => !current.includes(id)).map((id) => ({ path: [...base, id], value: {} })),
+	];
+}
+
 // ---- shared ------------------------------------------------------------------------------
 
 export interface AgentConfigMeta {
@@ -687,6 +898,19 @@ export const AGENT_CONFIG_META: Record<AgentConfigRuntime, AgentConfigMeta> = {
 		groups: CODEX_GROUPS,
 		handled: topKeys(CODEX_GROUPS, ["model_providers", "projects"]),
 	},
+	opencode: {
+		name: "OpenCode",
+		fileName: "opencode.json",
+		groups: OPENCODE_GROUPS,
+		handled: topKeys(OPENCODE_GROUPS, ["provider", "$schema"]),
+	},
+};
+
+/** The command each runtime's CLI is started with. */
+export const AGENT_COMMAND: Record<AgentConfigRuntime, string> = {
+	"claude-code": "claude",
+	codex: "codex",
+	opencode: "opencode",
 };
 
 /** How a scope is named in the file picker and in inherited values. */
@@ -702,6 +926,12 @@ export function agentUnhandledKeys(runtime: AgentConfigRuntime, settings: Settin
 	return Object.keys(settings ?? {}).filter((key) => !handled.has(key));
 }
 
+/** `第 N 行第 M 列` of an offset in `text`. */
+function position(text: string, offset: number): string {
+	const before = text.slice(0, offset).split("\n");
+	return `第 ${before.length} 行第 ${(before.at(-1)?.length ?? 0) + 1} 列`;
+}
+
 /** Why the text editor's content cannot be saved, or undefined. */
 export function validateConfigText(format: AgentConfigFormat, text: string): string | undefined {
 	if (!text.trim()) return undefined;
@@ -710,9 +940,17 @@ export function validateConfigText(format: AgentConfigFormat, text: string): str
 			parseToml(text);
 			return undefined;
 		}
-		const parsed = JSON.parse(text) as unknown;
+		let parsed: unknown;
+		if (format === "jsonc") {
+			const errors: ParseError[] = [];
+			parsed = parseJsonc(text, errors, { allowTrailingComma: true });
+			const first = errors[0];
+			if (first) return `${printParseErrorCode(first.error)}（${position(text, first.offset)}）`;
+		} else {
+			parsed = JSON.parse(text) as unknown;
+		}
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-			return "settings.json 需要是一个 JSON 对象（{ … }）";
+			return `${format === "jsonc" ? "opencode.json" : "settings.json"} 需要是一个 JSON 对象（{ … }）`;
 		}
 		return undefined;
 	} catch (error) {
@@ -735,4 +973,11 @@ export function codexProfileIds(settings: SettingsObject | undefined): string[] 
 	const profiles = settings?.profiles;
 	if (typeof profiles !== "object" || profiles === null || Array.isArray(profiles)) return [];
 	return Object.keys(profiles);
+}
+
+/** Pretty-print JSON with comments, keeping the comments; undefined when it does not parse. */
+export function formatJsoncText(text: string): string | undefined {
+	if (validateConfigText("jsonc", text) !== undefined) return undefined;
+	const formatted = applyEdits(text, formatJsonc(text, undefined, { insertSpaces: true, tabSize: 2, eol: "\n" }));
+	return formatted.endsWith("\n") ? formatted : `${formatted}\n`;
 }

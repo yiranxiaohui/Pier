@@ -21,6 +21,7 @@ describe("agent configuration files", () => {
 	let workspace: WorkspaceInfo;
 	let claudeDir: string;
 	let codexDir: string;
+	let opencodeDir: string;
 
 	let configRoot: string;
 
@@ -28,7 +29,10 @@ describe("agent configuration files", () => {
 		configRoot = mkdtempSync(join(tmpdir(), "pier-agent-config-"));
 		claudeDir = join(configRoot, "claude");
 		codexDir = join(configRoot, "codex");
-		t = await startTestHost({ agentConfigDirs: { "claude-code": claudeDir, codex: codexDir } });
+		opencodeDir = join(configRoot, "opencode");
+		t = await startTestHost({
+			agentConfigDirs: { "claude-code": claudeDir, codex: codexDir, opencode: opencodeDir },
+		});
 		client = await t.connect();
 		workspace = (await client.request("workspace.add", { path: t.workspaceDir })).workspace;
 	});
@@ -278,6 +282,154 @@ describe("agent configuration files", () => {
 					workspaceId: workspace.id,
 					text: 'model = "mine"\n',
 					expectedModifiedAt: stale,
+				}),
+			),
+		).toBe("CONFLICT");
+	});
+
+	it("lists OpenCode's files, preferring the one whose settings win", async () => {
+		const empty = await client.request("agentConfig.get", { runtime: "opencode", workspaceId: workspace.id });
+		expect(empty).toMatchObject({ format: "jsonc", configDir: opencodeDir, scopes: ["user", "project"] });
+		expect(empty.files.map((f) => [f.scope, f.path, f.exists])).toEqual([
+			["user", join(opencodeDir, "opencode.json"), false],
+			["project", join(workspace.path, "opencode.json"), false],
+		]);
+
+		mkdirSync(opencodeDir, { recursive: true });
+		writeFileSync(join(opencodeDir, "config.json"), '{ "model": "legacy/model" }');
+		writeFileSync(join(workspace.path, "opencode.jsonc"), '{\n  // mine\n  "model": "a/b",\n}\n');
+		const legacy = await client.request("agentConfig.get", { runtime: "opencode", workspaceId: workspace.id });
+		expect(legacy.files.map((f) => [f.path, f.settings])).toEqual([
+			[join(opencodeDir, "config.json"), { model: "legacy/model" }],
+			[join(workspace.path, "opencode.jsonc"), { model: "a/b" }],
+		]);
+
+		writeFileSync(join(opencodeDir, "opencode.json"), "{}");
+		writeFileSync(join(opencodeDir, "opencode.jsonc"), '{ "small_model": "x/y" }');
+		const user = await client.request("agentConfig.get", { runtime: "opencode" });
+		expect(user.files[0]).toMatchObject({
+			path: join(opencodeDir, "opencode.jsonc"),
+			settings: { small_model: "x/y" },
+		});
+	});
+
+	it("edits OpenCode's JSONC in place, keeping comments and trailing commas", async () => {
+		mkdirSync(opencodeDir, { recursive: true });
+		const path = join(opencodeDir, "opencode.jsonc");
+		writeFileSync(
+			path,
+			[
+				"{",
+				'    "$schema": "https://opencode.ai/config.json",',
+				"    // The model I like",
+				'    "model": "anthropic/claude-sonnet-4-5",',
+				'    "mcp": {',
+				'        "docs": { "type": "local", "command": ["npx", "docs"] }, // keep me',
+				"    },",
+				'    "share": "auto",',
+				"}",
+				"",
+			].join("\n"),
+		);
+		const result = await client.request("agentConfig.update", {
+			runtime: "opencode",
+			scope: "user",
+			changes: [
+				{ path: ["model"], value: "relay/gpt-5.1" },
+				{ path: ["share"] },
+				{ path: ["permission", "bash"], value: "ask" },
+				{ path: ["provider", "relay", "npm"], value: "@ai-sdk/openai-compatible" },
+				{ path: ["provider", "relay", "options", "baseURL"], value: "https://relay.example/v1" },
+				{ path: ["provider", "relay", "models", "gpt-5.1"], value: {} },
+			],
+		});
+		expect(result.changed).toBe(true);
+		const text = readFileSync(path, "utf8");
+		expect(text).toContain("// The model I like");
+		expect(text).toContain("// keep me");
+		expect(text).toContain('    "model": "relay/gpt-5.1",');
+		expect(text).toContain('        "bash": "ask"');
+		expect(text).not.toContain("share");
+		expect(text.endsWith("}\n")).toBe(true);
+		expect(result.file.settings).toEqual({
+			$schema: "https://opencode.ai/config.json",
+			model: "relay/gpt-5.1",
+			mcp: { docs: { type: "local", command: ["npx", "docs"] } },
+			permission: { bash: "ask" },
+			provider: {
+				relay: {
+					npm: "@ai-sdk/openai-compatible",
+					options: { baseURL: "https://relay.example/v1" },
+					models: { "gpt-5.1": {} },
+				},
+			},
+		});
+
+		// Removing the last model drops the emptied objects too.
+		await client.request("agentConfig.update", {
+			runtime: "opencode",
+			scope: "user",
+			changes: [{ path: ["provider", "relay", "models", "gpt-5.1"] }, { path: ["permission", "bash"] }],
+		});
+		const after = await client.request("agentConfig.get", { runtime: "opencode" });
+		expect(after.files[0]?.settings).toMatchObject({ provider: { relay: { npm: "@ai-sdk/openai-compatible" } } });
+		expect(after.files[0]?.settings).not.toHaveProperty("permission");
+		expect(after.files[0]?.text).toContain("// keep me");
+	});
+
+	it("removes OpenCode settings next to trailing commas without breaking the file", async () => {
+		mkdirSync(opencodeDir, { recursive: true });
+		const path = join(opencodeDir, "opencode.json");
+		const remove = (...paths: string[][]) =>
+			client.request("agentConfig.update", {
+				runtime: "opencode",
+				scope: "user",
+				changes: paths.map((p) => ({ path: p })),
+			});
+		writeFileSync(path, '{ "share": "auto", }');
+		await remove(["share"]);
+		expect(readFileSync(path, "utf8")).toBe("{ }");
+		writeFileSync(path, '{\n  "model": "a/b", // mine\n  "permission": { "edit": "ask", "bash": "ask", },\n}\n');
+		await remove(["model"], ["permission", "edit"]);
+		// The comment on the removed line goes with it; the inline object stays inline.
+		expect(readFileSync(path, "utf8")).toBe('{\n  "permission": { "bash": "ask", },\n}\n');
+	});
+
+	it("starts new OpenCode files with the schema and validates text as JSONC", async () => {
+		const created = await client.request("agentConfig.update", {
+			runtime: "opencode",
+			scope: "project",
+			workspaceId: workspace.id,
+			changes: [{ path: ["model"], value: "a/b" }],
+		});
+		expect(created.file.path).toBe(join(workspace.path, "opencode.json"));
+		expect(readFileSync(created.file.path, "utf8")).toBe(
+			'{\n  "$schema": "https://opencode.ai/config.json",\n  "model": "a/b"\n}\n',
+		);
+
+		const written = await client.request("agentConfig.write", {
+			runtime: "opencode",
+			scope: "user",
+			text: '{\n  // comments are fine\n  "model": "c/d",\n}\n',
+		});
+		expect(written.file.settings).toEqual({ model: "c/d" });
+		for (const text of ["[1]", "{ model: }", "// only a comment\n"]) {
+			expect(
+				await codeOf(client.request("agentConfig.write", { runtime: "opencode", scope: "user", text })),
+				text,
+			).toBe("BAD_REQUEST");
+		}
+
+		writeFileSync(written.file.path, '{ "model": "c/d" ');
+		const broken = await client.request("agentConfig.get", { runtime: "opencode" });
+		expect(broken.files[0]?.settings).toBeUndefined();
+		expect(broken.files[0]?.error).toMatch(/CloseBraceExpected at 1:/);
+		expect(
+			await codeOf(
+				client.request("agentConfig.update", {
+					runtime: "opencode",
+					scope: "user",
+					changes: [{ path: ["a"], value: 1 }],
 				}),
 			),
 		).toBe("CONFLICT");

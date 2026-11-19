@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Session } from "@opencode-ai/sdk/v2/client";
 import { type AgentRuntimeInfo, type ModelInfo, PierProtocolError, type WorkspaceInfo } from "@pier/protocol";
 import type { ManagedSessionOptions } from "../managed-session.ts";
@@ -13,12 +13,23 @@ export interface OpenCodeRuntimeOptions {
 	env?: NodeJS.ProcessEnv;
 }
 
+/**
+ * Where OpenCode reads its global `opencode.json(c)`: `$XDG_CONFIG_HOME/opencode`, else
+ * `~/.config/opencode` (on every platform, as OpenCode resolves it).
+ */
+export function opencodeConfigDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+	return join(env.XDG_CONFIG_HOME || join(home, ".config"), "opencode");
+}
+
 export class OpenCodeRuntime implements AgentRuntime {
 	readonly id = "opencode";
 	readonly name = "OpenCode";
 	readonly capabilities = OPENCODE_CAPABILITIES;
 	readonly server: OpenCodeServer;
 	private probe?: { executable: string; version: Promise<string | undefined> };
+	/** Turns running on the shared server; a configuration change waits for them to end. */
+	private turns = 0;
+	private reloadPending = false;
 
 	constructor(private readonly options: OpenCodeRuntimeOptions = {}) {
 		this.server = new OpenCodeServer(() => this.executable(), options.env);
@@ -119,6 +130,36 @@ export class OpenCodeRuntime implements AgentRuntime {
 
 	async fork(): Promise<never> {
 		throw new PierProtocolError("UNSUPPORTED", "OpenCode sessions do not support forking in Pier");
+	}
+
+	/** Where OpenCode reads its global configuration. */
+	configDir(): string {
+		return opencodeConfigDir({ ...process.env, ...this.options.env });
+	}
+
+	/**
+	 * `opencode.json` changed: the shared server keeps the configuration it read, so restart it
+	 * (the next request starts a fresh one) once no turn is running on it.
+	 */
+	configChanged(): void {
+		if (this.turns > 0) {
+			this.reloadPending = true;
+			return;
+		}
+		this.reloadPending = false;
+		void this.server.restart();
+	}
+
+	/** A session starts a turn on the shared server; call the returned function when it ends. */
+	beginTurn(): () => void {
+		this.turns++;
+		let ended = false;
+		return () => {
+			if (ended) return;
+			ended = true;
+			this.turns--;
+			if (this.turns === 0 && this.reloadPending) this.configChanged();
+		};
 	}
 
 	dispose(): Promise<void> {

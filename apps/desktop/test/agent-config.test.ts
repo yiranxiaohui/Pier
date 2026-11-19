@@ -6,6 +6,12 @@ import {
 	CLAUDE_GROUPS,
 	CODEX_GROUPS,
 	codexProviderIds,
+	formatJsoncText,
+	OPENCODE_GROUPS,
+	opencodeModelChanges,
+	opencodeProviderFields,
+	opencodeProviderIds,
+	opencodeProviderModels,
 	validateConfigText,
 	validProviderId,
 } from "../src/lib/agent-config.ts";
@@ -14,6 +20,7 @@ import {
 	filterGroups,
 	flagOn,
 	formatValue,
+	isRuleObject,
 	isValidValue,
 	maskSecret,
 } from "../src/lib/config-fields.ts";
@@ -26,7 +33,7 @@ function field(groups: typeof CLAUDE_GROUPS, path: string): FieldDef {
 
 describe("Claude Code and Codex settings forms", () => {
 	it("describes every key once", () => {
-		for (const groups of [[...CLAUDE_GROUPS, CLAUDE_ENV_GROUP], CODEX_GROUPS]) {
+		for (const groups of [[...CLAUDE_GROUPS, CLAUDE_ENV_GROUP], CODEX_GROUPS, OPENCODE_GROUPS]) {
 			const keys = groups.flatMap((g) => g.fields.map((f) => f.path.join(".")));
 			expect(new Set(keys).size).toBe(keys.length);
 		}
@@ -87,5 +94,59 @@ describe("Claude Code and Codex settings forms", () => {
 			["model_reasoning_effort", "model_reasoning_summary"],
 		);
 		expect(filterGroups(CLAUDE_GROUPS, "中转").length).toBeGreaterThan(0);
+	});
+});
+
+describe("OpenCode settings form", () => {
+	it("finds settings the form does not show", () => {
+		expect(
+			agentUnhandledKeys("opencode", {
+				$schema: "https://opencode.ai/config.json",
+				model: "a/b",
+				provider: {},
+				permission: {},
+				compaction: {},
+				mcp: {},
+				agent: {},
+			}),
+		).toEqual(["mcp", "agent"]);
+		expect(AGENT_CONFIG_META.opencode).toMatchObject({ name: "OpenCode", fileName: "opencode.json" });
+	});
+
+	it("validates and formats JSON with comments", () => {
+		expect(validateConfigText("jsonc", '{\n  // mine\n  "model": "a/b",\n}')).toBeUndefined();
+		expect(validateConfigText("jsonc", "[1]")).toMatch(/opencode\.json.*JSON 对象/);
+		expect(validateConfigText("jsonc", '{\n  "model": \n}')).toMatch(/ValueExpected（第 3 行第 1 列）/);
+		expect(validateConfigText("json", '{ "a": 1, }')).toBeTypeOf("string");
+		expect(formatJsoncText('{"model":"a/b", // mine\n"share":"auto"}')).toBe(
+			'{\n  "model": "a/b", // mine\n  "share": "auto"\n}\n',
+		);
+		expect(formatJsoncText("{")).toBeUndefined();
+	});
+
+	it("shows per-pattern permission rules as set, not invalid", () => {
+		const bash = field(OPENCODE_GROUPS, "permission.bash");
+		expect(isValidValue(bash.kind, "ask")).toBe(true);
+		expect(isRuleObject(bash, { "git push *": "ask" })).toBe(true);
+		expect(isRuleObject(bash, "ask")).toBe(false);
+		expect(isRuleObject(field(OPENCODE_GROUPS, "share"), { a: 1 })).toBe(false);
+		expect(formatValue(field(OPENCODE_GROUPS, "autoupdate"), false)).toBe("不检查");
+	});
+
+	it("reads providers and edits their model lists", () => {
+		const settings = { provider: { relay: { models: { a: { name: "A" }, b: {} } }, odd: "x" } };
+		expect(opencodeProviderIds(settings)).toEqual(["relay"]);
+		expect(opencodeProviderModels(settings, "relay")).toEqual(["a", "b"]);
+		expect(opencodeProviderModels(settings, "missing")).toEqual([]);
+		expect(opencodeModelChanges(["a", "b"], ["a", "c"], "relay")).toEqual([
+			{ path: ["provider", "relay", "models", "b"] },
+			{ path: ["provider", "relay", "models", "c"], value: {} },
+		]);
+		expect(opencodeProviderFields("relay").map((f) => f.path.join("."))).toEqual([
+			"provider.relay.name",
+			"provider.relay.npm",
+			"provider.relay.options.baseURL",
+			"provider.relay.options.apiKey",
+		]);
 	});
 });

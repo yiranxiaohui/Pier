@@ -44,6 +44,11 @@ export interface FieldDef {
 	defaultLabel?: string;
 	/** Offer values detected on the host below the control (pi's `npmCommand`). */
 	suggest?: "packageManagers";
+	/**
+	 * The value may also be an object of per-pattern rules (OpenCode's `permission.bash`), which
+	 * the form shows as set but leaves to the text editor.
+	 */
+	rules?: boolean;
 }
 
 export interface GroupDef {
@@ -68,6 +73,11 @@ export function getPath(settings: SettingsObject | undefined, path: readonly str
 
 function isPlainObject(value: unknown): value is SettingsObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Whether a field's value is an object of per-pattern rules (see `FieldDef.rules`). */
+export function isRuleObject(field: FieldDef, value: unknown): boolean {
+	return Boolean(field.rules) && isPlainObject(value);
 }
 
 /** Whether `value` is something the field's editor can show. */

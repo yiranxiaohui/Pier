@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentConfigRuntime } from "@pier/protocol";
+import type { NativeAgentRuntime } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore } from "../src/config.ts";
 import { findExecutable } from "../src/runtimes/executable.ts";
@@ -28,7 +28,7 @@ function claudeDownloads(version: string, bytes = Buffer.from("native-cli"), che
 	return download;
 }
 
-async function finished(installer: AgentInstaller, runtime: AgentConfigRuntime) {
+async function finished(installer: AgentInstaller, runtime: NativeAgentRuntime) {
 	await vi.waitFor(() => expect(["ready", "error"]).toContain(installer.status(runtime).state), { timeout: 5_000 });
 	return installer.status(runtime);
 }
@@ -547,7 +547,7 @@ it("starts installation over the protocol, survives a disconnected client and re
 		);
 		// pi updates itself (`pi update`); there is no background updater for it.
 		await expect(
-			observer.request("runtime.setAutoUpdate", { runtime: "pi" as AgentConfigRuntime, enabled: false }),
+			observer.request("runtime.setAutoUpdate", { runtime: "pi" as NativeAgentRuntime, enabled: false }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		await expect(
 			observer.request("runtime.install", { runtime: "claude-code", source: "ghfast" }),

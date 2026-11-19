@@ -4,6 +4,8 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## Unreleased
 
+- **OpenCode 可视化配置**：「设置 → Agent 配置」新增「OpenCode」标签页，与 Claude Code、Codex 一样直接编辑 OpenCode 自己的配置文件（与终端中的 `opencode` 共用）：全局的 `~/.config/opencode/opencode.json` 和工作区根目录的 `opencode.json`，已有 `opencode.jsonc` 时编辑它。表单可设置默认模型与轻量模型（列出这台电脑上 OpenCode 可用的模型）、默认 Agent、启用 / 停用的服务商、修改文件 / 运行命令 / 抓取网页 / 访问工作区外路径的权限、额外指令文件、自动压缩、文件快照、Shell、会话分享和检查更新；「服务商」中可以添加兼容 OpenAI 的中转接口（接口类型、地址、API Key、模型列表），或覆盖 anthropic 等已有服务商的地址与密钥。也可以切换到 JSON 直接编辑整个文件，注释与末尾逗号都支持，表单修改时保留注释与格式。页面顶部显示找到的 `opencode` 版本与路径，并可复制安装和登录命令。保存后，Pier 在 OpenCode 没有进行中的回合时重启共用的 `opencode serve`，新配置随即生效。需要更新会话所在电脑的 Host（协议 1.62）；设置其他电脑上的 OpenCode 也需要同时更新桌面端。
+
 - **pi 扩展移到「Agent 配置 → pi」**：扩展包只对 pi 会话生效，桌面端设置导航和左侧主导航不再单独列出「扩展」。它现在是「设置 → Agent 配置 → pi」下的二级标签，与 pi 的「设置」（`settings.json`）并列；内容和功能不变。搜索「扩展」「插件」等关键词会直接打开这一页；从 Claude Code 或 Codex 切回 pi 时，回到上次查看的二级标签。「Skills 与 MCP」统一管理各 Agent 的技能与 MCP，仍在原处。只需更新桌面端。
 
 ## v0.3.4 — 2026-11-19

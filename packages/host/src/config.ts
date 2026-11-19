@@ -3,12 +3,12 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import {
-	type AgentConfigRuntime,
-	AgentConfigRuntimeSchema,
 	type AgentInstallSource,
 	AgentInstallSourceSchema,
 	type ApprovalPolicy,
 	ApprovalPolicySchema,
+	type NativeAgentRuntime,
+	NativeAgentRuntimeSchema,
 	type WorkspaceInfo,
 } from "@pier/protocol";
 import { z } from "zod";
@@ -52,7 +52,7 @@ export const PierConfigSchema = z.object({
 	/** Added in 0.2; absent in older files means remote access off. */
 	remote: RemoteConfigSchema.optional(),
 	agentUpdates: z
-		.partialRecord(AgentConfigRuntimeSchema, z.object({ enabled: z.boolean(), source: AgentInstallSourceSchema }))
+		.partialRecord(NativeAgentRuntimeSchema, z.object({ enabled: z.boolean(), source: AgentInstallSourceSchema }))
 		.optional(),
 });
 
@@ -120,11 +120,11 @@ export class ConfigStore {
 		return this.config.defaultPolicy;
 	}
 
-	agentUpdate(runtime: AgentConfigRuntime): { enabled: boolean; source: AgentInstallSource } {
+	agentUpdate(runtime: NativeAgentRuntime): { enabled: boolean; source: AgentInstallSource } {
 		return this.config.agentUpdates?.[runtime] ?? { enabled: true, source: "official" };
 	}
 
-	setAgentUpdate(runtime: AgentConfigRuntime, patch: { enabled?: boolean; source?: AgentInstallSource }): void {
+	setAgentUpdate(runtime: NativeAgentRuntime, patch: { enabled?: boolean; source?: AgentInstallSource }): void {
 		const previous = this.agentUpdate(runtime);
 		const next = { ...previous, ...patch };
 		if (next.enabled === previous.enabled && next.source === previous.source) return;

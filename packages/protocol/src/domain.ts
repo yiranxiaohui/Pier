@@ -1307,11 +1307,18 @@ export interface PiSettingsChangeResult {
 	reload: ExtensionReloadSummary;
 }
 
-// ---- Claude Code and Codex configuration files (1.23) -------------------------------------
+// ---- Claude Code, Codex and OpenCode configuration files (1.23) ----------------------------
 
-/** Agent runtimes whose own configuration files Pier edits (1.23). */
-export const AgentConfigRuntimeSchema = z.enum(["claude-code", "codex"]);
+/** Agent runtimes whose own configuration files Pier edits (1.23; `opencode` 1.62). */
+export const AgentConfigRuntimeSchema = z.enum(["claude-code", "codex", "opencode"]);
 export type AgentConfigRuntime = z.infer<typeof AgentConfigRuntimeSchema>;
+
+/**
+ * Agents Pier installs from their verified native releases and keeps updated in the background
+ * (1.32): Claude Code and Codex.
+ */
+export const NativeAgentRuntimeSchema = z.enum(["claude-code", "codex"]);
+export type NativeAgentRuntime = z.infer<typeof NativeAgentRuntimeSchema>;
 
 /**
  * Agents Pier installs and updates on the Host computer: Claude Code and Codex (1.32) from their
@@ -1364,15 +1371,19 @@ export interface AgentInstallationResult {
 
 /**
  * A configuration file of an agent runtime. `user`: in the runtime's configuration directory
- * (`~/.claude/settings.json`, `~/.codex/config.toml`). `project`: shared settings of a workspace
- * (`.claude/settings.json`, `.codex/config.toml`). `local`: Claude Code's personal settings of a
- * workspace (`.claude/settings.local.json`, usually not committed).
+ * (`~/.claude/settings.json`, `~/.codex/config.toml`, `~/.config/opencode/opencode.json`).
+ * `project`: shared settings of a workspace (`.claude/settings.json`, `.codex/config.toml`,
+ * `opencode.json`). `local`: Claude Code's personal settings of a workspace
+ * (`.claude/settings.local.json`, usually not committed).
  */
 export const AgentConfigScopeSchema = z.enum(["user", "project", "local"]);
 export type AgentConfigScope = z.infer<typeof AgentConfigScopeSchema>;
 
-/** `json` (Claude Code) or `toml` (Codex). */
-export type AgentConfigFormat = "json" | "toml";
+/**
+ * `json` (Claude Code), `toml` (Codex) or `jsonc` (OpenCode, 1.62: JSON with comments and
+ * trailing commas).
+ */
+export type AgentConfigFormat = "json" | "jsonc" | "toml";
 
 export interface AgentConfigFile {
 	scope: AgentConfigScope;

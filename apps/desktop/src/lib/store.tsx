@@ -37,6 +37,7 @@ import type {
 	MethodParams,
 	MethodResult,
 	ModelInfo,
+	NativeAgentRuntime,
 	PackageManagerInfo,
 	PairingRequest,
 	PairingResolution,
@@ -290,6 +291,7 @@ export type SettingsSection =
 	| "pi"
 	| "claude"
 	| "codex"
+	| "opencode"
 	| "logs"
 	| "about";
 
@@ -2077,7 +2079,7 @@ export class PierStore {
 		return client.request("runtime.installStatus", { runtime, ...(refresh ? { refresh } : {}) });
 	}
 
-	async setAgentAutoUpdate(runtime: AgentConfigRuntime, enabled: boolean): Promise<void> {
+	async setAgentAutoUpdate(runtime: NativeAgentRuntime, enabled: boolean): Promise<void> {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
 		await client.request("runtime.setAutoUpdate", { runtime, enabled });
@@ -2091,6 +2093,13 @@ export class PierStore {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
 		return client.request("runtime.install", { runtime, ...(source ? { source } : {}) });
+	}
+
+	/** The agent runtimes of the computer the settings screen manages (1.22). */
+	async listSettingsRuntimes(): Promise<AgentRuntimeInfo[]> {
+		const client = this.settingsClient;
+		if (!client) throw this.settingsOffline();
+		return (await client.request("runtime.list", {})).runtimes;
 	}
 
 	/** Models offered by an agent on the computer the settings screen manages. */

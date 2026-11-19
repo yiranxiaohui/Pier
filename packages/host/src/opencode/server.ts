@@ -35,10 +35,14 @@ export class OpenCodeServer {
 		if (this.closed) throw new Error("OpenCode runtime is closed");
 		const executable = this.executable();
 		if (!executable) throw new Error("OpenCode executable not found");
-		this.ready ??= this.start(executable).catch((error) => {
-			this.ready = undefined;
-			throw error;
-		});
+		if (!this.ready) {
+			const ready = this.start(executable).catch((error) => {
+				// A restart may already have replaced this attempt.
+				if (this.ready === ready) this.ready = undefined;
+				throw error;
+			});
+			this.ready = ready;
+		}
 		return this.ready;
 	}
 
@@ -86,9 +90,23 @@ export class OpenCodeServer {
 		});
 	}
 
+	/**
+	 * Stop the running server so the next `client()` starts a new one, which reads OpenCode's
+	 * configuration again. Requests still running on the old server fail.
+	 */
+	restart(): Promise<void> {
+		const child = this.child;
+		this.child = undefined;
+		this.ready = undefined;
+		return this.stopChild(child);
+	}
+
 	async close(): Promise<void> {
 		this.closed = true;
-		const child = this.child;
+		await this.stopChild(this.child);
+	}
+
+	private async stopChild(child: ChildProcess | undefined): Promise<void> {
 		if (!child || child.exitCode !== null || child.signalCode !== null) return;
 		await new Promise<void>((resolve) => {
 			const timer = setTimeout(() => stop(child, true), 2000);

@@ -104,6 +104,7 @@ export class OpenCodeSession extends ManagedSession {
 		if (this.turn) throw new PierProtocolError("CONFLICT", "OpenCode is busy");
 		const turn = new AbortController();
 		this.turn = turn;
+		const endTurn = this.runtime.beginTurn();
 		this.setRunState("streaming");
 		this.transcript.startRun();
 		this.transcript.addUser(images?.length ? [{ type: "text", text }, ...images] : text);
@@ -112,6 +113,7 @@ export class OpenCodeSession extends ManagedSession {
 				if (!turn.signal.aborted) this.transcript.endRun(errorMessage(error));
 			})
 			.finally(() => {
+				endTurn();
 				turn.abort();
 				this.bridge.cancelAll();
 				this.transcript.endRun();

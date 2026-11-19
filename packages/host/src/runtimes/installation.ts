@@ -9,10 +9,10 @@ import { pipeline } from "node:stream/promises";
 import { UPDATE_ROUTES, updateDownloadUrl } from "@pier/client";
 import {
 	AGENT_INSTALL_SOURCES,
-	type AgentConfigRuntime,
-	AgentConfigRuntimeSchema,
 	type AgentInstallationStatus,
 	type AgentInstallSource,
+	type NativeAgentRuntime,
+	NativeAgentRuntimeSchema,
 	PierProtocolError,
 } from "@pier/protocol";
 import { compareVersions } from "../peers/ssh/remote.ts";
@@ -56,8 +56,8 @@ export interface AgentInstallerOptions {
 	configurePath?: typeof configureInstallationPath;
 	fetch?: typeof fetch;
 	probe?: typeof probeVersion;
-	autoUpdateTarget?: (runtime: AgentConfigRuntime) => { executable: string; source: AgentInstallSource } | undefined;
-	onInstalled?: (runtime: AgentConfigRuntime) => Promise<void> | void;
+	autoUpdateTarget?: (runtime: NativeAgentRuntime) => { executable: string; source: AgentInstallSource } | undefined;
+	onInstalled?: (runtime: NativeAgentRuntime) => Promise<void> | void;
 }
 
 interface Release {
@@ -72,7 +72,7 @@ interface Release {
 }
 
 interface Job {
-	runtime: AgentConfigRuntime;
+	runtime: NativeAgentRuntime;
 	source: AgentInstallSource;
 	/** The active command to check; manual jobs may also do a first-time installation. */
 	autoExecutable?: string;
@@ -116,8 +116,8 @@ function extract(
 
 /** Verified native releases, with public user-level commands shared by Pier and external terminals. */
 export class AgentInstaller {
-	private readonly statuses = new Map<AgentConfigRuntime, AgentInstallationStatus>();
-	private readonly jobs = new Map<AgentConfigRuntime, Job>();
+	private readonly statuses = new Map<NativeAgentRuntime, AgentInstallationStatus>();
+	private readonly jobs = new Map<NativeAgentRuntime, Job>();
 	private autoTimer?: ReturnType<typeof setTimeout>;
 	private closed = false;
 
@@ -127,7 +127,7 @@ export class AgentInstaller {
 	) {}
 
 	/** Prefer the shared command; retain old Pier-only installations until the next install/update. */
-	static executable(directory: string, runtime: AgentConfigRuntime, homeDirectory = homedir()): string | undefined {
+	static executable(directory: string, runtime: NativeAgentRuntime, homeDirectory = homedir()): string | undefined {
 		const shared = sharedAgentExecutable(runtime, homeDirectory);
 		if (shared) return shared;
 		try {
@@ -143,7 +143,7 @@ export class AgentInstaller {
 		}
 	}
 
-	status(runtime: AgentConfigRuntime): AgentInstallationStatus {
+	status(runtime: NativeAgentRuntime): AgentInstallationStatus {
 		return this.statuses.get(runtime) ?? { runtime, state: "idle" };
 	}
 
@@ -151,7 +151,7 @@ export class AgentInstaller {
 		const targetFor = this.options.autoUpdateTarget;
 		if (!targetFor || this.closed || this.autoTimer) return;
 		const check = () => {
-			for (const runtime of AgentConfigRuntimeSchema.options) {
+			for (const runtime of NativeAgentRuntimeSchema.options) {
 				if (this.jobs.has(runtime)) continue;
 				try {
 					const target = targetFor(runtime);
@@ -167,18 +167,18 @@ export class AgentInstaller {
 		this.autoTimer.unref();
 	}
 
-	disableAutoUpdate(runtime: AgentConfigRuntime): void {
+	disableAutoUpdate(runtime: NativeAgentRuntime): void {
 		const job = this.jobs.get(runtime);
 		if (job?.autoExecutable) job.abort.abort(AUTO_UPDATE_DISABLED);
 	}
 
 	/** Choosing another route while a job still fetches metadata or downloads restarts it on that route. */
-	start(runtime: AgentConfigRuntime, source: AgentInstallSource = "official"): AgentInstallationStatus {
+	start(runtime: NativeAgentRuntime, source: AgentInstallSource = "official"): AgentInstallationStatus {
 		return this.startJob(runtime, source);
 	}
 
 	private startJob(
-		runtime: AgentConfigRuntime,
+		runtime: NativeAgentRuntime,
 		source: AgentInstallSource,
 		autoExecutable?: string,
 	): AgentInstallationStatus {
@@ -243,7 +243,7 @@ export class AgentInstaller {
 
 	/** Versions and checksums always come from the official services; only downloads follow `source`. */
 	private async release(
-		runtime: AgentConfigRuntime,
+		runtime: NativeAgentRuntime,
 		source: AgentInstallSource,
 		signal: AbortSignal,
 	): Promise<Release> {

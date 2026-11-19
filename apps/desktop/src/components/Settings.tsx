@@ -14,8 +14,8 @@ import {
 } from "../lib/store.tsx";
 import { setThemePreference, type ThemePreference, useThemePreference } from "../lib/theme.ts";
 import { AccountSettings } from "./AccountPanel.tsx";
-import { ClaudeSettings, CodexSettings } from "./AgentConfigPanel.tsx";
-import { IconClaudeCode, IconCodex, IconPi } from "./AgentIcons.tsx";
+import { ClaudeSettings, CodexSettings, OpenCodeSettings } from "./AgentConfigPanel.tsx";
+import { IconClaudeCode, IconCodex, IconOpenCode, IconPi } from "./AgentIcons.tsx";
 import { ExtensionsSettings } from "./ExtensionsPanel.tsx";
 import { HostBanner, LogsSettings, useHostStatus } from "./HostPanels.tsx";
 import {
@@ -122,6 +122,14 @@ const AGENT_PAGES: SectionDef[] = [
 		icon: IconCodex,
 		keywords:
 			"codex 配置 openai config.toml toml 配置文件 服务商 model_providers 中转 base url api key 模型 思考 reasoning 审批 沙箱 sandbox 网页搜索 mcp profile 编辑",
+		online: true,
+	},
+	{
+		id: "opencode",
+		label: "OpenCode",
+		icon: IconOpenCode,
+		keywords:
+			"opencode 配置 opencode.json opencode.jsonc json 配置文件 服务商 provider 中转 base url api key 模型 small_model agent 权限 permission 指令 instructions mcp 登录 安装 编辑",
 		online: true,
 	},
 ];
@@ -231,6 +239,7 @@ const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	pi: "安装或更新 pi，调整它的模型、工具与运行偏好。",
 	claude: "管理 Claude Code 的模型、权限与运行偏好。",
 	codex: "管理 Codex 的服务商、审批与运行偏好。",
+	opencode: "管理 OpenCode 的模型、服务商与权限。",
 	logs: "查看 Host 的运行记录，定位连接与启动问题。",
 	about: "了解 Pier，获取最新版本与更新信息。",
 };
@@ -704,6 +713,7 @@ const PAGES: Record<SettingsSection, ComponentType> = {
 	pi: PiSettings,
 	claude: ClaudeSettings,
 	codex: CodexSettings,
+	opencode: OpenCodeSettings,
 	logs: LogsSettings,
 	about: UpdateSettings,
 };
