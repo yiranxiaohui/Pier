@@ -1,4 +1,4 @@
-import { ChatController, type ChatView } from "@pier/chat-state";
+import { ChatController, type ChatState, type ChatView, cacheableChatState } from "@pier/chat-state";
 import { CLOSE_DEVICE_REVOKED, type ClientState, PierClient } from "@pier/client";
 import type {
 	AgentConfigChangeResult,
@@ -244,6 +244,11 @@ export interface HostStatsEntry {
 
 /** Subscriptions kept alive for recently viewed sessions (so approvals elsewhere stay visible). */
 const MAX_LIVE_CHATS = 8;
+/**
+ * Chats no longer live whose state is kept in memory: opening one again shows it at once and
+ * resumes from it, so the host sends only what is new instead of the whole transcript.
+ */
+const MAX_CACHED_CHATS = 16;
 /** How long a live chat may disagree with its host's session list before it follows the session again. */
 const CHAT_CHECK_DELAY_MS = 3000;
 /** Minimum time between two such attempts for one chat. */
@@ -582,6 +587,11 @@ export function peerPairingErrorText(error: unknown): string {
 	}
 }
 
+/** Key of a session of a computer in the chat cache. */
+function chatCacheKey(node: string, sessionId: string): string {
+	return `${node}\n${sessionId}`;
+}
+
 function errorText(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -604,6 +614,8 @@ export class PierStore {
 	/** Pending checks of live chats that disagreed with their host's session list. */
 	private readonly chatChecks = new Map<ChatController, ReturnType<typeof setTimeout>>();
 	private readonly chatRecoveredAt = new WeakMap<ChatController, number>();
+	/** States of chats that were live before, by computer and session (see {@link MAX_CACHED_CHATS}). */
+	private readonly chatCache = new Map<string, ChatState>();
 	private recent: string[] = [];
 	private readonly drafts = new Map<string, Draft>();
 	/** Sessions created from the new-chat screen whose draft is sent as soon as they load. */
@@ -983,6 +995,7 @@ export class PierStore {
 	/** Forget a computer that is no longer paired: its connection, workspaces and selection. */
 	private forgetNode(node: string): void {
 		this.closeNode(node);
+		this.forgetCachedChats((key) => key.startsWith(chatCacheKey(node, "")));
 		const workspaceIds = new Set((this.state.nodes[node]?.workspaces ?? []).map((w) => w.id));
 		this.set((s) => {
 			const { [node]: _gone, ...nodes } = s.nodes;
@@ -2710,8 +2723,9 @@ export class PierStore {
 		clearTimeout(this.refreshTimers.get(workspaceId));
 		this.refreshTimers.delete(workspaceId);
 		for (const [id, chat] of this.chats) {
-			if (chat.workspaceId === workspaceId) this.dropChat(id);
+			if (chat.workspaceId === workspaceId) this.dropChat(id, false);
 		}
+		this.forgetCachedChats((key) => this.chatCache.get(key)?.session?.workspaceId === workspaceId);
 		const workspaces = this.state.nodes[node]?.workspaces ?? [];
 		if (workspaces.some((w) => w.id === workspaceId)) {
 			this.patchNode(node, { workspaces: workspaces.filter((w) => w.id !== workspaceId) });
@@ -2958,12 +2972,20 @@ export class PierStore {
 			const node = this.nodeOf(session.workspaceId);
 			const client = this.clients.get(node);
 			if (!client || this.state.nodes[node]?.connection !== "open") return undefined;
-			chat = new ChatController(client, session, {
-				onReplaced: (previousId, next) => this.onReplaced(previousId, next),
-				onSettled: (c) => this.scheduleRefresh(c.workspaceId),
-				onChange: () => this.set((s) => ({ chatsVersion: s.chatsVersion + 1 })),
-				onError: (m) => this.toast("error", m),
-			});
+			const cacheKey = chatCacheKey(node, session.id);
+			const cached = this.chatCache.get(cacheKey);
+			this.chatCache.delete(cacheKey);
+			chat = new ChatController(
+				client,
+				session,
+				{
+					onReplaced: (previousId, next) => this.onReplaced(previousId, next),
+					onSettled: (c) => this.scheduleRefresh(c.workspaceId),
+					onChange: () => this.set((s) => ({ chatsVersion: s.chatsVersion + 1 })),
+					onError: (m) => this.toast("error", m),
+				},
+				cached,
+			);
 			this.chats.set(session.id, chat);
 			this.chatNodes.set(chat, node);
 			void chat.start();
@@ -3021,15 +3043,35 @@ export class PierStore {
 		}
 	}
 
-	private dropChat(sessionId: string): void {
+	/** Stop following a session; its state stays cached unless `keep` is false (it is gone). */
+	private dropChat(sessionId: string, keep = true): void {
 		const chat = this.chats.get(sessionId);
 		if (chat) {
 			clearTimeout(this.chatChecks.get(chat));
 			this.chatChecks.delete(chat);
+			if (keep) this.cacheChat(chat);
 			chat.dispose();
 		}
+		if (!keep) this.forgetCachedChats((key) => key.endsWith(chatCacheKey("", sessionId)));
 		this.chats.delete(sessionId);
 		this.recent = this.recent.filter((id) => id !== sessionId);
+	}
+
+	private cacheChat(chat: ChatController): void {
+		const node = this.chatNodes.get(chat);
+		const state = cacheableChatState(chat.chat);
+		if (node === undefined || !state) return;
+		const key = chatCacheKey(node, state.sessionId);
+		this.chatCache.delete(key);
+		this.chatCache.set(key, state);
+		for (const oldest of this.chatCache.keys()) {
+			if (this.chatCache.size <= MAX_CACHED_CHATS) break;
+			this.chatCache.delete(oldest);
+		}
+	}
+
+	private forgetCachedChats(match: (key: string) => boolean): void {
+		for (const key of [...this.chatCache.keys()]) if (match(key)) this.chatCache.delete(key);
 	}
 
 	private onReplaced(previousId: string, session: SessionSummary): void {
@@ -3063,7 +3105,7 @@ export class PierStore {
 			c.request("session.delete", { workspaceId: session.workspaceId, sessionId: session.id, force }),
 		);
 		if (!result) return false;
-		this.dropChat(session.id);
+		this.dropChat(session.id, false);
 		this.drafts.delete(session.id);
 		this.autoSend.delete(session.id);
 		this.set((s) => ({
@@ -3152,7 +3194,7 @@ export class PierStore {
 		if (request.action === "delete") {
 			const deleted = new Set(result.sessionIds);
 			for (const id of deleted) {
-				this.dropChat(id);
+				this.dropChat(id, false);
 				this.drafts.delete(id);
 				this.autoSend.delete(id);
 			}

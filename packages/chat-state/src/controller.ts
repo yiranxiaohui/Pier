@@ -104,8 +104,11 @@ export class ChatController {
 
 	private async follow(): Promise<void> {
 		try {
-			// Load the session into the host's active pool (no-op when it is already there).
-			await this.client.request("session.open", { workspaceId: this.workspaceId, sessionId: this.sessionId });
+			// Load the session into the host's active pool (no-op when it is already there). Newer hosts
+			// do that when subscribing with the workspace, which saves a round trip.
+			if (!this.client.subscribeOpensSessions) {
+				await this.client.request("session.open", { workspaceId: this.workspaceId, sessionId: this.sessionId });
+			}
 			const chat = this.view.chat;
 			const sub = await this.client.subscribe(this.sessionId, (frame) => this.onFrame(frame), {
 				workspaceId: this.workspaceId,

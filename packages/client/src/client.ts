@@ -10,6 +10,7 @@ import {
 	PierProtocolError,
 	PROTOCOL_VERSION,
 	parseHostFrame,
+	parseProtocolVersion,
 	type SessionSnapshot,
 	type SessionSummary,
 	type SubscribeResult,
@@ -79,7 +80,10 @@ interface SubscriptionState {
 
 /** Options of `PierClient.subscribe`. */
 export interface SubscribeOptions {
-	/** Workspace of the session, to reopen it when the host evicted it. */
+	/**
+	 * Workspace of the session, to reopen it when the host evicted it. Hosts that support it
+	 * ({@link PierClient.subscribeOpensSessions}) also open a session that is not open yet.
+	 */
 	workspaceId?: string;
 	/**
 	 * Where the caller's cached state of the session stands. When the host still has the events
@@ -178,6 +182,15 @@ export class PierClient {
 	/** Result of the last successful `host.hello`. */
 	get helloResult(): HelloResult | undefined {
 		return this.hello;
+	}
+
+	/**
+	 * Whether the host opens a session that is not open when it is subscribed to with its
+	 * workspace (protocol 1.63), so callers need no `session.open` (and its round trip) first.
+	 */
+	get subscribeOpensSessions(): boolean {
+		const version = parseProtocolVersion(this.hello?.host?.protocolVersion ?? this.hello?.protocolVersion ?? "");
+		return version?.major === 1 && version.minor >= 63;
 	}
 
 	/** Close code and reason when the client stopped because of a terminal close (e.g. revoked). */
@@ -516,6 +529,8 @@ export class PierClient {
 		const known = sub.known?.();
 		const params = {
 			sessionId: sub.sessionId,
+			// The host opens the session when it does not have it (1.63; older hosts answer NOT_FOUND).
+			...(sub.workspaceId && this.subscribeOpensSessions ? { workspaceId: sub.workspaceId } : {}),
 			...(sub.epoch !== undefined ? { sinceSeq: sub.lastSeq, epoch: sub.epoch } : {}),
 			...(known ? { known } : {}),
 		};

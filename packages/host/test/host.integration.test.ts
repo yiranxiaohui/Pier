@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { PierClient } from "@pier/client";
 import {
@@ -460,6 +460,39 @@ describe("sessions end to end", () => {
 		expect(snapshot.messages.length).toBeGreaterThanOrEqual(3);
 
 		await expectError(client.request("session.open", { workspaceId: workspace.id, path: "/etc/passwd" }), "NOT_FOUND");
+	});
+
+	it("opens a session it just listed without listing the workspace again", async () => {
+		t.faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+		const first = await newSession();
+		await client.request("session.prompt", { sessionId: first.session.id, text: "keep me" });
+		await first.rec.waitForType("agent_settled");
+		await client.request("session.close", { sessionId: first.session.id });
+		const pi = t.host.pool.runtime("pi");
+		const listing = vi.spyOn(pi, "listSessions");
+		await client.request("session.list", { workspaceId: workspace.id });
+		expect(listing).toHaveBeenCalledTimes(1);
+
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: first.session.id });
+		expect(listing).toHaveBeenCalledTimes(1);
+		expect(t.host.pool.get(first.session.id)).toBeDefined();
+
+		// A session the listing does not have yet is looked up again.
+		const second = await newSession();
+		await client.request("session.prompt", { sessionId: second.session.id, text: "me too" });
+		await second.rec.waitForType("agent_settled");
+		await client.request("session.close", { sessionId: second.session.id });
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: second.session.id });
+		expect(listing).toHaveBeenCalledTimes(2);
+
+		// So is one whose file is gone since.
+		await client.request("session.close", { sessionId: first.session.id });
+		rmSync(first.session.path ?? "");
+		await expectError(
+			client.request("session.open", { workspaceId: workspace.id, sessionId: first.session.id }),
+			"NOT_FOUND",
+		);
+		expect(listing).toHaveBeenCalledTimes(3);
 	});
 
 	it("deletes sessions into the trash", async () => {

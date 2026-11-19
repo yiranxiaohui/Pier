@@ -12,6 +12,7 @@ import {
 import {
 	ChannelError,
 	ConnectInitiator,
+	type FrameCompression,
 	generateKeyPair,
 	type KeyPair,
 	keyFingerprint,
@@ -22,10 +23,12 @@ import {
 	type PairingRequest,
 	PierProtocolError,
 	type RemoteAccessStatus,
+	type SessionSnapshot,
 	type UiRequest,
 	type WorkspaceInfo,
 } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { zlibFrameCompression } from "../src/remote/compression.ts";
 import { fauxAssistantMessage, fauxToolCall, Recorder, startTestHost, type TestHost } from "./helpers.ts";
 
 const posixShell = process.platform !== "win32";
@@ -107,7 +110,12 @@ describe("remote access", () => {
 		return outcome;
 	}
 
-	function phoneClient(outcome: PairingOutcome, keys: KeyPair = phoneKeys, wire?: string[]): PierClient {
+	function phoneClient(
+		outcome: PairingOutcome,
+		keys: KeyPair = phoneKeys,
+		wire?: string[],
+		compression?: FrameCompression,
+	): PierClient {
 		return new PierClient({
 			url: "pier-secure://host",
 			client: { name: "pier-mobile", version: "0.2.0", platform: "android" },
@@ -118,9 +126,48 @@ describe("remote access", () => {
 				hostPublicKey: outcome.hostPublicKey,
 				deviceKeyPair: keys,
 				...(wire ? { createWebSocket: capturingFactory(wire) } : {}),
+				...(compression ? { compression } : {}),
 			}),
 		});
 	}
+
+	it("compresses large frames for devices that accept compressed frames", async () => {
+		const answer = Array.from({ length: 400 }, (_, i) => `Line ${i}: the session transcript repeats itself.`).join(
+			"\n",
+		);
+		t.faux.setResponses([fauxAssistantMessage(answer)]);
+		const { session } = await desktop.request("session.create", { workspaceId: workspace.id });
+		const run = new Recorder();
+		await desktop.subscribe(session.id, run.handler);
+		await desktop.request("session.prompt", { sessionId: session.id, text: "long answer" });
+		await run.waitForType("agent_settled");
+		const expected = await desktop.request("session.snapshot", { sessionId: session.id });
+
+		const outcome = await pair();
+		/** The snapshot a phone receives, and the size of the largest frame on its wire. */
+		const load = async (compression?: FrameCompression) => {
+			const wire: string[] = [];
+			const phone = phoneClient(outcome, phoneKeys, wire, compression);
+			try {
+				await phone.connect();
+				const rec = new Recorder();
+				await phone.subscribe(session.id, rec.handler);
+				const frame = await rec.waitForType("session.snapshot");
+				return {
+					snapshot: frame.event.snapshot as SessionSnapshot,
+					largest: Math.max(...wire.map((w) => w.length)),
+				};
+			} finally {
+				phone.close();
+			}
+		};
+		const plain = await load();
+		const compressed = await load(zlibFrameCompression);
+		expect(plain.snapshot.messages).toEqual(expected.messages);
+		expect(compressed.snapshot.messages).toEqual(expected.messages);
+		expect(plain.largest).toBeGreaterThan(answer.length);
+		expect(compressed.largest).toBeLessThan(plain.largest / 4);
+	});
 
 	it("previews a host screenshot through the encrypted paired connection", async () => {
 		const path = join(t.root, "screen.png");

@@ -10,10 +10,11 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CLOSE_DEVICE_REVOKED, PierClient } from "@pier/client";
+import { CLOSE_DEVICE_REVOKED, PierClient, type WebSocketLike } from "@pier/client";
 import { formatPairingUri, keyFingerprint } from "@pier/crypto";
-import type { EventFrame, PairingRequest, PeerInfo, WorkspaceInfo } from "@pier/protocol";
+import type { EventFrame, PairingRequest, PeerInfo, SessionSnapshot, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { CLOSE_PEER_UNKNOWN, CLOSE_PEER_UNREACHABLE } from "../src/peers/peers.ts";
 import { fauxAssistantMessage, Recorder, startTestHost, type TestHost, TOKEN } from "./helpers.ts";
 
@@ -40,10 +41,22 @@ describe("computer-to-computer (peers)", () => {
 	let bEvents: Recorder;
 	let bWorkspace: WorkspaceInfo;
 	const extra: PierClient[] = [];
+	/** Sizes of the frames A received from other computers (the encrypted channel). */
+	let aReceived: number[] = [];
 
 	beforeEach(async () => {
+		aReceived = [];
 		[a, b] = await Promise.all([
-			startTestHost({ peers: { openTimeoutMs: 1000 } }),
+			startTestHost({
+				peers: {
+					openTimeoutMs: 1000,
+					createWebSocket: (url) => {
+						const socket = new WebSocket(url, { perMessageDeflate: false });
+						socket.on("message", (data: Buffer) => aReceived.push(data.length));
+						return socket as unknown as WebSocketLike;
+					},
+				},
+			}),
 			startTestHost({ remote: { ...REMOTE, approvalTimeoutMs: 2000 } }),
 		]);
 		aDesktop = await a.connect();
@@ -263,6 +276,29 @@ describe("computer-to-computer (peers)", () => {
 		remote.close();
 		await aEvents.waitFor((f) => f.event.type === "peer.changed", aEvents.mark());
 		expect((await aDesktop.request("peer.list")).peers[0]?.connected).toBe(false);
+	});
+
+	it("receives large frames from the other computer compressed", async () => {
+		const answer = Array.from({ length: 400 }, (_, i) => `Line ${i}: the session transcript repeats itself.`).join(
+			"\n",
+		);
+		b.faux.setResponses([fauxAssistantMessage(answer)]);
+		const { session } = await bDesktop.request("session.create", { workspaceId: bWorkspace.id });
+		const run = new Recorder();
+		await bDesktop.subscribe(session.id, run.handler);
+		await bDesktop.request("session.prompt", { sessionId: session.id, text: "long answer" });
+		await run.waitForType("agent_settled");
+
+		const remote = viaA((await pair()).id);
+		await remote.connect();
+		const rec = new Recorder();
+		await remote.subscribe(session.id, rec.handler);
+		const snapshot = (await rec.waitForType("session.snapshot")).event.snapshot as SessionSnapshot;
+		expect(snapshot.messages).toEqual((await bDesktop.request("session.snapshot", { sessionId: session.id })).messages);
+		const size = JSON.stringify(snapshot).length;
+		expect(size).toBeGreaterThan(answer.length);
+		// Uncompressed, the snapshot alone would take more than `size` (base64 adds a third).
+		expect(Math.max(...aReceived)).toBeLessThan(size / 3);
 	});
 
 	it("creates files and empty folders on the peer through the local desktop gateway", async () => {

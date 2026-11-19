@@ -1690,8 +1690,29 @@ export class PierHost implements RequestHandler {
 				this.broadcast({ type: "session.listChanged", workspaceId: summary.workspaceId });
 				return { session: summary };
 			},
-			"session.subscribe": (ctx, params) =>
-				this.subscribeConnection(ctx, this.pool.require(params.sessionId), params.sinceSeq, params.epoch, params.known),
+			"session.subscribe": async (ctx, params) => {
+				let session = this.pool.get(params.sessionId);
+				if (!session && params.workspaceId) {
+					// Opening and subscribing in one request saves the client a round trip (1.63).
+					session = await this.pool.open(this.requireWorkspace(params.workspaceId), { sessionId: params.sessionId });
+					const device = ctx.connection.device;
+					if (device) {
+						this.remote.record({
+							event: "session.open",
+							deviceId: device.id,
+							deviceName: device.name,
+							sessionId: params.sessionId,
+						});
+					}
+				}
+				return this.subscribeConnection(
+					ctx,
+					session ?? this.pool.require(params.sessionId),
+					params.sinceSeq,
+					params.epoch,
+					params.known,
+				);
+			},
 			"session.unsubscribe": (ctx, params) => {
 				const session = this.pool.get(params.sessionId);
 				if (!session) return { unsubscribed: false };

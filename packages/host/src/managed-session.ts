@@ -23,6 +23,7 @@ import {
 	withoutThinkingTags,
 } from "@pier/protocol";
 import { evaluateToolCall } from "./approval/policy.ts";
+import { clientEvent, clientMessage, clientMessages } from "./client-messages.ts";
 import { DEFAULT_EVENT_LOG_CAPACITY, EventLog } from "./event-log.ts";
 import { truncateInput } from "./pi/approval-extension.ts";
 import { type SubagentRuntimeHooks, SubagentTracker, type SubagentTranscript } from "./runtimes/subagents.ts";
@@ -207,7 +208,7 @@ export abstract class ManagedSession {
 	/** Append an event to the log and fan it out to subscribers. */
 	protected emit(event: WireEvent | PierSessionEvent, sessionId: string = this.id): void {
 		if (this.disposed) return;
-		const entry = this.log.append(event as WireEvent);
+		const entry = this.log.append(clientEvent(event as WireEvent));
 		const frame: EventFrame = { type: "evt", sessionId, seq: entry.seq, event: entry.event };
 		for (const subscriber of this.subscribers.values()) this.deliver(subscriber, frame);
 	}
@@ -287,17 +288,21 @@ export abstract class ManagedSession {
 		};
 	}
 
-	/** Everything needed to render the session; without the first messages when `known` matches them. */
+	/**
+	 * Everything needed to render the session; without the first messages when `known` matches them.
+	 * Messages leave out provider data clients never use (`clientMessage`), here and in events alike.
+	 */
 	snapshot(known?: KnownMessages): SessionSnapshot {
 		const c = this.content();
-		const from = knownPrefix(c.messages, known);
+		const messages = clientMessages(c.messages);
+		const from = knownPrefix(messages, known);
 		return {
 			session: this.summary(),
 			seq: this.log.currentSeq,
 			epoch: this.log.epoch,
-			messages: from ? c.messages.slice(from) : c.messages,
+			messages: from ? messages.slice(from) : messages,
 			...(from ? { messagesFrom: from } : {}),
-			...(c.streamingMessage ? { streamingMessage: c.streamingMessage } : {}),
+			...(c.streamingMessage ? { streamingMessage: clientMessage(c.streamingMessage) } : {}),
 			pendingToolCalls: c.pendingToolCalls,
 			pendingUi: this.bridge.pendingRequests,
 			queue: this.queue(),

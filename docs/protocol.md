@@ -1,4 +1,4 @@
-# Pier 协议 v1.62
+# Pier 协议 v1.63
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -7,7 +7,7 @@
 
 - 传输：WebSocket，**文本帧**，每帧一个 JSON 对象。二进制帧会被拒绝（关闭码 1003）。
 - 本地连接：Host 仅监听 `127.0.0.1`，帧为明文。
-- 远程连接（开启远程访问后，默认端口 7433）：先完成 Noise 握手（配对用 XX，之后用 IK），之后每一帧都是加密帧 `{ "t": "enc", "n": <nonce>, "c": <ciphertext> }`，其明文即本文档的帧。握手、配对与吊销见 [`docs/security.md`](security.md)。
+- 远程连接（开启远程访问后，默认端口 7433）：先完成 Noise 握手（配对用 XX，之后用 IK），之后每一帧都是加密帧 `{ "t": "enc", "n": <nonce>, "c": <ciphertext> }`，其明文即本文档的帧；双方都支持时，较大的帧在加密前用 raw DEFLATE 压缩（握手能力 `deflate`）。握手、配对、压缩与吊销见 [`docs/security.md`](security.md)。
 - 帧类型：
 
 ```jsonc
@@ -271,7 +271,7 @@ SubagentInfo = {
 | `session.forkPoints` | `{ sessionId }` | `{ points: { entryId, text }[] }`（可 fork 的用户消息） |
 | `session.fork` | `{ sessionId, entryId, position?: "before"\|"at" }` | `{ session, selectedText? }`；生成**新**会话，原会话不变 |
 | `session.rename` | `{ sessionId, name }` | `{ session }` |
-| `session.subscribe` | `{ sessionId, sinceSeq?, epoch?, known?: { count, fingerprint } }`（`known` 1.27） | `{ mode: "replay"\|"snapshot", currentSeq, epoch }`，见 §5 |
+| `session.subscribe` | `{ sessionId, workspaceId?, sinceSeq?, epoch?, known?: { count, fingerprint } }`（`known` 1.27，`workspaceId` 1.63） | `{ mode: "replay"\|"snapshot", currentSeq, epoch }`，见 §5。带 `workspaceId` 时（1.63），会话不在活跃池中就先像 `session.open` 一样打开它，客户端因此不必先调用 `session.open`（少一次往返）；不带时对未打开的会话返回 `NOT_FOUND`。旧版 Host 忽略 `workspaceId` |
 | `session.unsubscribe` | `{ sessionId }` | `{ unsubscribed }` |
 | `session.snapshot` | `{ sessionId }` | `SessionSnapshot`（一次性读取，不影响订阅） |
 | `session.commands` | `{ sessionId }` | `{ commands: { name, description?, argumentHint?, source: "extension"\|"prompt"\|"skill" }[] }`；会话的 Agent 运行时在 `session.prompt` 中处理的斜杠命令：扩展命令、提示词模板和 `skill:<名称>`（pi 设置 `enableSkillCommands: false` 时不列出 skill，但手动输入仍然有效）。`name` 不含开头的 `/`（1.5） |
@@ -539,6 +539,8 @@ Host 每秒检查计划。恢复后只补执行一个错过的周期；任务正
 - `message_update` 去掉累积的 `partial` 消息，只保留 `{ type, usage, assistantMessageEvent }`；`toolcall_start` 额外带 `id` 与 `toolName`。客户端用 `message_start` + 增量重建流式消息，`message_end` 为权威结果。
 - `entry_appended` 对消息条目只保留元数据 `{ type: "message", id, parentId, timestamp, role }`（完整内容已在 `message_end` 中）。
 
+另外，Host 发给客户端的消息（事件与快照中）不含服务商用于回传上下文的签名字段：内容块的 `thinkingSignature`（加密的推理内容，包括 `redacted: true` 的思考块）、`textSignature` 与工具调用的 `thoughtSignature`（1.63）。它们在长会话中占很大比例且无法压缩，客户端既不显示也不回传；会话文件和 Agent 照常保留它们。`knownMessages` 的指纹因此也按不含这些字段的消息计算，旧版 Host 的缓存会在第一次订阅时因指纹不一致而收到一次完整快照。
+
 `agent_settled` 表示 pi 不会再自动继续，适合作为"任务完成"通知的触发点。
 
 pi 自动重试（`auto_retry_start`）时会把失败的那次回复（`stopReason: "error"` 的 assistant 消息）移出会话上下文，之后的快照也不再包含它；客户端收到 `auto_retry_start` 时，若转录最后一条正是本轮失败的回复（其后没有新的 `agent_start`），应同样删除它，由重试的回复取而代之。
@@ -627,7 +629,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
   - 否则 → `mode: "snapshot"`，随后发送一个 `session.snapshot`，再接实时事件。
   - **已有的转录前缀**（1.27）：客户端可在 `known` 中说明它已有转录的前 `count` 条消息，以及最后一条的指纹 `fingerprint`（`@pier/protocol` 的 `messageFingerprint`：消息按键排序的规范 JSON 的 64 位哈希，16 位十六进制）。需要发快照且 Host 转录的第 `count` 条消息指纹一致时，快照的 `messages` 只含其后的消息，并带 `messagesFrom: count`；客户端保留自己的前 `count` 条再接上。不一致（压缩、换分支或缓存过旧）时照常发完整快照。旧版 Host 忽略 `known`。手机端把看过的会话缓存在本地，下次打开时用 `sinceSeq/epoch` 只补发错过的事件；会话已被 Host 重新加载（新的 epoch）时，用 `known` 只下载新增的消息。
 - **顺序保证**：订阅响应先于补发事件或快照到达；补发 / 快照之后才是订阅期间产生的实时事件。快照的 `seq` 表示它已包含到该 seq 为止的全部事件，之后的事件从 `seq + 1` 开始。
-- 客户端应记录每个会话最后应用的 `seq` 与 `epoch`，并**丢弃 `seq <= lastSeq` 的事件**。`@pier/client` 自动完成这些：断线后指数退避重连，重新 `host.hello`，再用 `sinceSeq/epoch` 重新订阅；若会话已不在活跃池中（`NOT_FOUND`），会先 `session.open` 再从快照开始。
+- 客户端应记录每个会话最后应用的 `seq` 与 `epoch`，并**丢弃 `seq <= lastSeq` 的事件**。`@pier/client` 自动完成这些：断线后指数退避重连，重新 `host.hello`，再用 `sinceSeq/epoch` 重新订阅；若会话已不在活跃池中，1.63 起的 Host 在订阅时直接重新打开（订阅带 `workspaceId`），旧版 Host 返回 `NOT_FOUND` 时客户端先 `session.open` 再从快照开始。
 - **增量合并**：`host.hello` 指定 `coalesceMs > 0` 时，同一会话、同一内容块、相同类型（`text_delta` / `thinking_delta` / `toolcall_delta`）的连续增量在窗口内合并为一帧，合并帧携带最后一条的 `seq`。其他任何帧到来前都会先刷出待合并的帧，顺序不变。建议手机端使用约 50ms。
 - **背压**：连接发送缓冲超过 16 MiB 时，Host 以关闭码 1013 断开，客户端重连后通过 `sinceSeq` 恢复。
 

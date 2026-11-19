@@ -167,8 +167,13 @@ export class SecureTransport {
 
 	/** Encrypt a text message into an `enc` frame. */
 	seal(plaintext: string): string {
+		return this.sealBytes(utf8Encode(plaintext));
+	}
+
+	/** Encrypt raw plaintext bytes into an `enc` frame (see `SecureSession` for compressed frames). */
+	sealBytes(plaintext: Uint8Array): string {
 		const n = this.send.nonce;
-		const c = this.send.encryptWithAd(new Uint8Array(0), utf8Encode(plaintext));
+		const c = this.send.encryptWithAd(new Uint8Array(0), plaintext);
 		return JSON.stringify({ t: "enc", n, c: toBase64(c) });
 	}
 
@@ -181,6 +186,11 @@ export class SecureTransport {
 
 	/** {@link open} for an already parsed frame. */
 	openFrame(frame: ChannelFrame): string {
+		return utf8Decode(this.openFrameBytes(frame));
+	}
+
+	/** {@link openFrame}, returning the plaintext bytes. */
+	openFrameBytes(frame: ChannelFrame): Uint8Array {
 		if (frame.t === "error") throw new ChannelError(frame.code, frame.message);
 		if (frame.t !== "enc") throw new ChannelError("BAD_HANDSHAKE", `Unexpected ${frame.t} frame`);
 		if (frame.n !== this.receive.nonce) throw new ChannelError("BAD_HANDSHAKE", "Unexpected frame nonce");
@@ -190,7 +200,7 @@ export class SecureTransport {
 		} catch {
 			throw new ChannelError("BAD_HANDSHAKE", "Ciphertext is not valid base64");
 		}
-		return utf8Decode(wrapNoise(() => this.receive.decryptWithAd(new Uint8Array(0), bytes)));
+		return wrapNoise(() => this.receive.decryptWithAd(new Uint8Array(0), bytes));
 	}
 }
 

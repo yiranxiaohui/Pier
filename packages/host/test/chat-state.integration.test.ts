@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	buildTranscript,
@@ -240,6 +240,102 @@ describe("chat-state against a live host", () => {
 		await until(() => snapshots.length === 1);
 		expect(snapshots[0]?.messagesFrom).toBeUndefined();
 		expect(chat.chat.messages).toEqual(cached.messages);
+		chat.dispose();
+	});
+
+	/** Snapshots a client receives. */
+	function snapshotsOf(c: PierClient): SessionSnapshot[] {
+		const snapshots: SessionSnapshot[] = [];
+		c.onEvent((frame) => {
+			if (frame.event.type === "session.snapshot") snapshots.push(frame.event.snapshot as SessionSnapshot);
+		});
+		return snapshots;
+	}
+
+	/** Record the methods a client calls, and their params. */
+	function recordRequests(c: PierClient): Array<{ method: string; params: unknown }> {
+		const calls: Array<{ method: string; params: unknown }> = [];
+		const request = c.request.bind(c) as (method: string, ...args: unknown[]) => Promise<unknown>;
+		c.request = ((method: string, ...args: unknown[]) => {
+			calls.push({ method, params: args[0] });
+			return request(method, ...args);
+		}) as typeof c.request;
+		return calls;
+	}
+
+	it("leaves provider signatures out of the transcript clients get", async () => {
+		t.faux.setResponses([
+			fauxAssistantMessage([
+				{ type: "thinking", thinking: "pondering", thinkingSignature: "opaque-reasoning" },
+				{ type: "text", text: "answer", textSignature: "opaque-text" },
+			]),
+		]);
+		const { session } = await client.request("session.create", { workspaceId: workspace.id });
+		const chat = new ChatController(client, session, hooks());
+		await chat.start();
+		await until(() => chat.chat.loaded);
+		await client.request("session.prompt", { sessionId: session.id, text: "think" });
+		await until(() => chat.chat.messages.at(-1)?.role === "assistant" && chat.chat.runState === "idle");
+
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(JSON.stringify(snapshot.messages)).not.toContain("opaque");
+		expect(chat.chat.messages).toEqual(snapshot.messages);
+		expect(chat.chat.messages.at(-1)).toMatchObject({
+			content: [
+				{ type: "thinking", thinking: "pondering" },
+				{ type: "text", text: "answer" },
+			],
+		});
+		// The session file keeps them for the model.
+		expect(readFileSync(snapshot.session.path ?? "", "utf8")).toContain("opaque-reasoning");
+
+		// What a client built from the events matches the host's transcript after a reload.
+		const cached = cacheableChatState(chat.chat);
+		chat.dispose();
+		await client.request("session.close", { sessionId: session.id });
+		const phone = await t.connect();
+		const snapshots = snapshotsOf(phone);
+		const again = new ChatController(phone, session, hooks(), cached);
+		await again.start();
+		await until(() => snapshots.length === 1);
+		expect(snapshots[0]?.messagesFrom).toBe(snapshot.messages.length);
+		expect(again.chat.messages).toEqual(snapshot.messages);
+		again.dispose();
+	});
+
+	it("opens a session while subscribing to it, without a separate session.open", async () => {
+		const { session, cached } = await conversation();
+		await client.request("session.close", { sessionId: session.id });
+		const phone = await t.connect();
+		expect(phone.subscribeOpensSessions).toBe(true);
+		const calls = recordRequests(phone);
+		const chat = new ChatController(phone, session, hooks());
+		await chat.start();
+		await until(() => chat.chat.loaded);
+		expect(calls.map((c) => c.method)).toEqual(["session.subscribe"]);
+		expect(calls[0]?.params).toMatchObject({ sessionId: session.id, workspaceId: workspace.id });
+		expect(chat.chat.messages).toEqual(cached.messages);
+		expect(t.host.pool.get(session.id)).toBeDefined();
+		chat.dispose();
+
+		// Without a workspace the host still answers that the session is not open.
+		await client.request("session.close", { sessionId: session.id });
+		await expect(client.request("session.subscribe", { sessionId: session.id })).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+	});
+
+	it("opens the session first on hosts that do not open it while subscribing", async () => {
+		const { session } = await conversation();
+		await client.request("session.close", { sessionId: session.id });
+		const phone = await t.connect();
+		Object.defineProperty(phone, "subscribeOpensSessions", { get: () => false });
+		const calls = recordRequests(phone);
+		const chat = new ChatController(phone, session, hooks());
+		await chat.start();
+		await until(() => chat.chat.loaded);
+		expect(calls.map((c) => c.method)).toEqual(["session.open", "session.subscribe"]);
+		expect(calls[1]?.params).not.toHaveProperty("workspaceId");
 		chat.dispose();
 	});
 

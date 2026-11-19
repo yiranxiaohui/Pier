@@ -538,6 +538,11 @@ export const MethodParamsSchemas = {
 	"session.rename": z.object({ ...SessionRef, name: z.string().min(1).max(200) }),
 	"session.subscribe": z.object({
 		...SessionRef,
+		/**
+		 * Workspace of the session (1.63): when the session is not open, the host opens it first (as
+		 * `session.open` would), which saves the client a round trip. Older hosts ignore it.
+		 */
+		workspaceId: Id.optional(),
 		/** Last seq the client has applied. Only honored together with a matching `epoch`. */
 		sinceSeq: z.number().int().nonnegative().optional(),
 		/** Event-log epoch the `sinceSeq` belongs to (from a previous subscribe result or snapshot). */

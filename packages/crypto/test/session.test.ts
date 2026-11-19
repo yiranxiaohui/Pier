@@ -1,22 +1,31 @@
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import {
 	CAP_CONTROL,
+	CAP_DEFLATE,
 	type ChannelError,
 	ChannelResponder,
+	COMPRESSED_MARKER,
 	type ConnectHello,
 	ConnectInitiator,
 	type ControlMessage,
 	createRelayChallenge,
+	type FrameCompression,
 	formatPairingUri,
 	generateKeyPair,
+	MIN_COMPRESSED_FRAME,
 	normalizeRelayUrl,
+	parseChannelFrame,
 	parsePairingUri,
 	RelayUrlError,
+	randomBytes,
 	relayConnectUrl,
 	relayRegisterProof,
 	SecureSession,
+	type SecureSessionOptions,
 	type SecureTransport,
 	type SessionPath,
+	toBase64,
 	toBase64Url,
 } from "../src/index.ts";
 
@@ -88,7 +97,7 @@ function recordingPath(): SessionPath & { frames: string[]; closed: boolean } {
 	return path;
 }
 
-function sessions() {
+function sessions(deviceOptions: SecureSessionOptions = {}, hostOptions: SecureSessionOptions = {}) {
 	const { device, host } = connect();
 	const devicePath = recordingPath();
 	const hostPath = recordingPath();
@@ -99,11 +108,16 @@ function sessions() {
 		hostControl: [],
 	};
 	const failures: ChannelError[] = [];
-	const deviceSession = new SecureSession(device, devicePath, {
-		message: (text) => got.device.push(text),
-		control: (message) => got.deviceControl.push(message),
-		fail: (error) => failures.push(error),
-	});
+	const deviceSession = new SecureSession(
+		device,
+		devicePath,
+		{
+			message: (text) => got.device.push(text),
+			control: (message) => got.deviceControl.push(message),
+			fail: (error) => failures.push(error),
+		},
+		deviceOptions,
+	);
 	const hostSession = new SecureSession(
 		host,
 		hostPath,
@@ -112,7 +126,7 @@ function sessions() {
 			control: (message) => got.hostControl.push(message),
 			fail: (error) => failures.push(error),
 		},
-		{ gapTimeoutMs: 50 },
+		{ gapTimeoutMs: 50, ...hostOptions },
 	);
 	return { deviceSession, hostSession, devicePath, hostPath, got, failures };
 }
@@ -167,6 +181,92 @@ describe("secure session", () => {
 		hostSession.receive(frame);
 		hostSession.receive(frame);
 		expect(failures.map((f) => f.message)).toEqual(["Replayed frame"]);
+	});
+});
+
+describe("compressed frames", () => {
+	const zlib: FrameCompression = {
+		deflate: (data) => deflateRawSync(data),
+		inflate: (data, maxBytes) => inflateRawSync(data, { maxOutputLength: maxBytes }),
+	};
+	/** A transcript-like frame: repetitive JSON text. */
+	const large = JSON.stringify({
+		type: "evt",
+		event: { messages: Array.from({ length: 200 }, (_, i) => ({ role: "user", text: `message ${i} 你好` })) },
+	});
+	const ciphertextBytes = (frame: string) => {
+		const parsed = parseChannelFrame(frame);
+		return parsed?.t === "enc" ? parsed.c.length : 0;
+	};
+
+	it("are announced in the handshake", () => {
+		const { seenByHost, seenByDevice } = connect({ caps: [CAP_CONTROL, CAP_DEFLATE] }, (device) => ({
+			caps: device.caps?.includes(CAP_DEFLATE) ? [CAP_CONTROL, CAP_DEFLATE] : [CAP_CONTROL],
+		}));
+		expect(seenByHost.caps).toEqual([CAP_CONTROL, CAP_DEFLATE]);
+		expect(seenByDevice.caps).toEqual([CAP_CONTROL, CAP_DEFLATE]);
+	});
+
+	it("shrink large frames for a side that accepts them", () => {
+		const { deviceSession, hostSession, devicePath, hostPath, got, failures } = sessions(
+			{ compression: zlib, compressOutgoing: true },
+			{ compression: zlib, compressOutgoing: true },
+		);
+		const small = '{"type":"req","id":"r1","method":"host.info"}';
+		hostSession.send(large);
+		hostSession.send(small);
+		deviceSession.send(large);
+		for (const frame of hostPath.frames) deviceSession.receive(frame);
+		for (const frame of devicePath.frames) hostSession.receive(frame);
+		expect(failures).toEqual([]);
+		expect(got.device).toEqual([large, small]);
+		expect(got.host).toEqual([large]);
+		expect(ciphertextBytes(hostPath.frames[0] as string)).toBeLessThan(toBase64(Buffer.from(large)).length / 4);
+		// Small frames (most streaming deltas) are sent as they are.
+		expect(small.length).toBeLessThan(MIN_COMPRESSED_FRAME);
+		expect(ciphertextBytes(hostPath.frames[1] as string)).toBe(toBase64(new Uint8Array(small.length + 16)).length);
+	});
+
+	it("are not sent to a side that did not announce them", () => {
+		const { hostSession, deviceSession, hostPath, got, failures } = sessions({}, { compression: zlib });
+		hostSession.send(large);
+		for (const frame of hostPath.frames) deviceSession.receive(frame);
+		expect(failures).toEqual([]);
+		expect(got.device).toEqual([large]);
+		expect(ciphertextBytes(hostPath.frames[0] as string)).toBe(
+			toBase64(new Uint8Array(Buffer.byteLength(large) + 16)).length,
+		);
+	});
+
+	it("send frames as they are when compressing does not pay off", () => {
+		const useless: FrameCompression = { ...zlib, deflate: (data) => new Uint8Array(Math.ceil(data.length * 0.95)) };
+		const { hostSession, deviceSession, hostPath, got } = sessions(
+			{ compression: zlib },
+			{ compression: useless, compressOutgoing: true },
+		);
+		const image = JSON.stringify({ data: toBase64(randomBytes(4096)) });
+		hostSession.send(image);
+		for (const frame of hostPath.frames) deviceSession.receive(frame);
+		expect(got.device).toEqual([image]);
+		expect(ciphertextBytes(hostPath.frames[0] as string)).toBe(toBase64(new Uint8Array(image.length + 16)).length);
+	});
+
+	it("fail the channel when not negotiated or when they expand too far", () => {
+		const unexpected = sessions({}, { compression: zlib, compressOutgoing: true });
+		unexpected.hostSession.send(large);
+		for (const frame of unexpected.hostPath.frames) unexpected.deviceSession.receive(frame);
+		expect(unexpected.got.device).toEqual([]);
+		expect(unexpected.failures.map((f) => f.message)).toEqual(["Compressed frames were not negotiated"]);
+
+		const bomb = sessions(
+			{ compression: { ...zlib, inflate: (data) => inflateRawSync(data, { maxOutputLength: 1024 }) } },
+			{ compression: zlib, compressOutgoing: true },
+		);
+		bomb.hostSession.send(large);
+		for (const frame of bomb.hostPath.frames) bomb.deviceSession.receive(frame);
+		expect(bomb.got.device).toEqual([]);
+		expect(bomb.failures.map((f) => f.message)).toEqual(["Invalid compressed frame"]);
+		expect(COMPRESSED_MARKER).toBe(1);
 	});
 });
 

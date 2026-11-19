@@ -14,13 +14,34 @@
  * Control frames travel inside the encryption, as plaintext that starts with
  * {@link CONTROL_PREFIX} (Pier protocol frames are JSON objects, which never do). They are
  * only sent to a side that announced the `ctl` capability in the handshake.
+ *
+ * Large Pier frames (session snapshots, file contents) can be compressed with raw DEFLATE
+ * before they are encrypted: their plaintext is {@link COMPRESSED_MARKER} followed by the
+ * compressed text. They are only sent to a side that announced {@link CAP_DEFLATE}, and only
+ * when the sender has a {@link FrameCompression} itself (the platform supplies it).
  */
+import { utf8Decode, utf8Encode } from "./bytes.ts";
 import { ChannelError, type ChannelFrame, parseChannelFrame, type SecureTransport } from "./channel.ts";
 
 /** First character of a control frame's plaintext. */
 export const CONTROL_PREFIX = "\u0000";
 /** Handshake capability: the side understands control frames. */
 export const CAP_CONTROL = "ctl";
+/** Handshake capability: the side accepts compressed frames (raw DEFLATE). */
+export const CAP_DEFLATE = "deflate";
+/** First byte of a compressed frame's plaintext (JSON text and control frames never start with it). */
+export const COMPRESSED_MARKER = 0x01;
+/** Frames shorter than this (in UTF-16 code units) are sent as they are. */
+export const MIN_COMPRESSED_FRAME = 1024;
+/** Largest frame a compressed frame may expand to; larger frames are sent uncompressed. */
+export const MAX_INFLATED_FRAME = 64 * 1024 * 1024;
+
+/** Raw DEFLATE (RFC 1951) for frames, supplied by the platform (e.g. `node:zlib`). */
+export interface FrameCompression {
+	deflate(data: Uint8Array): Uint8Array;
+	/** Must throw when the output would be larger than `maxBytes`. */
+	inflate(data: Uint8Array, maxBytes: number): Uint8Array;
+}
 
 export type ControlMessage = { c: string } & Record<string, unknown>;
 
@@ -46,6 +67,10 @@ export interface SecureSessionOptions {
 	maxPending?: number;
 	/** How long a missing frame may be waited for (default 15 s). */
 	gapTimeoutMs?: number;
+	/** Decompresses frames the other side compressed, and compresses outgoing ones when `compressOutgoing`. */
+	compression?: FrameCompression;
+	/** The other side announced {@link CAP_DEFLATE}: compress large outgoing frames. */
+	compressOutgoing?: boolean;
 }
 
 export class SecureSession {
@@ -74,7 +99,29 @@ export class SecureSession {
 
 	/** Seal and send a Pier frame on the active path. */
 	send(text: string): void {
-		this.active.send(this.transport.seal(text));
+		this.active.send(this.seal(text));
+	}
+
+	/** Seal a Pier frame, compressed when the other side accepts it and it is worth it. */
+	private seal(text: string): string {
+		const codec = this.options.compression;
+		if (!codec || !this.options.compressOutgoing || text.length < MIN_COMPRESSED_FRAME) {
+			return this.transport.seal(text);
+		}
+		const bytes = utf8Encode(text);
+		if (bytes.length > MAX_INFLATED_FRAME) return this.transport.sealBytes(bytes);
+		let packed: Uint8Array;
+		try {
+			packed = codec.deflate(bytes);
+		} catch {
+			return this.transport.sealBytes(bytes);
+		}
+		// Incompressible data (images, encrypted blobs) is not worth the other side's work.
+		if (packed.length + 1 > bytes.length * 0.9) return this.transport.sealBytes(bytes);
+		const plaintext = new Uint8Array(packed.length + 1);
+		plaintext[0] = COMPRESSED_MARKER;
+		plaintext.set(packed, 1);
+		return this.transport.sealBytes(plaintext);
 	}
 
 	/** Seal and send a control frame on the active path (or `path`). */
@@ -159,7 +206,7 @@ export class SecureSession {
 	private deliver(frame: ChannelFrame, path: SessionPath | undefined): void {
 		let text: string;
 		try {
-			text = this.transport.openFrame(frame);
+			text = this.plaintext(this.transport.openFrameBytes(frame));
 		} catch (error) {
 			this.fail(error instanceof ChannelError ? error : new ChannelError("BAD_HANDSHAKE", "Invalid encrypted frame"));
 			return;
@@ -177,6 +224,18 @@ export class SecureSession {
 			return;
 		}
 		this.handlers.message(text);
+	}
+
+	/** The text of a decrypted frame, decompressing it when it is compressed. */
+	private plaintext(bytes: Uint8Array): string {
+		if (bytes[0] !== COMPRESSED_MARKER) return utf8Decode(bytes);
+		const codec = this.options.compression;
+		if (!codec) throw new ChannelError("BAD_HANDSHAKE", "Compressed frames were not negotiated");
+		try {
+			return utf8Decode(codec.inflate(bytes.subarray(1), MAX_INFLATED_FRAME));
+		} catch {
+			throw new ChannelError("BAD_HANDSHAKE", "Invalid compressed frame");
+		}
 	}
 
 	private fail(error: ChannelError): void {

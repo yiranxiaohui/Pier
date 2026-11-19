@@ -1,12 +1,14 @@
 import {
 	addressToUrl,
 	CAP_CONTROL,
+	CAP_DEFLATE,
 	ChannelError,
 	CLOSE_CODES,
 	type ConnectHello,
 	ConnectInitiator,
 	type ControlMessage,
 	type DeviceDescription,
+	type FrameCompression,
 	type KeyPair,
 	PairInitiator,
 	type PairingInfo,
@@ -287,6 +289,12 @@ export interface SecureSocketOptions {
 	onRoute?: (route: ConnectionRoute) => void;
 	/** Move relayed connections onto a peer-to-peer path when possible. */
 	p2p?: P2POptions;
+	/**
+	 * Raw DEFLATE for frames (e.g. from `node:zlib`). With it the device announces that it accepts
+	 * compressed frames, so a host that supports them compresses large ones (session snapshots),
+	 * and it compresses its own large frames for such a host.
+	 */
+	compression?: FrameCompression;
 }
 
 /**
@@ -373,10 +381,11 @@ export class SecureWebSocket implements WebSocketLike {
 	}
 
 	private handshake(socket: WebSocketLike, route: ConnectionRoute): Promise<void> {
+		const compression = this.options.compression;
 		const initiator = new ConnectInitiator({
 			deviceKeyPair: this.options.deviceKeyPair,
 			hostPublicKey: this.options.hostPublicKey,
-			hello: { caps: [CAP_CONTROL] },
+			hello: { caps: compression ? [CAP_CONTROL, CAP_DEFLATE] : [CAP_CONTROL] },
 		});
 		const label = routeLabel(route);
 		return new Promise<void>((resolve, reject) => {
@@ -395,11 +404,16 @@ export class SecureWebSocket implements WebSocketLike {
 				try {
 					const transport = initiator.receive(String(event.data));
 					this.hostHello = initiator.hostHello;
-					session = new SecureSession(transport, path, {
-						message: (text) => this.onmessage?.({ data: text }),
-						control: (message, from) => this.onControl(message, from),
-						fail: () => this.close(CLOSE_CODES.handshakeFailed, "Invalid encrypted frame"),
-					});
+					session = new SecureSession(
+						transport,
+						path,
+						{
+							message: (text) => this.onmessage?.({ data: text }),
+							control: (message, from) => this.onControl(message, from),
+							fail: () => this.close(CLOSE_CODES.handshakeFailed, "Invalid encrypted frame"),
+						},
+						compression ? { compression, compressOutgoing: this.hostHello.caps?.includes(CAP_DEFLATE) === true } : {},
+					);
 				} catch (error) {
 					reject(error);
 					return;

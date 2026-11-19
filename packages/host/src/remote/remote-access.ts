@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { dataChannelPath, type RtcDataChannelLike, type RtcPeerConnectionLike } from "@pier/client";
 import {
 	CAP_CONTROL,
+	CAP_DEFLATE,
 	ChannelError,
 	ChannelResponder,
 	CLOSE_CODES,
@@ -40,6 +41,7 @@ import { type WebSocket, WebSocketServer } from "ws";
 import type { ConfigStore, RelayConfig } from "../config.ts";
 import type { Connection, RemoteDevice, Transport } from "../connection.ts";
 import { auditLogPath, devicesPath, identityPath } from "../paths.ts";
+import { zlibFrameCompression } from "./compression.ts";
 import { advertiseMdns, listLanAddresses, type MdnsAdvertisement } from "./network.ts";
 import { answerOffer, type P2PAnswer, watchPeerConnection } from "./p2p.ts";
 import { RelayClient } from "./relay-client.ts";
@@ -70,6 +72,8 @@ export interface RemoteAccessOptions {
 	heartbeatMs?: number;
 	/** Wrong pairing codes tolerated before the active code is invalidated (default 5). */
 	maxPairingFailures?: number;
+	/** Exchange compressed frames with devices that support it (default true). */
+	compression?: boolean;
 }
 
 export interface RemoteHostHooks {
@@ -651,10 +655,12 @@ export class RemoteAccess {
 
 	// ---- sockets --------------------------------------------------------------------------
 
-	/** What to tell a device in the handshake reply: control frames, and p2p over a relay. */
+	/** What to tell a device in the handshake reply: control frames, compression, and p2p over a relay. */
 	private connectHello(device: ConnectHello, origin: Origin): ConnectHello | undefined {
 		if (!device.caps?.includes(CAP_CONTROL)) return undefined;
-		const hello: ConnectHello = { caps: [CAP_CONTROL] };
+		const hello: ConnectHello = {
+			caps: this.options.compression === false ? [CAP_CONTROL] : [CAP_CONTROL, CAP_DEFLATE],
+		};
 		const iceServers = this.relayClient?.iceServers ?? [];
 		if (origin.via === "relay" && this.p2pEnabled && iceServers.length) hello.p2p = { iceServers };
 		return hello;
@@ -730,7 +736,7 @@ export class RemoteAccess {
 					}
 					socket.send(step.frame);
 					phase = "open";
-					live = this.openSession(step.transport, path, record, origin);
+					live = this.openSession(step.transport, path, record, origin, step.deviceHello);
 				} else {
 					clearTimeout(timer);
 					endHandshake();
@@ -769,18 +775,28 @@ export class RemoteAccess {
 		path: SessionPath,
 		record: { id: string; name: string },
 		origin: Origin,
+		deviceHello: ConnectHello,
 	): LiveSession {
 		const address = origin.address;
 		const device: RemoteDevice = { id: record.id, name: record.name, ...(address ? { address } : {}) };
 		const live = new LiveSession(device, origin.via, path);
-		live.session = new SecureSession(transport, path, {
-			message: (text) => {
-				const connection = live.connection;
-				void connection.receive(text).catch(() => connection.close(1011, "Internal error"));
+		const compression = this.options.compression !== false && deviceHello.caps?.includes(CAP_CONTROL) === true;
+		live.session = new SecureSession(
+			transport,
+			path,
+			{
+				message: (text) => {
+					const connection = live.connection;
+					void connection.receive(text).catch(() => connection.close(1011, "Internal error"));
+				},
+				control: (message, from) => this.onControl(live, message, from),
+				fail: (error) => live.connection.close(CLOSE_CODES.handshakeFailed, error.message.slice(0, 100)),
 			},
-			control: (message, from) => this.onControl(live, message, from),
-			fail: (error) => live.connection.close(CLOSE_CODES.handshakeFailed, error.message.slice(0, 100)),
-		});
+			// Compression was offered in the handshake reply, which goes only to devices with `ctl`.
+			compression
+				? { compression: zlibFrameCompression, compressOutgoing: deviceHello.caps?.includes(CAP_DEFLATE) === true }
+				: {},
+		);
 		live.connection = this.hooks.connect(
 			{
 				send: (text) => live.session.send(text),

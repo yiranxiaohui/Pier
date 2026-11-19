@@ -20,6 +20,7 @@ import {
 } from "@pier/crypto";
 import { type HostInfo, type PeerInfo, type PierHostEvent, PierProtocolError, parseClientFrame } from "@pier/protocol";
 import { WebSocket } from "ws";
+import { zlibFrameCompression } from "../remote/compression.ts";
 import { createHostPeerConnection } from "../remote/p2p.ts";
 import { type PeerRecord, PeerStore, toPeerInfo } from "./store.ts";
 
@@ -44,7 +45,10 @@ const MAX_PEER_PAYLOAD = 64 * 1024 * 1024;
 /** Frames the desktop may send before the peer connection is up (it normally sends only `host.hello`). */
 const MAX_PENDING_FRAMES = 256;
 
-/** Outgoing sockets use `ws` (the same implementation as the listeners), without compression. */
+/**
+ * Outgoing sockets use `ws` (the same implementation as the listeners), without WebSocket
+ * compression: frames are encrypted, so the secure channel compresses them before that.
+ */
 const defaultFactory: WebSocketFactory = (url) =>
 	new WebSocket(url, { perMessageDeflate: false, maxPayload: MAX_PEER_PAYLOAD }) as unknown as WebSocketLike;
 
@@ -144,6 +148,7 @@ export class PeerManager {
 				hostPublicKey: fromBase64Url(record.publicKey),
 				deviceKeyPair: this.hooks.identity(),
 				createWebSocket: this.factory,
+				compression: zlibFrameCompression,
 				...(this.hooks.p2pEnabled?.() === false
 					? {}
 					: {
@@ -438,6 +443,8 @@ export class PeerManager {
 				hostPublicKey: fromBase64Url(record.publicKey),
 				deviceKeyPair: this.hooks.identity(),
 				createWebSocket: this.factory,
+				// Snapshots of long sessions shrink to about a third, which matters on slow links and relays.
+				compression: zlibFrameCompression,
 				...(this.options.openTimeoutMs ? { openTimeoutMs: this.options.openTimeoutMs } : {}),
 				onConnected: (a) => {
 					address = a;

@@ -54,12 +54,30 @@ interface StoredEntry {
 	stored: StoredSession;
 }
 
+type OpenTarget = { sessionId: string } | { path: string };
+
+/**
+ * How long `open` trusts the last listing of a workspace's sessions to find a session's file.
+ * Listing reads every session of every runtime (hundreds of milliseconds on a busy computer),
+ * and clients open sessions they just listed. A session missing from it, or whose file is
+ * gone, is looked up again.
+ */
+const STORED_LIST_TTL_MS = 5 * 60 * 1000;
+
+function findEntry(entries: StoredEntry[], target: OpenTarget): StoredEntry | undefined {
+	return "sessionId" in target
+		? entries.find((e) => e.stored.id === target.sessionId)
+		: entries.find((e) => e.stored.path && resolve(e.stored.path) === resolve(target.path));
+}
+
 /** Active session pool keyed by session id, loaded on demand and evicted when idle. */
 export class SessionPool {
 	private readonly sessions = new Map<string, ManagedSession>();
 	private readonly opening = new Map<string, Promise<ManagedSession>>();
 	/** Resolved paths of session files being deleted; they cannot be opened meanwhile. */
 	private readonly deleting = new Set<string>();
+	/** The last listing of each workspace's stored sessions (see {@link STORED_LIST_TTL_MS}). */
+	private readonly storedLists = new Map<string, { at: number; entries: StoredEntry[] }>();
 	private sweeper: ReturnType<typeof setInterval> | undefined;
 
 	constructor(private readonly options: SessionPoolOptions) {
@@ -95,7 +113,17 @@ export class SessionPool {
 				}
 			}),
 		);
-		return lists.flat();
+		const entries = lists.flat();
+		this.storedLists.set(workspace.id, { at: Date.now(), entries });
+		return entries;
+	}
+
+	/** The session `target` from the workspace's recent listing, when it is there and its file still exists. */
+	private recentStored(workspace: WorkspaceInfo, target: OpenTarget): StoredEntry | undefined {
+		const recent = this.storedLists.get(workspace.id);
+		if (!recent || Date.now() - recent.at > STORED_LIST_TTL_MS) return undefined;
+		const entry = findEntry(recent.entries, target);
+		return entry && (!entry.stored.path || existsSync(entry.stored.path)) ? entry : undefined;
 	}
 
 	get size(): number {
@@ -171,7 +199,7 @@ export class SessionPool {
 	 * Open a session that belongs to `workspace`. Paths must come from the workspace's
 	 * session list, so clients cannot make the host parse arbitrary files.
 	 */
-	async open(workspace: WorkspaceInfo, target: { sessionId: string } | { path: string }): Promise<ManagedSession> {
+	async open(workspace: WorkspaceInfo, target: OpenTarget): Promise<ManagedSession> {
 		if ("sessionId" in target) {
 			const active = this.sessions.get(target.sessionId);
 			if (active) {
@@ -179,14 +207,27 @@ export class SessionPool {
 				return active;
 			}
 		}
-		const entries = await this.listStored(workspace);
-		const entry =
-			"sessionId" in target
-				? entries.find((e) => e.stored.id === target.sessionId)
-				: entries.find((e) => e.stored.path && resolve(e.stored.path) === resolve(target.path));
+		const recent = this.recentStored(workspace, target);
+		if (recent) {
+			try {
+				return await this.openStored(workspace, recent);
+			} catch (error) {
+				// Listed a while ago: when it is gone since, say so instead of how opening it failed.
+				this.storedLists.delete(workspace.id);
+				const entries = await this.listStored(workspace).catch(() => undefined);
+				if (entries && !findEntry(entries, target)) {
+					throw new PierProtocolError("NOT_FOUND", "Session not found in this workspace");
+				}
+				throw error;
+			}
+		}
+		const entry = findEntry(await this.listStored(workspace), target);
 		if (!entry) throw new PierProtocolError("NOT_FOUND", "Session not found in this workspace");
-		const { runtime, stored } = entry;
+		return this.openStored(workspace, entry);
+	}
 
+	private async openStored(workspace: WorkspaceInfo, entry: StoredEntry): Promise<ManagedSession> {
+		const { runtime, stored } = entry;
 		const active = (stored.path ? this.findActiveByPath(stored.path) : undefined) ?? this.sessions.get(stored.id);
 		if (active) return active;
 
@@ -267,6 +308,7 @@ export class SessionPool {
 		const key = file ? resolve(file) : entry ? `${entry.runtime.id}:${sessionId}` : undefined;
 		if (key && this.deleting.has(key)) throw new PierProtocolError("CONFLICT", "Session is already being deleted");
 		if (key) this.deleting.add(key);
+		this.storedLists.delete(workspace.id);
 		try {
 			const opening = key ? this.opening.get(key) : undefined;
 			if (opening) await opening.catch(() => undefined);
