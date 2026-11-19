@@ -74,7 +74,7 @@ import { remotePageBlocker } from "./settings-target.ts";
 import { beginWorkspacePaste, finishWorkspacePaste, renameWorkspaceClipboardPath } from "./workspace-clipboard.ts";
 import { movedToLine } from "./yunlian.ts";
 
-export const APP_VERSION = "0.3.4";
+export const APP_VERSION = "0.3.5";
 
 /** Node id of this computer; any other node is a paired computer's host id. */
 export const LOCAL_NODE = "local";
