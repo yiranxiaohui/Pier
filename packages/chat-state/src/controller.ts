@@ -3,6 +3,7 @@ import type {
 	EventFrame,
 	ImageInput,
 	SessionCommandInfo,
+	SessionContextInfo,
 	SessionSummary,
 	ThinkingLevel,
 	UiResponse,
@@ -360,6 +361,29 @@ export class ChatController {
 
 	forkPoints() {
 		return this.client.request("session.forkPoints", { sessionId: this.sessionId });
+	}
+
+	/**
+	 * Limit the session's context (1.64): the agent compacts before the context grows past `limit`
+	 * tokens; `null` follows the model's window. `asDefault` also applies it to new sessions of the
+	 * same agent. Resolves to the host's answer, or undefined after reporting a failure.
+	 */
+	setContextLimit(
+		limit: number | null,
+		asDefault = false,
+	): Promise<{ contextInfo: SessionContextInfo; defaultLimit?: number } | undefined> {
+		const sessionId = this.sessionId;
+		return this.run("设置上下文上限", async () => {
+			const result = await this.client.request("contextLimit.set", {
+				sessionId,
+				limit,
+				...(asDefault ? { asDefault } : {}),
+			});
+			if (this.sessionId === sessionId) {
+				this.update({ ...this.view, chat: { ...this.view.chat, contextInfo: result.contextInfo } });
+			}
+			return result;
+		});
 	}
 
 	/** A subagent's conversation from message `from` on (1.54). */

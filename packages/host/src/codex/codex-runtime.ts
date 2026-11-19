@@ -13,7 +13,7 @@ import { findExecutable, probeVersion } from "../runtimes/executable.ts";
 import { AgentInstaller } from "../runtimes/installation.ts";
 import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
 import { CodexAppServer } from "./app-server.ts";
-import { CODEX_CAPABILITIES, CodexSession, type CodexSessionHost } from "./codex-session.ts";
+import { CODEX_CAPABILITIES, CodexSession, type CodexSessionHost, codexLimitConfig } from "./codex-session.ts";
 import { codexPolicy, convertTurns, storedSubagents, toModelInfo } from "./convert.ts";
 import { type CodexModelConfig, codexModelConfig, codexModelList, fetchProviderModels } from "./provider-models.ts";
 
@@ -256,6 +256,7 @@ export class CodexRuntime implements AgentRuntime {
 			cwd: workspace.path,
 			approvalPolicy: policy.approvalPolicy,
 			sandbox: policy.sandbox,
+			...codexLimitConfig(options.contextLimit),
 		});
 		const model = this.threadModel(workspace.path, response.model);
 		return CodexSession.start(options, this.sessionHost(workspace.path), {
@@ -311,6 +312,7 @@ export class CodexRuntime implements AgentRuntime {
 				approvalPolicy: policy.approvalPolicy,
 				sandbox: policy.sandbox,
 				excludeTurns: true,
+				...codexLimitConfig(options.contextLimit),
 			});
 			const thread = (response.thread ?? {}) as Json;
 			const turns = await this.readTurns(stored.id);
@@ -358,6 +360,7 @@ export class CodexRuntime implements AgentRuntime {
 				approvalPolicy: policy.approvalPolicy,
 				sandbox: policy.sandbox,
 				excludeTurns: true,
+				...codexLimitConfig(options.contextLimit),
 			});
 			const thread = (response.thread ?? {}) as Json;
 			const turns = await this.readTurns(String(thread.id));

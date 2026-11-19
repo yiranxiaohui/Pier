@@ -1,4 +1,5 @@
 import type {
+	AssistantMessage,
 	Event,
 	OpencodeClient,
 	PermissionRequest,
@@ -12,18 +13,26 @@ import {
 	type ModelInfo,
 	PierProtocolError,
 	type QueueState,
+	type SessionContextInfo,
 	type StreamingBehavior,
 	type ThinkingLevel,
+	type WireEvent,
 } from "@pier/protocol";
-import { errorMessage, ManagedSession, type ManagedSessionOptions, type SessionContent } from "../managed-session.ts";
-import { firstPromptOf, LiveTranscript } from "../runtimes/live-transcript.ts";
+import {
+	errorMessage,
+	ManagedSession,
+	type ManagedSessionOptions,
+	MIN_CONTEXT_LIMIT,
+	type SessionContent,
+} from "../managed-session.ts";
+import { firstPromptOf, LiveTranscript, type TranscriptMessage } from "../runtimes/live-transcript.ts";
 import type { OpenCodeRuntime } from "./opencode-runtime.ts";
-import { errorText, OpenCodeTranscript } from "./transcript.ts";
+import { contextTokensOf, errorText, OpenCodeTranscript } from "./transcript.ts";
 
 export const OPENCODE_CAPABILITIES: AgentRuntimeCapabilities = {
 	steer: false,
 	followUp: false,
-	compact: false,
+	compact: true,
 	fork: false,
 	rename: true,
 	setModel: true,
@@ -31,6 +40,8 @@ export const OPENCODE_CAPABILITIES: AgentRuntimeCapabilities = {
 	reload: false,
 	images: true,
 	piExtensions: false,
+	// OpenCode has no per-session setting for this: Pier compacts after a turn that went past it.
+	contextLimit: { min: MIN_CONTEXT_LIMIT, enforcement: "turn" },
 };
 const strict = { throwOnError: true } as const;
 const nativeAllowed = ["read", "grep", "glob", "list", "todowrite", "question"];
@@ -56,6 +67,10 @@ export class OpenCodeSession extends ManagedSession {
 	);
 	private turn?: AbortController;
 	private done?: Promise<void>;
+	/** Tokens in the context after the latest reply, as OpenCode counts them for its own compaction. */
+	private contextTokens = 0;
+	/** The model of the latest reply, which `session.summarize` needs when none was picked. */
+	private lastModel?: { providerID: string; modelID: string };
 
 	constructor(
 		options: ManagedSessionOptions,
@@ -71,7 +86,31 @@ export class OpenCodeSession extends ManagedSession {
 		const provider = selected?.providerID ?? native.model?.providerID;
 		if (id && provider) this.model = { id, provider, name: id, reasoning: false, input: ["text"] };
 		new OpenCodeTranscript(this.transcript).history(history);
+		const last = history.findLast((m) => m.info.role === "assistant")?.info;
+		if (last?.role === "assistant") this.noteReply(last);
 		this.acquireLock(`opencode-session:${this.id}`);
+	}
+
+	/** Record the context size and model of a finished reply. */
+	private noteReply(info: AssistantMessage): void {
+		this.lastModel = { providerID: info.providerID, modelID: info.modelID };
+		// A compaction's summary read the whole conversation, which it then replaced.
+		if (info.summary) {
+			this.contextTokens = 0;
+			return;
+		}
+		const tokens = contextTokensOf(info.tokens);
+		if (tokens > 0) this.contextTokens = tokens;
+	}
+
+	private contextInfo(): SessionContextInfo {
+		const window = this.model?.contextWindow;
+		const limit = this.contextLimit;
+		return this.withContextLimit({
+			autoCompaction: limit === undefined ? "runtime" : "configured",
+			...(window ? { contextWindow: window } : {}),
+			...(limit !== undefined ? { compactionThreshold: window ? Math.min(limit, window) : limit } : {}),
+		});
 	}
 
 	private get params() {
@@ -96,19 +135,24 @@ export class OpenCodeSession extends ManagedSession {
 			pendingToolCalls: t.pendingToolCalls,
 			thinkingLevel: "off",
 			...(this.model ? { model: this.model } : {}),
+			contextInfo: this.contextInfo(),
 			...(t.errorMessage ? { errorMessage: t.errorMessage } : {}),
 		};
 	}
 
 	async prompt(text: string, images?: ImageInput[], _behavior?: StreamingBehavior): Promise<void> {
-		if (this.turn) throw new PierProtocolError("CONFLICT", "OpenCode is busy");
+		if (this.turn || this.compacting) throw new PierProtocolError("CONFLICT", "OpenCode is busy");
 		const turn = new AbortController();
 		this.turn = turn;
 		const endTurn = this.runtime.beginTurn();
 		this.setRunState("streaming");
 		this.transcript.startRun();
 		this.transcript.addUser(images?.length ? [{ type: "text", text }, ...images] : text);
+		let completed = false;
 		this.done = this.run(text, images ?? [], turn)
+			.then(() => {
+				completed = !turn.signal.aborted;
+			})
 			.catch((error) => {
 				if (!turn.signal.aborted) this.transcript.endRun(errorMessage(error));
 			})
@@ -120,7 +164,81 @@ export class OpenCodeSession extends ManagedSession {
 				this.turn = undefined;
 				this.lastActivity = Date.now();
 				this.setRunState("idle");
+				// OpenCode cannot be told the limit, so compact once a turn ended past it.
+				if (completed && this.overLimit()) void this.compactNow("threshold").catch(() => {});
 			});
+	}
+
+	private overLimit(): boolean {
+		return this.contextLimit !== undefined && this.contextTokens >= this.contextLimit;
+	}
+
+	/** A limit below the current context compacts right away when OpenCode is idle. */
+	protected override applyContextLimit(): void {
+		if (!this.turn && !this.compaction && this.overLimit()) void this.compactNow("threshold").catch(() => {});
+	}
+
+	// ---------------------------------------------------------------- compaction
+
+	private compacting?: AbortController;
+	private compaction?: Promise<{ summary: string; tokensBefore: number }>;
+
+	override compact(_instructions?: string): Promise<{ summary: string; tokensBefore: number }> {
+		if (this.turn)
+			return Promise.reject(new PierProtocolError("CONFLICT", "Wait for the agent to finish before compacting"));
+		return this.compactNow("manual");
+	}
+
+	/**
+	 * Summarize the conversation with OpenCode's own compaction (`session.summarize`, without
+	 * continuing the conversation afterwards). OpenCode keeps the recent turns next to the summary.
+	 */
+	private compactNow(reason: "manual" | "threshold"): Promise<{ summary: string; tokensBefore: number }> {
+		if (this.compaction) return this.compaction;
+		const model = this.model ? { providerID: this.model.provider, modelID: this.model.id } : this.lastModel;
+		if (!model) return Promise.reject(new PierProtocolError("CONFLICT", "Nothing to compact yet"));
+		const abort = new AbortController();
+		this.compacting = abort;
+		const endTurn = this.runtime.beginTurn();
+		const tokensBefore = this.contextTokens;
+		this.emit({ type: "compaction_start", reason });
+		this.setRunState("compacting");
+		const compaction = (async () => {
+			let failure: string | undefined;
+			try {
+				const client = await this.runtime.server.client();
+				await client.session.summarize({ ...this.params, ...model, auto: false }, { ...strict, signal: abort.signal });
+				this.contextTokens = 0;
+				this.transcript.messages.push({
+					role: "compactionSummary",
+					summary: "",
+					tokensBefore,
+					timestamp: Date.now(),
+				} as unknown as TranscriptMessage);
+				return { summary: "", tokensBefore };
+			} catch (error) {
+				failure = abort.signal.aborted ? undefined : errorMessage(error);
+				throw abort.signal.aborted
+					? new PierProtocolError("CONFLICT", "Compaction was cancelled")
+					: new PierProtocolError("CONFLICT", failure ?? "Compaction failed");
+			} finally {
+				endTurn();
+				this.compacting = undefined;
+				this.compaction = undefined;
+				this.lastActivity = Date.now();
+				this.emit({
+					type: "compaction_end",
+					reason,
+					...(failure || abort.signal.aborted ? {} : { result: { summary: "", tokensBefore } }),
+					aborted: abort.signal.aborted,
+					willRetry: false,
+					...(failure ? { errorMessage: failure } : {}),
+				} as WireEvent);
+				this.setRunState("idle");
+			}
+		})();
+		this.compaction = compaction;
+		return compaction;
 	}
 
 	private async run(text: string, images: ImageInput[], turn: AbortController): Promise<void> {
@@ -172,7 +290,7 @@ export class OpenCodeSession extends ManagedSession {
 			);
 			submitted = true;
 			turn.signal.throwIfAborted();
-			const reducer = new OpenCodeTranscript(this.transcript);
+			const reducer = new OpenCodeTranscript(this.transcript, (info) => this.noteReply(info));
 			const children = new Set<string>();
 			for await (const event of stream) {
 				if (
@@ -303,6 +421,13 @@ export class OpenCodeSession extends ManagedSession {
 	async abort(): Promise<void> {
 		this.turn?.abort();
 		this.bridge.cancelAll();
+		const compacting = this.compacting;
+		if (compacting) {
+			compacting.abort();
+			const client = await this.runtime.server.client().catch(() => undefined);
+			await client?.session.abort(this.params, { ...strict, signal: AbortSignal.timeout(5000) }).catch(() => {});
+			await this.compaction?.catch(() => {});
+		}
 		await this.done;
 	}
 	protected disposeRuntime() {
@@ -330,7 +455,7 @@ export class OpenCodeSession extends ManagedSession {
 		);
 		if (!model) throw new PierProtocolError("NOT_FOUND", `Unknown OpenCode model ${provider}/${id}`);
 		this.model = model;
-		this.emit({ type: "session.model", model, thinkingLevel: "off" });
+		this.emit({ type: "session.model", model, contextInfo: this.contextInfo(), thinkingLevel: "off" });
 		return model;
 	}
 	setThinking(level: ThinkingLevel) {

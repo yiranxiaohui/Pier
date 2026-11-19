@@ -29,6 +29,11 @@ export function archivedSessionsPath(pierDir: string): string {
 	return join(pierDir, "archived-sessions.json");
 }
 
+/** Context limits of sessions and the defaults of each runtime (1.64). */
+export function contextLimitsPath(pierDir: string): string {
+	return join(pierDir, "context-limits.json");
+}
+
 /** Host static key for the remote secure channel. */
 export function identityPath(pierDir: string): string {
 	return join(pierDir, "identity.json");

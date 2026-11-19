@@ -24,8 +24,16 @@ function ask(method, params) {
 }
 
 function threadView(thread, withTurns = false) {
-	const { turns, archived, tokenUsage, ...rest } = thread;
+	const { turns, archived, tokenUsage, loadedConfig, ...rest } = thread;
 	return { ...rest, turns: withTurns ? turns : [] };
+}
+
+/** Threads loaded in memory. Like Codex, a thread reads `config` overrides only when it is loaded. */
+const loaded = new Set();
+function load(thread, config) {
+	if (loaded.has(thread.id)) return;
+	loaded.add(thread.id);
+	thread.loadedConfig = config ?? null;
 }
 
 /** Notifications to send right after the response to the current request. */
@@ -418,6 +426,7 @@ const handlers = {
 			...(model ? { model } : {}),
 			...(model_provider ? { modelProvider: model_provider } : {}),
 		});
+		load(thread, params.config);
 		notify("thread/started", { thread: threadView(thread) });
 		return {
 			thread: threadView(thread),
@@ -436,6 +445,7 @@ const handlers = {
 	"thread/resume": (params) => {
 		const thread = threads.get(params.threadId);
 		if (!thread) throw new Error("no such thread");
+		load(thread, params.config);
 		replayTokenUsage(thread);
 		return {
 			thread: threadView(thread),
@@ -460,6 +470,7 @@ const handlers = {
 			turns: structuredClone(source.turns.slice(0, end + 1)),
 			tokenUsage: source.tokenUsage,
 		});
+		load(thread, params.config);
 		replayTokenUsage(thread);
 		return { thread: threadView(thread), model: thread.model, reasoningEffort: null, serviceTier: thread.serviceTier };
 	},
@@ -484,13 +495,20 @@ const handlers = {
 		threads.get(params.threadId).archived = true;
 		return {};
 	},
-	"thread/unsubscribe": () => ({}),
+	"thread/unsubscribe": (params) => {
+		if (!loaded.delete(params.threadId)) return { status: "notLoaded" };
+		afterResponse.push(() =>
+			notify("thread/status/changed", { threadId: params.threadId, status: { type: "notLoaded" } }),
+		);
+		return { status: "unsubscribed" };
+	},
 	"thread/compact/start": (params) => {
 		setTimeout(() => notify("thread/compacted", { threadId: params.threadId, turnId: "compact" }), 10);
 		return {};
 	},
 	"turn/start": (params) => {
 		const thread = threads.get(params.threadId);
+		if (!loaded.has(params.threadId)) throw new Error(`thread not loaded: ${params.threadId}`);
 		const text = params.input.find((i) => i.type === "text")?.text ?? "";
 		if (!thread.preview) thread.preview = text;
 		const userItem = {
@@ -524,6 +542,11 @@ const handlers = {
 	},
 	// Test helper: the approval decision a sub-agent got.
 	"fake/childApproval": () => [...threads.values()].find((t) => t.approval !== undefined)?.approval ?? null,
+	// Test helper: the `config` overrides the thread was loaded with (null without any).
+	"fake/loadedConfig": (params) => {
+		const thread = threads.get(params.threadId);
+		return { loaded: loaded.has(params.threadId), config: thread?.loadedConfig ?? null };
+	},
 	// Test helper: what the last turn/start asked for.
 	"fake/lastTurn": (params) => threads.get(params.threadId)?.lastTurnParams ?? null,
 	"fake/rejectSettings": (params) => {

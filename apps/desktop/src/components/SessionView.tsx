@@ -1,11 +1,12 @@
 import type { ChatController } from "@pier/chat-state";
-import { type ChatState, sessionUsage, userText } from "@pier/chat-state";
+import { type ChatState, type ContextBudget, contextBudget, sessionUsage, userText } from "@pier/chat-state";
 import type { SessionContextInfo, SessionSummary } from "@pier/protocol";
 import { useCallback, useMemo, useState } from "react";
 import { formatCost, formatPercent, formatTokens, RUN_STATE_LABEL, sessionTitle } from "../lib/format.ts";
 import { LOCAL_NODE, useAppState, useChatView, useStore } from "../lib/store.tsx";
 import { BrowserButton } from "./BrowserPanel.tsx";
 import { Composer } from "./Composer.tsx";
+import { ContextLimitControl } from "./ContextLimit.tsx";
 import { FilesPanelToggle } from "./FilesPanel.tsx";
 import {
 	IconAlert,
@@ -173,15 +174,12 @@ function Queue({ chat }: { chat: ChatState }) {
 	);
 }
 
-function contextUsageTitle(
-	info: SessionContextInfo | undefined,
-	lastContext: number,
-	contextWindow: number | undefined,
-	share: number | undefined,
-): string {
+function contextUsageTitle(info: SessionContextInfo | undefined, context: ContextBudget): string {
+	const { share } = context;
 	const used = share === undefined ? "" : share < 0.01 ? "，已用不到 1%" : `，已用 ${Math.round(share * 100)}%`;
-	const lines = [lastContext ? `最近一次请求的上下文大小${used}` : "还没有回复，回复后显示上下文大小"];
-	lines.push(contextWindow ? `窗口上限：${formatTokens(contextWindow)}` : "窗口上限：运行时未报告");
+	const lines = [context.used ? `最近一次请求的上下文大小${used}` : "还没有回复，回复后显示上下文大小"];
+	if (context.limit !== undefined) lines.push(`上下文上限：${formatTokens(context.limit)}（本会话设置）`);
+	lines.push(context.window ? `模型窗口：${formatTokens(context.window)}` : "模型窗口：运行时未报告");
 	if (!info) {
 		lines.push("自动压缩：运行时未报告阈值");
 	} else if (info.autoCompaction === "disabled") {
@@ -225,10 +223,9 @@ function ContextRing({ share }: { share: number | undefined }) {
 	);
 }
 
-function StatusBar({ chat }: { chat: ChatState }) {
+function StatusBar({ chat, controller }: { chat: ChatState; controller: ChatController }) {
 	const usage = sessionUsage(chat);
-	const contextWindow = chat.contextInfo?.contextWindow ?? chat.model?.contextWindow;
-	const share = contextWindow && usage.lastContext ? usage.lastContext / contextWindow : undefined;
+	const context = contextBudget(chat, usage);
 	return (
 		<div className="status-bar">
 			<span className={`run-state ${chat.runState}`}>
@@ -244,11 +241,11 @@ function StatusBar({ chat }: { chat: ChatState }) {
 			<span className="status-usage">
 				{/* Always there, so it does not come and go: before the first reply, or when the runtime
 				    reports no window (Claude Code models without [1m]), the ring stays empty. */}
-				<span title={contextUsageTitle(chat.contextInfo, usage.lastContext, contextWindow, share)}>
-					<ContextRing share={share} />
-					{usage.lastContext ? formatTokens(usage.lastContext) : "—"}
-					{contextWindow ? ` / ${formatTokens(contextWindow)}` : ""}
-				</span>
+				<ContextLimitControl chat={chat} controller={controller} title={contextUsageTitle(chat.contextInfo, context)}>
+					<ContextRing share={context.share} />
+					{context.used ? formatTokens(context.used) : "—"}
+					{context.budget ? ` / ${formatTokens(context.budget)}` : ""}
+				</ContextLimitControl>
 				{usage.input || usage.output ? (
 					<span
 						className="usage-tokens"
@@ -343,7 +340,7 @@ export function SessionView({ session }: { session: SessionSummary }) {
 				<Queue chat={chat} />
 				<Composer key={chat.sessionId} chat={chat} controller={controller} workspace={workspace} />
 				<Widgets chat={chat} placement="belowEditor" />
-				<StatusBar chat={chat} />
+				<StatusBar chat={chat} controller={controller} />
 			</div>
 		</div>
 	);

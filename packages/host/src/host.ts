@@ -48,6 +48,7 @@ import {
 	type RequestHandler,
 	type Transport,
 } from "./connection.ts";
+import { ContextLimitStore } from "./context-limits.ts";
 import { DiagnosticLog } from "./diagnostic-log.ts";
 import { GitService, samePath } from "./git.ts";
 import { HermesRuntime, type HermesRuntimeOptions } from "./hermes/hermes-runtime.ts";
@@ -63,6 +64,7 @@ import {
 	accountPath,
 	archivedSessionsPath,
 	configPath,
+	contextLimitsPath,
 	defaultPierDir,
 	extensionTrashDir,
 	locksDir,
@@ -265,6 +267,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"model.set",
 	"thinking.set",
 	"fast.set",
+	"contextLimit.set",
 	"ui.respond",
 	// Managing the computer (open to paired devices since 1.10).
 	"workspace.add",
@@ -391,6 +394,8 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 			return { level: params.level };
 		case "fast.set":
 			return { enabled: params.enabled };
+		case "contextLimit.set":
+			return { limit: params.limit, ...(params.asDefault ? { asDefault: true } : {}) };
 		case "workspace.add":
 			return { path: params.path, ...(params.policy ? { policy: params.policy } : {}) };
 		case "workspace.remove":
@@ -663,6 +668,7 @@ export class PierHost implements RequestHandler {
 			locksDir: locksDir(this.pierDir),
 			trashDir: sessionTrashDir(this.pierDir),
 			archive: new SessionArchiveStore(archivedSessionsPath(this.pierDir), log),
+			contextLimits: new ContextLimitStore(contextLimitsPath(this.pierDir), log),
 			...(options.uiTimeoutMs === undefined ? {} : { uiTimeoutMs: options.uiTimeoutMs }),
 			...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
 			...(options.eventLogCapacity === undefined ? {} : { eventLogCapacity: options.eventLogCapacity }),
@@ -1788,6 +1794,8 @@ export class PierHost implements RequestHandler {
 			"fast.set": async (_ctx, params) => ({
 				enabled: await this.pool.require(params.sessionId).setFast(params.enabled),
 			}),
+			"contextLimit.set": (_ctx, params) =>
+				this.pool.setContextLimit(params.sessionId, params.limit ?? undefined, params.asDefault ?? false),
 			"model.setDefault": async (_ctx, params) => ({
 				defaultModel: await this.providers.setDefault(params.provider, params.modelId),
 			}),

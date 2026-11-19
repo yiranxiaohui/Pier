@@ -1,4 +1,4 @@
-# Pier 协议 v1.63
+# Pier 协议 v1.64
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -197,7 +197,7 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 
 | 方法 | 参数 | 结果 |
 |---|---|---|
-| `runtime.list` | `{}` | `{ runtimes: AgentRuntimeInfo[] }`；`AgentRuntimeInfo = { id, name, available, reason?, version?, executable?, capabilities }`。`available` 表示能新建会话（CLI 已安装；登录状态在使用时才检查），不可用时 `reason` 说明原因。CLI 依次从 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH`、用户级公共安装（旧版 Pier 独立安装作为兼容回退）、`PATH` 与常见安装目录中查找 |
+| `runtime.list` | `{}` | `{ runtimes: AgentRuntimeInfo[] }`；`AgentRuntimeInfo = { id, name, available, reason?, version?, executable?, capabilities, contextLimitDefault? }`。`contextLimitDefault`（1.64）是这个运行时新会话默认的上下文上限（见下文「上下文上限」），没有默认值时省略。`available` 表示能新建会话（CLI 已安装；登录状态在使用时才检查），不可用时 `reason` 说明原因。CLI 依次从 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH`、用户级公共安装（旧版 Pier 独立安装作为兼容回退）、`PATH` 与常见安装目录中查找 |
 | `runtime.installStatus`（1.32） | `{ runtime: "claude-code" \| "codex" \| "pi", refresh?: boolean }` | `{ installation: AgentInstallationStatus, agent: AgentRuntimeInfo, autoUpdate?: boolean, installedVersion?: string }`；`refresh: true` 重新运行版本探测，其余请求使用缓存。`autoUpdate`（1.56）为该主机上这个 Agent 的后台自动更新开关，默认开启，pi 不返回。`runtime: "pi"`（1.61）：`installedVersion` 是磁盘上已安装、但与 Host 已加载版本（`agent.version`）不同的 pi 版本，重启 Host 后生效 |
 | `runtime.setAutoUpdate`（1.56） | `{ runtime: "claude-code" \| "codex", enabled: boolean }` | `{ enabled }`；保存开关并广播 `runtime.changed`。已配对设备可设置，远程操作记入审计日志 |
 | `runtime.install`（1.32） | `{ runtime: "claude-code" \| "codex" \| "pi", source?: AgentInstallSource }` | 同上；异步启动官方最新版本的安装或更新，立即返回。pi（1.61）见下文。`source`（1.50）选择下载线路，默认 `official`：Claude Code 可选 `official`（downloads.claude.ai）或 `npmmirror`（registry.npmmirror.com 上同一原生程序的 npm 平台包），Codex 可选 `official`（GitHub 直连）、`ghfast`、`gh-proxy` 或 `ghproxy`（GitHub 加速前缀）；运行时不支持的线路返回 `BAD_REQUEST`。版本与 SHA-256 校验值始终取自官方服务，不能指定下载地址、路径或命令。同一运行时已有安装任务时返回 `CONFLICT`；若该任务仍在获取版本或下载且所选线路不同，则中止原任务并按新线路重新开始。显式路径覆盖存在时也返回 `CONFLICT`。`AgentInstallationStatus.source`（1.50）为当前或上一次任务的线路 |
@@ -206,21 +206,41 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 
 **pi（1.61）**：pi 不再编译进 Host，也不再固定版本。和 Claude Code / Codex 一样，pi 是用户自己的安装，版本由用户管理；Host 在运行时从这份安装加载 pi 的 SDK（`@earendil-works/pi-coding-agent` 包及其依赖），会话、扩展、技能、`settings.json` 与凭据都和终端里的 `pi` 共用。Host 依次从 `PIER_PI_PATH`（`pi` 命令或 pi 的包目录）、`PATH` 与常见安装目录中的 `pi` 命令，以及 pi 官方安装程序的默认位置（`~/.pi/agent/install`，或 `PI_CODING_AGENT_DIR` 下的 `install`）查找；npm、bun、pnpm 的全局安装、pi 官方安装程序（`https://pi.dev/install.sh` / `install.ps1`）的托管安装和 Nix 包装脚本都能识别，pi 官方的单文件二进制不能被加载。Host 需要 pi 1.5.2 或更新的版本，更旧的 pi、找不到 pi 或加载失败时 `runtime.list` 中 pi 的 `available` 为 `false`，`reason` 说明原因和安装方法；此时 pi 会话、`provider.*`、`model.setDefault` 与 `extension.*`（`extension.search` 除外）返回 `CONFLICT`，pi 的会话不出现在 `session.list` 中，`settings.*` 仍可编辑 pi 的设置文件。Host 运行期间新安装的 pi 在下次使用时（例如客户端刷新 Agent 列表）自动加载并广播 `runtime.changed` 与 `provider.changed`；已加载的 pi 在磁盘上被更新后，Host 继续使用已加载的版本，重启后才使用新版（ES 模块无法卸载）。`runtime.install` 对 pi 的含义：已安装时运行 `pi update --self`，由 pi 按自己的安装方式更新；未安装时从 pi.dev 下载 pi 官方安装程序并在没有终端的环境中运行（采用默认选项，在 `~/.local/bin` 建立 `pi` 命令并配置用户 `PATH`），安装需要 Node.js 22.19 或更新版本及 npm。`source` 可选 `official` 或 `npmmirror`（让 npm 从 registry.npmmirror.com 下载 pi 的包，安装程序和版本信息仍来自 pi.dev）；客户端不能指定命令、地址或路径。安装中 `detail` 为安装程序最近输出的一行，失败时 `error` 带上最后几行输出。设置了 `PIER_PI_PATH` 时返回 `CONFLICT`。pi 没有后台自动更新，`runtime.setAutoUpdate` 不接受 `pi`。
 
-`capabilities: AgentRuntimeCapabilities = { steer, followUp, compact, fork, rename, setModel, thinking, fastMode?, reload, images, piExtensions }`：客户端据此隐藏会失败的操作。不支持的方法返回 `UNSUPPORTED`（例如 Claude Code / Codex 会话的 `session.reload`）。`fastMode`（1.43）只由 Codex 提供，省略时视为不支持。`piExtensions` 为 `false` 的运行时不加载 pi 的扩展、技能、提示词模板与 `settings.json`，扩展或设置变更后 Host 也不会重新加载这些会话。
+`capabilities: AgentRuntimeCapabilities = { steer, followUp, compact, fork, rename, setModel, thinking, fastMode?, contextLimit?, reload, images, piExtensions }`：客户端据此隐藏会失败的操作。不支持的方法返回 `UNSUPPORTED`（例如 Claude Code / Codex 会话的 `session.reload`）。`fastMode`（1.43）只由 Codex 提供，省略时视为不支持。`contextLimit`（1.64）为 `{ min, enforcement }`，表示支持 `contextLimit.set`，省略时视为不支持，见下文「上下文上限」。`piExtensions` 为 `false` 的运行时不加载 pi 的扩展、技能、提示词模板与 `settings.json`，扩展或设置变更后 Host 也不会重新加载这些会话。
 
 各运行时的差异：
 
 - **OpenCode** 使用运行时 ID `opencode`，由 Host 通过仅监听回环地址的 `opencode serve` 驱动。可用 `PIER_OPENCODE_PATH` 指定 CLI。模型保留 OpenCode 的服务商和模型 ID，`model.list` 读取对应工作区的配置。OpenCode 保存原生会话，`session.list` 只列出当前目录的顶层会话，`session.delete` 使用 OpenCode 原生归档。支持的操作由 `runtime.list` 的 `capabilities` 返回。
 
-- **Hermes** 使用运行时 ID `hermes`，由 Host 通过 `hermes acp`（Agent Client Protocol，stdio 上的 JSON-RPC）驱动，所有 Hermes 会话共用一个进程。可用 `PIER_HERMES_PATH` 指定 CLI。模型来自 Hermes 的 `model` 配置项，`ModelInfo.provider` 为 Hermes 的服务商（例如 `deepseek`、`custom:<名称>`），思考程度对应它的 `reasoning_effort`（`off` 为 `none`）。Hermes 的权限请求按工作区策略处理：命令为 `bash`，带 diff 的修改为 `edit` / `write`，其他为 `hermes.<kind>`；它的提问与表单（`elicitation/create`）转为 `select` / `confirm` / `input` 请求。`session.list` 用 `session/list` 列出 cwd 与工作区相同的会话，`session.rename` 发送 Hermes 的 `/title`，`session.delete` 调用 `hermes sessions delete`。不支持 steer、followUp、压缩与分叉。
+- **Hermes** 使用运行时 ID `hermes`，由 Host 通过 `hermes acp`（Agent Client Protocol，stdio 上的 JSON-RPC）驱动，所有 Hermes 会话共用一个进程。可用 `PIER_HERMES_PATH` 指定 CLI。模型来自 Hermes 的 `model` 配置项，`ModelInfo.provider` 为 Hermes 的服务商（例如 `deepseek`、`custom:<名称>`），思考程度对应它的 `reasoning_effort`（`off` 为 `none`）。Hermes 的权限请求按工作区策略处理：命令为 `bash`，带 diff 的修改为 `edit` / `write`，其他为 `hermes.<kind>`；它的提问与表单（`elicitation/create`）转为 `select` / `confirm` / `input` 请求。`session.list` 用 `session/list` 列出 cwd 与工作区相同的会话，`session.rename` 发送 Hermes 的 `/title`，`session.delete` 调用 `hermes sessions delete`。`session.compact`（1.64）发送 Hermes 的 `/compress`。不支持 steer、followUp 与分叉。
 
 - **模型**：`model.list` 按会话（或 `runtime` 参数）的运行时列出模型，`ModelInfo.provider` 为 `claude-code` / `codex`。Claude Code 的模型与斜杠命令来自 CLI（Host 启动一次不发送消息的 CLI 读取，缓存 10 分钟）；Codex 的来自 `model/list`，配置的 `model`（`config/read`，按工作区读取）排在第一位、不在目录中时补上。Codex 的目录只有 OpenAI 的模型，因此当前服务商是带 `base_url` 的自定义服务商（`model_providers`）时，Host 用它的 `experimental_bearer_token` / `env_key`、`http_headers` / `env_http_headers` 与 `query_params` 请求 `GET <base_url>/models`，改为列出它的对话模型（NewAPI 标为图像、向量、重排或视频的模型不列出；目录中也有的模型沿用目录的思考档位，其余为不可调思考的 `["off"]`），读取失败时回退到目录、30 秒后重试；配置没有 `model` 时，新会话从列表的第一个模型开始。`model.set` 只接受本运行时的模型，`persist` 被忽略。思考等级对应 Claude Code 的 effort（`off` 关闭思考）与 Codex 的 reasoning effort。
 - **审批**：工作区策略同样适用。Claude Code 自己放行的调用（如只读工具、设置中允许的命令）不再询问；它请求许可时，受策略约束的工具（`bash`、`write`、`edit`）按策略决定，其他工具（`WebFetch`、MCP 工具等）在非 `auto` 策略下询问用户；`AskUserQuestion` 以 `select` 请求逐个提问。Codex 按策略设置审批与沙箱：`ask` → `untrusted` + `workspace-write`，`smart` → `on-request` + `workspace-write`，`auto` → `never` + `danger-full-access`；它请求执行命令、修改文件或更多权限时，按策略决定或询问用户（"本会话内允许"对应 Codex 的 `acceptForSession`）。
 - **会话存储**：Claude Code 会话在 `~/.claude/projects`（或 `CLAUDE_CONFIG_DIR`），Codex 会话由 Codex 管理（`~/.codex/sessions`）。`session.list` 列出 cwd 与工作区路径相同的会话，包括在终端中创建的，都可以在 Pier 中继续。`session.delete` 对 Claude Code 会话同样移到 Pier 回收站；对 Codex 会话调用 Codex 的归档（`thread/archive`，可在 Codex 中恢复）。`messageCount` 为估算值。
 - **排队**：Claude Code 的 steer / followUp 直接交给 CLI 的消息队列；Codex 的 steer 并入当前回合（`turn/steer`），followUp 由 Host 排队，在当前回合结束后依次发送。
-- **压缩**：Claude Code 发送 `/compact`，Codex 调用 `thread/compact/start`；两者的 `summary` 为空字符串。
+- **压缩**：Claude Code 发送 `/compact`，Codex 调用 `thread/compact/start`，OpenCode（1.64）调用 `session.summarize`（`auto: false`，压缩后不自动继续对话，`instructions` 被忽略），Hermes（1.64）发送 `/compress [instructions]`；它们的 `summary` 都是空字符串。OpenCode 会话的历史中，OpenCode 压缩留下的用户消息（只含 `compaction` 部分）不再显示，它的摘要回复显示为 `compactionSummary`。
 - **分叉**：Claude Code 用 SDK 的 `forkSession`，Codex 用 `thread/fork`（`position: "at"` 时包含该用户消息所在的整个回合）。
 - **进程**：Claude Code 会话在首次发送消息时启动 CLI，空闲 10 分钟后停止（之后自动恢复会话）；所有 Codex 会话共用一个 `codex app-server` 进程，没有打开的 Codex 会话 5 分钟后停止。
+
+### 上下文上限（1.64）
+
+会话可以设一个比模型窗口小的上下文上限：Agent 在上下文超过上限前自动压缩对话。上限不会缩小模型窗口，也不改动 Agent 自己的配置文件与会话文件。
+
+| 方法 | 参数 | 结果 |
+|---|---|---|
+| `contextLimit.set` | `{ sessionId, limit: number \| null, asDefault? }` | `{ contextInfo: SessionContextInfo, defaultLimit? }`；`limit` 为正整数（最大 100,000,000），`null` 表示跟随模型窗口。小于运行时的 `capabilities.contextLimit.min` 时返回 `BAD_REQUEST`，运行时不支持时返回 `UNSUPPORTED`。`asDefault: true` 同时把它设为该运行时新会话的默认上限（`null` 清除默认值），`defaultLimit` 是设置后的默认值。成功后向订阅者发送 `session.model`（带新的 `contextInfo`）。已配对设备可调用，远程操作记入审计日志 |
+
+`ContextLimitSupport = { min, enforcement }`：`min` 是运行时接受的最小上限；`enforcement` 为 `request` 时运行时在每次模型请求前检查（一轮中途也会压缩），为 `turn` 时只在一轮结束后检查，一轮之内仍可能暂时超过上限。上限保存在 Host 的 `~/.pier/context-limits.json`（0600）：按运行时和会话 ID 记录，重新打开会话时恢复；`session.fork` 得到的会话沿用源会话的上限，`session.create` 使用运行时的默认上限；`session.delete` 删除会话时一并清除；pi 扩展命令替换会话（`session.replaced`）时新会话沿用上限。
+
+各运行时的做法：
+
+- **pi**（`min` 64,000，`request`）：Host 让 pi 看到的当前模型以上限为上下文窗口（不超过模型自己的窗口），pi 的阈值压缩（上下文超过「上限 − `reserveTokens`」）、请求前压缩、溢出检测与回复长度都按它计算；`contextInfo.contextWindow` 和 `model.contextWindow` 仍是模型自己的窗口，`compactionThreshold` 按上限计算。修改在下一次模型请求生效。pi 的虚拟模型不受影响（pi 按每次请求路由到的模型检查）。
+- **Claude Code**（`min` 100,000，`request`）：以设置 `autoCompactWindow` 启动 CLI（不超过模型窗口，由 Claude Code 决定压缩时机）。CLI 只在启动时读取它，因此修改时 Host 在会话空闲后停止 CLI，下一条消息以新上限恢复会话；运行中修改在这一轮结束后生效。
+- **Codex**（`min` 64,000，`request`）：`thread/start`、`thread/resume`、`thread/fork` 带上 `config: { model_auto_compact_token_limit }`，Codex 在上下文达到上限时压缩；`contextInfo.autoCompaction` 为 `configured`，`compactionThreshold` 为上限。Codex 只在加载线程时读取它，因此修改时 Host 先 `thread/unsubscribe` 卸载线程（等待 `notLoaded`，最多 5 秒），再带新配置 `thread/resume`；运行中修改在这一轮结束后进行，排队的 followUp、新的 `session.prompt` 与 `session.compact` 等待它完成。重新加载失败时以原配置恢复线程并返回 `CONFLICT`。
+- **OpenCode**（`min` 64,000，`turn`）：OpenCode 没有按会话的设置。Host 记录最后一次回复的上下文大小（`tokens.total`，没有时为输入、输出与缓存读写之和，与 OpenCode 自己判断溢出的算法一致），一轮正常结束后超过上限时用这次回复的模型调用 `session.summarize`（`auto: false`），期间发送 `compaction_start` / `compaction_end`（`reason: "threshold"`），状态为 `compacting`，`session.abort` 可以中止。
+- **Hermes Agent**（`min` 64,000，`turn`）：Hermes 的压缩阈值是全局配置。Host 用 Hermes 每轮之后发送的 `usage_update.used`（Hermes 估算的请求大小）判断，一轮正常结束后达到上限时以 `session/prompt` 发送 `/compress`（不显示在对话中），Hermes 回复「Context compressed: …」即为成功，否则以它的回复作为 `compaction_end.errorMessage`。压缩一旦开始，Hermes 无法中止。
+
+OpenCode 与 Hermes 空闲时，`contextLimit.set` 设置的上限低于当前上下文会立即压缩一次。
 
 ### Subagent（1.54）
 
@@ -660,7 +680,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 
 `ModelInfo = { provider, providerName?, id, name, reasoning, input: string[], contextWindow?, thinkingLevels? }`。`providerName`（1.60）是服务商的显示名称，只在与 `provider` 不同时返回（例如 pi 自定义服务商 `yunlian-claude-11r9sb4` 的名称「云链API · claude企业级」），客户端分组和显示服务商时优先用它，旧版 Host 不返回时回退到 `provider`。`thinkingLevels`（1.19）是模型支持的思考等级，从低到高（`off`、`minimal`、`low`、`medium`、`high`，模型支持时还有 `xhigh`、`max`、`ultra`），不支持推理的模型为 `["off"]`；`thinking.set` 会把不支持的等级钳制到其中之一。`ultra` 自协议 1.34 起支持，只在运行时明确报告模型支持它时显示，并作为原生等级传给运行时。
 
-`SessionContextInfo = { contextWindow?, contextTokens?, autoCompaction, compactionThreshold?, reserveTokens?, keepRecentTokens? }`（1.45）。`contextTokens`（1.58）是最近一次模型请求后的上下文 token 数，由不在每条回复上报告用量的运行时提供：Codex 在一轮中的每次请求（包括工具调用之间）之后更新，重新打开或分叉会话时也会从 Codex 回放的用量中恢复；客户端优先用它，没有时再用最近一条带用量的回复。`autoCompaction` 为 `configured` 时，`compactionThreshold` 是自动压缩触发的上下文 token 数，`reserveTokens` 是为回复预留的 token 数，`keepRecentTokens` 是压缩后原样保留的最近内容；`disabled` 表示自动压缩关闭；`runtime` 表示由 Claude Code / Codex 等运行时决定。字段是可选的，旧版 Host 不返回时客户端应隐藏或显示未知状态。
+`SessionContextInfo = { contextWindow?, contextTokens?, autoCompaction, compactionThreshold?, reserveTokens?, keepRecentTokens?, contextLimit? }`（1.45）。`contextLimit`（1.64）是会话的上下文上限（见 §3「上下文上限」），客户端用它与 `contextWindow` 中较小的一个计算上下文占比；没有上限时省略。`contextTokens`（1.58）是最近一次模型请求后的上下文 token 数，由不在每条回复上报告用量的运行时提供：Codex 在一轮中的每次请求（包括工具调用之间）之后更新，重新打开或分叉会话时也会从 Codex 回放的用量中恢复；客户端优先用它，没有时再用最近一次压缩（`compactionSummary`，按时间戳）之后最近一条带用量的回复：压缩前的回复量的是被替换掉的对话。`autoCompaction` 为 `configured` 时，`compactionThreshold` 是自动压缩触发的上下文 token 数，`reserveTokens` 是为回复预留的 token 数，`keepRecentTokens` 是压缩后原样保留的最近内容；`disabled` 表示自动压缩关闭；`runtime` 表示由 Claude Code / Codex 等运行时决定。字段是可选的，旧版 Host 不返回时客户端应隐藏或显示未知状态。
 
 ## 6. UI 请求与审批
 

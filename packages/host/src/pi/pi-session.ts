@@ -1,3 +1,4 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { stripImageHints } from "@pier/chat-state";
 import {
@@ -18,6 +19,7 @@ import {
 	errorMessage,
 	ManagedSession,
 	type ManagedSessionOptions,
+	MIN_CONTEXT_LIMIT,
 	type SessionContent,
 	type SessionDescription,
 	textOf,
@@ -45,7 +47,23 @@ export const PI_CAPABILITIES: AgentRuntimeCapabilities = {
 	reload: true,
 	images: true,
 	piExtensions: true,
+	contextLimit: { min: MIN_CONTEXT_LIMIT, enforcement: "request" },
 };
+
+/** pi's API id of virtual models, which route each request to another (physical) model. */
+const VIRTUAL_MODEL_API = "pi-virtual";
+
+/**
+ * `model` as the session uses it under a context limit: with the limit as its context window, so
+ * pi compacts (before each request and after each turn), detects overflow and sizes replies
+ * against it. Virtual models are left alone: pi checks the physical model of each request.
+ */
+function limitWindow(model: Model<Api> | undefined, limit: number | undefined): Model<Api> | undefined {
+	if (!model || limit === undefined || model.api === VIRTUAL_MODEL_API) return model;
+	const window = model.contextWindow;
+	if (typeof window === "number" && window > 0 && window <= limit) return model;
+	return { ...model, contextWindow: limit };
+}
 
 export interface PiSessionOptions extends ManagedSessionOptions {
 	env: PiEnvironment;
@@ -75,6 +93,10 @@ export class PiManagedSession extends ManagedSession {
 	private boundSessionId: string | undefined;
 	/** pi session file of each `pi-subagents` child, for its conversation. */
 	private readonly subagentFiles = new Map<string, string>();
+	/** The session's model as pi resolved it, before the context limit (see {@link limitModel}). */
+	private rawModel: (() => Model<Api> | undefined) | undefined;
+	/** The raw model of each agent state that follows the limit. */
+	private readonly limitedStates = new WeakMap<object, () => Model<Api> | undefined>();
 
 	private constructor(private readonly piOptions: PiSessionOptions) {
 		super(piOptions);
@@ -115,19 +137,67 @@ export class PiManagedSession extends ManagedSession {
 		};
 	}
 
-	private contextInfo(model = this.runtime.session.model): SessionContextInfo {
+	/** The session's model without the context limit. */
+	private realModel(): Model<Api> | undefined {
+		return this.rawModel ? this.rawModel() : this.runtime.session.model;
+	}
+
+	private contextInfo(model = this.realModel()): SessionContextInfo {
 		const settings = this.runtime.session.settingsManager.getCompactionSettings(model);
 		const contextWindow =
 			typeof model?.contextWindow === "number" && model.contextWindow > 0 ? model.contextWindow : undefined;
-		return {
+		const limited = limitWindow(model, this.contextLimit)?.contextWindow;
+		const window = typeof limited === "number" && limited > 0 ? limited : undefined;
+		return this.withContextLimit({
 			autoCompaction: settings.enabled ? "configured" : "disabled",
 			...(contextWindow !== undefined ? { contextWindow } : {}),
-			...(settings.enabled && contextWindow !== undefined
-				? { compactionThreshold: Math.max(0, contextWindow - settings.reserveTokens) }
+			...(settings.enabled && window !== undefined
+				? { compactionThreshold: Math.max(0, window - settings.reserveTokens) }
 				: {}),
 			reserveTokens: settings.reserveTokens,
 			keepRecentTokens: settings.keepRecentTokens,
-		};
+		});
+	}
+
+	/**
+	 * Make the session's model follow the context limit, however it is chosen (Pier, pi's own model
+	 * refresh, extensions): pi reads `agent.state.model` for every compaction check and request, so
+	 * reading it yields the model with the limit as its window, while writing it records the model
+	 * pi picked. The limit is read on each access, so changing it applies to the next request.
+	 */
+	private limitModel(session: AgentSession): void {
+		const state = session.agent.state as { model: Model<Api> | undefined };
+		// Bound again (pi rebinding the same session): the state already follows the limit.
+		const known = this.limitedStates.get(state);
+		if (known) {
+			this.rawModel = known;
+			return;
+		}
+		let raw = state.model;
+		let last: { raw: Model<Api> | undefined; limit: number | undefined; model: Model<Api> | undefined } | undefined;
+		try {
+			Object.defineProperty(state, "model", {
+				configurable: true,
+				enumerable: true,
+				get: () => {
+					const limit = this.contextLimit;
+					// The same object while nothing changed: pi's model refresh compares models by identity.
+					if (!last || last.raw !== raw || last.limit !== limit) last = { raw, limit, model: limitWindow(raw, limit) };
+					return last.model;
+				},
+				set: (model: Model<Api> | undefined) => {
+					raw = model;
+				},
+			});
+			this.rawModel = () => raw;
+			this.limitedStates.set(state, this.rawModel);
+		} catch (error) {
+			this.rawModel = undefined;
+			this.bridge.notify(
+				`Pier could not apply the context limit to this pi session: ${errorMessage(error)}`,
+				"warning",
+			);
+		}
 	}
 
 	get session(): AgentSession {
@@ -159,6 +229,7 @@ export class PiManagedSession extends ManagedSession {
 		}
 		if (replaced || previousId === undefined) this.loadSubagents(session);
 		this.boundSessionId = session.sessionId;
+		this.limitModel(session);
 		this.guard.setPath(session.sessionFile);
 
 		await session.bindExtensions({
@@ -276,7 +347,7 @@ export class PiManagedSession extends ManagedSession {
 	protected content(): SessionContent {
 		const session = this.runtime.session;
 		const state = session.state;
-		const model = session.model;
+		const model = this.realModel();
 		return {
 			messages: [...session.messages],
 			...(state.streamingMessage ? { streamingMessage: state.streamingMessage } : {}),
@@ -398,7 +469,7 @@ export class PiManagedSession extends ManagedSession {
 		this.emit({
 			type: "session.model",
 			model: info,
-			contextInfo: this.contextInfo(model),
+			contextInfo: this.contextInfo(),
 			thinkingLevel: this.runtime.session.thinkingLevel,
 		});
 		return info;
@@ -411,7 +482,7 @@ export class PiManagedSession extends ManagedSession {
 	 */
 	override refreshModel(): void {
 		const session = this.runtime.session;
-		const current = session.model;
+		const current = this.realModel();
 		if (!current) return;
 		const refreshed = this.piOptions.env.modelRuntime.getModel(current.provider, current.id);
 		if (!refreshed || refreshed === current) return;
@@ -440,7 +511,7 @@ export class PiManagedSession extends ManagedSession {
 		this.emit({
 			type: "session.model",
 			model: info,
-			contextInfo: this.contextInfo(refreshed),
+			contextInfo: this.contextInfo(),
 			thinkingLevel: session.thinkingLevel,
 		});
 	}

@@ -294,7 +294,7 @@ export interface SessionUsage {
 	cost: number;
 	/**
 	 * Tokens in the context after the latest model request: what the runtime reports (Codex, 1.58),
-	 * else the usage of the last reply that has one; 0 when unknown.
+	 * else the usage of the last reply that has one since the latest compaction; 0 when unknown.
 	 */
 	lastContext: number;
 }
@@ -307,7 +307,15 @@ export function sessionUsage(state: ChatState): SessionUsage {
 	let cacheWrite = 0;
 	let cost = 0;
 	let lastContext = 0;
+	/** When the latest compaction ran: replies before it measured the conversation it replaced. */
+	let compactedAt: number | undefined;
 	for (const message of state.messages) {
+		if (message.role === "compactionSummary") {
+			const at = (message as CompactionSummaryMessage).timestamp;
+			compactedAt = Math.max(compactedAt ?? 0, typeof at === "number" ? at : 0);
+			lastContext = 0;
+			continue;
+		}
 		if (message.role !== "assistant") continue;
 		const usage = (message as AssistantMessage).usage;
 		if (!usage) continue;
@@ -318,11 +326,53 @@ export function sessionUsage(state: ChatState): SessionUsage {
 		cacheWrite += write;
 		output += usage.output ?? 0;
 		cost += usage.cost?.total ?? 0;
-		if (usage.totalTokens) lastContext = usage.totalTokens;
+		// pi keeps the latest turns after the summary; their usage still counts the old conversation.
+		const at = (message as AssistantMessage).timestamp;
+		const stale = compactedAt !== undefined && typeof at === "number" && at <= compactedAt;
+		if (usage.totalTokens && !stale) lastContext = usage.totalTokens;
 	}
 	const cacheHitRate = input > 0 ? cacheRead / input : undefined;
 	if (state.contextInfo?.contextTokens) lastContext = state.contextInfo.contextTokens;
 	return { input, output, cacheRead, cacheWrite, cacheHitRate, cost, lastContext };
+}
+
+/** How full a session's context is, against its context limit (1.64) or else the model's window. */
+export interface ContextBudget {
+	/** Tokens in the context after the latest request (see {@link SessionUsage.lastContext}); 0 when unknown. */
+	used: number;
+	/** The model's context window, when known. */
+	window?: number;
+	/** The session's context limit, when it has one. */
+	limit?: number;
+	/** What `used` is measured against: the smaller of `limit` and `window`. */
+	budget?: number;
+	/** `used / budget`, when both are known. */
+	share?: number;
+}
+
+export function contextBudget(state: ChatState, usage: SessionUsage = sessionUsage(state)): ContextBudget {
+	const window = state.contextInfo?.contextWindow ?? state.model?.contextWindow;
+	const limit = state.contextInfo?.contextLimit;
+	const budget = limit !== undefined && window ? Math.min(limit, window) : (limit ?? window);
+	const used = usage.lastContext;
+	return {
+		used,
+		...(window ? { window } : {}),
+		...(limit !== undefined ? { limit } : {}),
+		...(budget ? { budget } : {}),
+		...(budget && used ? { share: used / budget } : {}),
+	};
+}
+
+/** Context limits offered in a menu (1.64), smallest first. */
+export const CONTEXT_LIMIT_PRESETS: readonly number[] = [64_000, 100_000, 128_000, 200_000, 256_000, 400_000, 500_000];
+
+/**
+ * Presets that make sense for a session: at least the runtime's minimum and below the model's window
+ * (a limit at or above it changes nothing).
+ */
+export function contextLimitPresets(min: number, window?: number): number[] {
+	return CONTEXT_LIMIT_PRESETS.filter((limit) => limit >= min && (!window || limit < window));
 }
 
 /** Tools that delegate work to subagents: Claude Code `Agent` / `Task`, Codex `spawn_agent`, pi-subagents. */

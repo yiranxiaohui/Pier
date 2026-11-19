@@ -183,6 +183,27 @@ async function prompt(params) {
 	const cancelled = new Promise((resolve) => {
 		session.cancel = resolve;
 	});
+	// Like Hermes' `/compress [focus]`: a summary of the older turns, answered in text.
+	const compress = /^\/compress(?: (.+))?$/.exec(text);
+	if (compress) {
+		session.compressions = [...(session.compressions ?? []), compress[1] ?? ""];
+		if (!session.history.length) {
+			chunk(session, "agent_message_chunk", "Nothing to compress — conversation is empty.");
+			return { stopReason: "end_turn" };
+		}
+		const before = session.history.length;
+		const tokens = session.used ?? 0;
+		session.history = [{ role: "assistant", text: "[summary]" }, ...session.history.slice(-1)];
+		session.used = 1500;
+		persist(session);
+		chunk(
+			session,
+			"agent_message_chunk",
+			`Context compressed: ${before} -> ${session.history.length} messages\n~${tokens} -> ~${session.used} tokens`,
+		);
+		update(session.id, { sessionUpdate: "usage_update", size: 128000, used: session.used });
+		return { stopReason: "end_turn" };
+	}
 	const title = /^\/title (.+)$/.exec(text);
 	if (title) {
 		session.title = title[1];
@@ -202,7 +223,8 @@ async function prompt(params) {
 			totalTokens: session.usage.totalTokens + 80,
 			cachedReadTokens: session.usage.cachedReadTokens + 40,
 		};
-		session.used = (session.used ?? 0) + 1000;
+		// "grow <n>" makes the context n tokens larger.
+		session.used = (session.used ?? 0) + Number(/grow (\d+)/.exec(text)?.[1] ?? 1000);
 		persist(session);
 		update(session.id, { sessionUpdate: "usage_update", size: 128000, used: session.used });
 		if (!session.title) {

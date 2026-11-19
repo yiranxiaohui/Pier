@@ -1,7 +1,9 @@
+// Context limits typed by users (1.64); shared with the CLI.
 // Thinking written into replies as `<thinking>` tags; shared with the host and the CLI.
 export {
 	formatThinking,
 	hasVisibleText,
+	parseContextLimit,
 	splitThinkingTags,
 	type TextSegment,
 	thinkingHeadline,

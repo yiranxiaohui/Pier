@@ -8,9 +8,22 @@ import {
 	type SessionContextInfo,
 	type StreamingBehavior,
 	type ThinkingLevel,
+	type WireEvent,
 } from "@pier/protocol";
-import { errorMessage, ManagedSession, type ManagedSessionOptions, type SessionContent } from "../managed-session.ts";
-import { firstPromptOf, LiveTranscript, type Usage, usageFrom } from "../runtimes/live-transcript.ts";
+import {
+	errorMessage,
+	ManagedSession,
+	type ManagedSessionOptions,
+	MIN_CONTEXT_LIMIT,
+	type SessionContent,
+} from "../managed-session.ts";
+import {
+	firstPromptOf,
+	LiveTranscript,
+	type TranscriptMessage,
+	type Usage,
+	usageFrom,
+} from "../runtimes/live-transcript.ts";
 import { type AcpConnection, AcpError, acpText, type Json } from "./acp.ts";
 import type { HermesRuntime } from "./hermes-runtime.ts";
 import {
@@ -26,7 +39,7 @@ import { HermesTranscript, textDiff } from "./transcript.ts";
 export const HERMES_CAPABILITIES: AgentRuntimeCapabilities = {
 	steer: false,
 	followUp: false,
-	compact: false,
+	compact: true,
 	fork: false,
 	rename: true,
 	setModel: true,
@@ -34,6 +47,9 @@ export const HERMES_CAPABILITIES: AgentRuntimeCapabilities = {
 	reload: false,
 	images: true,
 	piExtensions: false,
+	// Hermes' compression threshold is global (`compression.threshold`): Pier compacts with
+	// `/compress` after a turn that went past the limit.
+	contextLimit: { min: MIN_CONTEXT_LIMIT, enforcement: "turn" },
 };
 
 /** How long an aborted turn may take to end before Pier stops waiting for it. */
@@ -109,6 +125,8 @@ export class HermesSession extends ManagedSession {
 	private pendingTitle: string | undefined;
 	private named = false;
 	private baseline: Counters | undefined;
+	/** The running `/compress`, and the text Hermes answers it with. */
+	private compaction: { done: Promise<{ summary: string; tokensBefore: number }>; reply: string[] } | undefined;
 
 	constructor(
 		options: ManagedSessionOptions,
@@ -148,11 +166,14 @@ export class HermesSession extends ManagedSession {
 	}
 
 	private contextInfo(): SessionContextInfo {
-		return {
-			autoCompaction: "runtime",
-			...(this.contextWindow ? { contextWindow: this.contextWindow } : {}),
+		const window = this.contextWindow;
+		const limit = this.contextLimit;
+		return this.withContextLimit({
+			autoCompaction: limit === undefined ? "runtime" : "configured",
+			...(window ? { contextWindow: window } : {}),
 			...(this.contextTokens ? { contextTokens: this.contextTokens } : {}),
-		};
+			...(limit !== undefined ? { compactionThreshold: window ? Math.min(limit, window) : limit } : {}),
+		});
 	}
 
 	private currentModel(): ModelInfo | undefined {
@@ -191,6 +212,9 @@ export class HermesSession extends ManagedSession {
 	/** `replaying`: the stored conversation `session/load` sent before the session existed. */
 	private handleUpdate(update: Json, replaying: boolean): void {
 		this.lastActivity = Date.now();
+		if (this.compaction && !replaying && update.sessionUpdate === "agent_message_chunk") {
+			this.compaction.reply.push(acpText(update.content));
+		}
 		if (TRANSCRIPT_UPDATES.has(String(update.sessionUpdate))) {
 			// Outside Pier's own turns (a re-attach's replay, the answer to `/title`, another
 			// client's turn) Hermes' messages are not this transcript's.
@@ -389,13 +413,17 @@ export class HermesSession extends ManagedSession {
 	}
 
 	async prompt(text: string, images?: ImageInput[], _behavior?: StreamingBehavior): Promise<void> {
-		if (this.turn) throw new PierProtocolError("CONFLICT", "Hermes is busy");
+		if (this.turn || this.compaction) throw new PierProtocolError("CONFLICT", "Hermes is busy");
 		const turn = new AbortController();
 		this.turn = turn;
 		this.setRunState("streaming");
 		this.transcript.startRun();
 		this.transcript.addUser(images?.length ? [{ type: "text", text }, ...images] : text);
+		let completed = false;
 		this.done = this.run(text, images ?? [], turn)
+			.then(() => {
+				completed = !turn.signal.aborted;
+			})
 			.catch((error) => {
 				if (!turn.signal.aborted) this.transcript.endRun(errorMessage(error));
 			})
@@ -407,8 +435,94 @@ export class HermesSession extends ManagedSession {
 				this.turn = undefined;
 				this.lastActivity = Date.now();
 				this.setRunState("idle");
-				void this.flushTitle();
+				void this.afterTurn(completed);
 			});
+	}
+
+	/** Rename, then compact when the turn left the context past the limit (Hermes reports it after each turn). */
+	private async afterTurn(completed: boolean): Promise<void> {
+		await this.flushTitle();
+		const limit = this.contextLimit;
+		if (!completed || limit === undefined || !this.contextTokens || this.contextTokens < limit) return;
+		if (this.turn || this.disposed) return;
+		await this.compactNow("threshold").catch(() => {});
+	}
+
+	/** A limit below the current context compacts right away when Hermes is idle. */
+	protected override applyContextLimit(): void {
+		const limit = this.contextLimit;
+		if (limit === undefined || this.turn || this.compaction || !this.contextTokens || this.contextTokens < limit)
+			return;
+		void this.compactNow("threshold").catch(() => {});
+	}
+
+	override compact(instructions?: string): Promise<{ summary: string; tokensBefore: number }> {
+		if (this.turn)
+			return Promise.reject(new PierProtocolError("CONFLICT", "Wait for the agent to finish before compacting"));
+		return this.compactNow("manual", instructions);
+	}
+
+	/**
+	 * Compress the conversation with Hermes' `/compress` (a summary of the older turns, without a
+	 * model turn of its own); `focus` tells the summary what to keep. Hermes answers in text.
+	 */
+	private compactNow(
+		reason: "manual" | "threshold",
+		focus?: string,
+	): Promise<{ summary: string; tokensBefore: number }> {
+		if (this.compaction) return this.compaction.done;
+		if (!this.persisted) return Promise.reject(new PierProtocolError("CONFLICT", "Nothing to compact yet"));
+		const tokensBefore = this.contextTokens ?? 0;
+		const reply: string[] = [];
+		this.emit({ type: "compaction_start", reason });
+		this.setRunState("compacting");
+		const done = (async () => {
+			let failure: string | undefined;
+			this.muted++;
+			try {
+				const connection = await this.connection();
+				const command = focus?.trim() ? `/compress ${singleLine(focus)}` : "/compress";
+				await connection.request(
+					"session/prompt",
+					{
+						sessionId: this.id,
+						prompt: [{ type: "text", text: command }],
+					},
+					{ timeoutMs: 0 },
+				);
+				const answer = reply.join("").trim();
+				// "Context compressed: 40 -> 12 messages ..."; anything else says why it did not.
+				if (!/^context compressed/i.test(answer)) {
+					failure = answer || "Hermes did not compress the conversation";
+					throw new PierProtocolError("CONFLICT", failure);
+				}
+				this.transcript.messages.push({
+					role: "compactionSummary",
+					summary: "",
+					tokensBefore,
+					timestamp: Date.now(),
+				} as unknown as TranscriptMessage);
+				return { summary: "", tokensBefore };
+			} catch (error) {
+				failure ??= errorMessage(error);
+				throw error instanceof PierProtocolError ? error : new PierProtocolError("CONFLICT", failure);
+			} finally {
+				this.muted--;
+				this.compaction = undefined;
+				this.lastActivity = Date.now();
+				this.emit({
+					type: "compaction_end",
+					reason,
+					...(failure ? { errorMessage: failure } : { result: { summary: "", tokensBefore } }),
+					aborted: false,
+					willRetry: false,
+				} as WireEvent);
+				this.setRunState("idle");
+				void this.flushTitle();
+			}
+		})();
+		this.compaction = { done, reply };
+		return done;
 	}
 
 	private async run(text: string, images: ImageInput[], turn: AbortController): Promise<void> {
@@ -478,6 +592,11 @@ export class HermesSession extends ManagedSession {
 		this.turn?.abort();
 		this.bridge.cancelAll();
 		await this.done;
+		// Hermes cannot stop a `/compress` once it runs; wait a while for it.
+		const compaction = this.compaction?.done.catch(() => {});
+		if (compaction) {
+			await Promise.race([compaction, new Promise((resolve) => setTimeout(resolve, CANCEL_GRACE_MS).unref?.())]);
+		}
 	}
 
 	queue(): QueueState {
@@ -513,7 +632,7 @@ export class HermesSession extends ManagedSession {
 
 	private async flushTitle(): Promise<void> {
 		const title = this.pendingTitle;
-		if (!title || this.turn || !this.persisted || this.disposed) return;
+		if (!title || this.turn || this.compaction || !this.persisted || this.disposed) return;
 		this.pendingTitle = undefined;
 		this.muted++;
 		try {

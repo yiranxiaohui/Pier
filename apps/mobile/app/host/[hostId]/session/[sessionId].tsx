@@ -1,16 +1,37 @@
 import {
+	agentRuntimeLabel,
 	type ChatController,
 	type ChatState,
 	clampThinking,
+	contextBudget,
+	contextLimitPresets,
 	isRole,
+	parseContextLimit,
 	sessionUsage,
 	supportedThinkingLevels,
 	userText,
 } from "@pier/chat-state";
-import type { ApprovalPolicy, ForkPoint, ModelInfo, SessionContextInfo, SessionSummary } from "@pier/protocol";
+import type {
+	AgentRuntimeInfo,
+	ApprovalPolicy,
+	ForkPoint,
+	ModelInfo,
+	SessionContextInfo,
+	SessionSummary,
+} from "@pier/protocol";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Platform,
+	Pressable,
+	ScrollView,
+	StyleSheet,
+	Switch,
+	Text,
+	TextInput,
+	View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Composer } from "../../../../src/components/Composer.tsx";
 import { KeyboardAvoider } from "../../../../src/components/KeyboardAvoider.tsx";
@@ -271,14 +292,16 @@ function ModelSheet({ chat, onClose }: { chat: ChatController; onClose: () => vo
 	);
 }
 
-/** Share of the model's context window the last request used, when both are known. */
+/**
+ * Share of the context the last request used: of the session's context limit (1.64), else of the
+ * model's window, when both are known.
+ */
 function contextShare(chat: ChatState): { used: number; window?: number; ratio?: number } {
-	const usage = sessionUsage(chat);
-	const window = chat.contextInfo?.contextWindow ?? chat.model?.contextWindow;
+	const context = contextBudget(chat);
 	return {
-		used: usage.lastContext,
-		...(window ? { window } : {}),
-		...(window && usage.lastContext ? { ratio: Math.min(1, usage.lastContext / window) } : {}),
+		used: context.used,
+		...(context.budget ? { window: context.budget } : {}),
+		...(context.share !== undefined ? { ratio: Math.min(1, context.share) } : {}),
 	};
 }
 
@@ -295,11 +318,13 @@ function contextColor(p: Palette, ratio: number): string {
 }
 
 /** Context size, token totals, cost and cache hits of the session, as on the desktop's status bar. */
-function UsageCard({ chat }: { chat: ChatState }) {
+function UsageCard({ chat, onLimit }: { chat: ChatState; onLimit?: () => void }) {
 	const p = usePalette();
 	const usage = sessionUsage(chat);
 	const context = contextShare(chat);
-	if (!usage.lastContext && !usage.input && !usage.output && !context.window) return null;
+	const limit = chat.contextInfo?.contextLimit;
+	const canLimit = !!onLimit && !!chat.capabilities?.contextLimit;
+	if (!usage.lastContext && !usage.input && !usage.output && !context.window && !canLimit) return null;
 	const stats: [string, string][] = [];
 	if (usage.input || usage.output) {
 		stats.push(["输入", formatTokens(usage.input)], ["输出", formatTokens(usage.output)]);
@@ -332,6 +357,20 @@ function UsageCard({ chat }: { chat: ChatState }) {
 						</View>
 					) : null}
 				</View>
+			) : null}
+			{canLimit ? (
+				<Pressable
+					testID="session-context-limit"
+					accessibilityRole="button"
+					onPress={onLimit}
+					style={({ pressed }) => [styles.limitRow, { borderColor: p.border }, pressed && styles.pressed]}
+				>
+					<Text style={[styles.usageLabel, styles.flex, { color: p.muted }]}>上下文上限</Text>
+					<Text style={[styles.usageValue, { color: limit !== undefined ? p.accent : p.text }]}>
+						{limit !== undefined ? formatTokens(limit) : "跟随模型"}
+					</Text>
+					<Icon name="chevron-forward" size={15} color={p.faint} />
+				</Pressable>
 			) : null}
 			{stats.length ? (
 				<View style={styles.usageStats}>
@@ -417,7 +456,157 @@ function ForkSheet({
 	);
 }
 
-type SubSheet = "rename" | "compact" | "fork";
+/**
+ * Limit the session's context (1.64): the agent compacts before the context grows past the limit.
+ * Presets below the model's window, a typed value, and whether new sessions of the agent start
+ * with it too.
+ */
+function ContextLimitSheet({ chat, onClose }: { chat: ChatController; onClose: () => void }) {
+	const store = useStore();
+	const p = usePalette();
+	const view = useChatView(chat);
+	const state = view?.chat ?? chat.chat;
+	const support = state.capabilities?.contextLimit;
+	const runtimeId = state.session?.runtime;
+	const [runtime, setRuntime] = useState<AgentRuntimeInfo>();
+	const [asDefault, setAsDefault] = useState(false);
+	const [custom, setCustom] = useState("");
+	const [error, setError] = useState<string>();
+	const [saving, setSaving] = useState<number | null | "custom">();
+	useEffect(() => {
+		let alive = true;
+		void store.availableRuntimes().then((runtimes) => {
+			if (alive) setRuntime(runtimes.find((r) => r.id === (runtimeId ?? "pi")));
+		});
+		return () => {
+			alive = false;
+		};
+	}, [store, runtimeId]);
+	if (!support) return null;
+	const modelWindow = state.contextInfo?.contextWindow ?? state.model?.contextWindow;
+	const current = state.contextInfo?.contextLimit;
+	const presets = contextLimitPresets(support.min, modelWindow);
+	if (current !== undefined && !presets.includes(current)) presets.push(current);
+	presets.sort((a, b) => a - b);
+	const agent = runtime?.name ?? agentRuntimeLabel(runtimeId);
+	const defaultLimit = runtime?.contextLimitDefault;
+
+	const apply = async (limit: number | null, key: number | null | "custom" = limit) => {
+		if (limit !== null && limit < support.min) {
+			setError(`${agent} 的上下文上限至少为 ${formatTokens(support.min)}`);
+			return;
+		}
+		setSaving(key);
+		const result = await chat.setContextLimit(limit, asDefault);
+		setSaving(undefined);
+		if (result) onClose();
+	};
+	const options: Array<{ limit: number | null; label: string; detail?: string }> = [
+		{
+			limit: null,
+			label: "跟随模型",
+			detail: modelWindow ? `模型窗口 ${formatTokens(modelWindow)}` : "使用模型的上下文窗口",
+		},
+		...presets.map((limit) => ({
+			limit,
+			label: formatTokens(limit),
+			...(defaultLimit === limit ? { detail: `${agent} 新会话默认` } : {}),
+		})),
+	];
+	return (
+		<Sheet onClose={onClose}>
+			<ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
+				<MenuSection icon="layers-outline" title="上下文上限">
+					<View style={[styles.group, { backgroundColor: p.bg }]}>
+						{options.map((option, index) => {
+							const selected = option.limit === null ? current === undefined : current === option.limit;
+							return (
+								<Pressable
+									key={option.limit ?? "model"}
+									testID={`context-limit-${option.limit ?? "model"}`}
+									accessibilityRole="radio"
+									accessibilityState={{ selected }}
+									disabled={saving !== undefined}
+									onPress={() => void apply(option.limit)}
+									style={({ pressed }) => [
+										styles.option,
+										index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: p.border },
+										pressed && { backgroundColor: p.elevated },
+									]}
+								>
+									<View style={styles.flex}>
+										<Text style={[styles.optionName, { color: selected ? p.accent : p.text }]}>{option.label}</Text>
+										{option.detail ? <Muted style={styles.optionText}>{option.detail}</Muted> : null}
+									</View>
+									{saving === option.limit ? (
+										<ActivityIndicator size="small" color={p.accent} />
+									) : selected ? (
+										<Icon name="checkmark-circle" size={22} color={p.accent} />
+									) : null}
+								</Pressable>
+							);
+						})}
+					</View>
+					<View style={[styles.limitCustom, { backgroundColor: p.bg }]}>
+						<TextInput
+							testID="context-limit-custom"
+							value={custom}
+							onChangeText={(text) => {
+								setCustom(text);
+								setError(undefined);
+							}}
+							placeholder={`自定义，如 ${formatTokens(Math.max(support.min, 150_000))}`}
+							placeholderTextColor={p.faint}
+							autoCapitalize="none"
+							autoCorrect={false}
+							returnKeyType="done"
+							onSubmitEditing={() => {
+								const limit = parseContextLimit(custom);
+								if (limit === undefined) setError("请输入 token 数，例如 200k、150000 或 1.5m");
+								else void apply(limit, "custom");
+							}}
+							style={[styles.limitInput, { color: p.text }]}
+						/>
+						<Pressable
+							accessibilityRole="button"
+							disabled={!custom.trim() || saving !== undefined}
+							onPress={() => {
+								const limit = parseContextLimit(custom);
+								if (limit === undefined) setError("请输入 token 数，例如 200k、150000 或 1.5m");
+								else void apply(limit, "custom");
+							}}
+							style={({ pressed }) => [pressed && styles.pressed, !custom.trim() && styles.disabled]}
+						>
+							{saving === "custom" ? (
+								<ActivityIndicator size="small" color={p.accent} />
+							) : (
+								<Text style={[styles.limitSet, { color: p.accent }]}>设置</Text>
+							)}
+						</Pressable>
+					</View>
+					{error ? <Text style={[styles.policyNote, { color: p.danger }]}>{error}</Text> : null}
+					<View style={[styles.limitDefault, { backgroundColor: p.bg }]}>
+						<View style={styles.flex}>
+							<Text style={[styles.limitDefaultText, { color: p.text }]}>同时作为 {agent} 新会话的默认上限</Text>
+							{defaultLimit !== undefined ? (
+								<Muted style={styles.optionText}>当前默认：{formatTokens(defaultLimit)}</Muted>
+							) : null}
+						</View>
+						<Switch value={asDefault} onValueChange={setAsDefault} disabled={saving !== undefined} />
+					</View>
+					<Muted style={styles.policyNote}>
+						{support.enforcement === "turn"
+							? "每轮结束后检查，超过上限就压缩上下文；一轮之内仍可能暂时超过上限。"
+							: "上下文接近上限时自动压缩；正在运行时修改，最迟在这一轮结束后生效。"}
+						上限不会超过模型窗口，最小 {formatTokens(support.min)}。
+					</Muted>
+				</MenuSection>
+			</ScrollView>
+		</Sheet>
+	);
+}
+
+type SubSheet = "rename" | "compact" | "fork" | "contextLimit";
 
 interface ActionItem {
 	key: string;
@@ -547,7 +736,7 @@ function ActionsSheet({
 	return (
 		<Sheet onClose={onClose}>
 			<ScrollView contentContainerStyle={styles.sheetContent}>
-				<UsageCard chat={state} />
+				<UsageCard chat={state} onLimit={() => onOpen("contextLimit")} />
 				<View style={[styles.group, { backgroundColor: p.bg }]}>
 					{items.map((item, index) => {
 						const color = item.danger ? p.danger : p.text;
@@ -780,6 +969,7 @@ export default function SessionScreen() {
 					}}
 				/>
 			) : null}
+			{chat && sheet === "contextLimit" ? <ContextLimitSheet chat={chat} onClose={() => setSheet(undefined)} /> : null}
 			{chat && sheet === "fork" ? (
 				<ForkSheet
 					chat={chat}
@@ -865,6 +1055,32 @@ const styles = StyleSheet.create({
 	usageStatValue: { fontSize: 15, fontWeight: "700", fontVariant: ["tabular-nums"] },
 	usageStatLabel: { fontSize: 11.5, marginTop: 2 },
 	usageNote: { fontSize: 11.5, lineHeight: 16 },
+	limitRow: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		paddingTop: 10,
+		borderTopWidth: StyleSheet.hairlineWidth,
+	},
+	limitCustom: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 10,
+		borderRadius: RADIUS.lg,
+		paddingHorizontal: 14,
+		paddingVertical: 4,
+	},
+	limitInput: { flex: 1, fontSize: 15, paddingVertical: 8 },
+	limitSet: { fontSize: 15, fontWeight: "600" },
+	limitDefault: {
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 12,
+		borderRadius: RADIUS.lg,
+		paddingHorizontal: 14,
+		paddingVertical: 10,
+	},
+	limitDefaultText: { fontSize: 14.5, fontWeight: "500" },
 	optionHead: { flexDirection: "row", alignItems: "center", gap: 6 },
 	tag: {
 		fontSize: 10.5,

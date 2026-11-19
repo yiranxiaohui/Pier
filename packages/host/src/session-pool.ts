@@ -8,10 +8,12 @@ import {
 	PierProtocolError,
 	type SessionCleanupResult,
 	type SessionCleanupScope,
+	type SessionContextInfo,
 	type SessionSummary,
 	type WorkspaceInfo,
 } from "@pier/protocol";
 import type { ConfigStore } from "./config.ts";
+import type { ContextLimitStore } from "./context-limits.ts";
 import type { ManagedSession, ManagedSessionOptions } from "./managed-session.ts";
 import type { AgentRuntime, StoredSession } from "./runtimes/types.ts";
 import type { SessionArchiveStore } from "./session-archive.ts";
@@ -38,6 +40,8 @@ export interface SessionPoolOptions {
 	trashDir: string;
 	/** Archived session ids. */
 	archive: SessionArchiveStore;
+	/** Context limits of sessions and the defaults of each runtime (1.64). */
+	contextLimits?: ContextLimitStore;
 	uiTimeoutMs?: number;
 	idleTimeoutMs?: number;
 	eventLogCapacity?: number;
@@ -95,7 +99,14 @@ export class SessionPool {
 	}
 
 	async runtimeInfos(): Promise<AgentRuntimeInfo[]> {
-		return Promise.all(this.options.runtimes.map((r) => r.info()));
+		const limits = this.options.contextLimits;
+		return Promise.all(
+			this.options.runtimes.map(async (r) => {
+				const info = await r.info();
+				const limit = info.capabilities.contextLimit ? limits?.defaultFor(r.id) : undefined;
+				return limit === undefined ? info : { ...info, contextLimitDefault: limit };
+			}),
+		);
 	}
 
 	/** Sessions every runtime stored for the workspace. A failing runtime is skipped (and logged). */
@@ -153,15 +164,18 @@ export class SessionPool {
 		};
 	}
 
-	private sessionOptions(workspace: WorkspaceInfo): ManagedSessionOptions {
+	private sessionOptions(workspace: WorkspaceInfo, contextLimit?: number): ManagedSessionOptions {
 		return {
 			workspace: this.workspaceAccessor(workspace),
 			locksDir: this.options.locksDir,
 			...(this.options.uiTimeoutMs === undefined ? {} : { uiTimeoutMs: this.options.uiTimeoutMs }),
 			...(this.options.eventLogCapacity === undefined ? {} : { eventLogCapacity: this.options.eventLogCapacity }),
+			...(contextLimit === undefined ? {} : { contextLimit }),
 			onReplaced: (session, previousId) => {
 				this.sessions.delete(previousId);
 				this.sessions.set(session.id, session);
+				// The new session (pi's `/new`, `/fork`, ...) keeps the limit the old one had.
+				this.rememberLimit(session);
 				this.options.onSessionReplaced?.(session, previousId);
 			},
 			onActivity: (session) => this.options.onSessionActivity?.(session),
@@ -174,13 +188,44 @@ export class SessionPool {
 		return session;
 	}
 
+	/** Store the session's context limit under its (possibly new) id. */
+	private rememberLimit(session: ManagedSession): void {
+		if (session.limit !== undefined) this.options.contextLimits?.set(session.runtimeId, session.id, session.limit);
+	}
+
+	/** The context limit a stored session of `runtime` has (1.64). */
+	private storedLimit(runtime: AgentRuntime, sessionId: string): number | undefined {
+		return runtime.capabilities.contextLimit ? this.options.contextLimits?.get(runtime.id, sessionId) : undefined;
+	}
+
+	/**
+	 * Set an open session's context limit (`contextLimit.set`, 1.64); `asDefault` also makes it the
+	 * limit new sessions of its runtime start with. Returns the session's context state and the
+	 * runtime's default.
+	 */
+	async setContextLimit(
+		sessionId: string,
+		limit: number | undefined,
+		asDefault = false,
+	): Promise<{ contextInfo: SessionContextInfo; defaultLimit?: number }> {
+		const session = this.require(sessionId);
+		const contextInfo = await session.setContextLimit(limit);
+		const store = this.options.contextLimits;
+		store?.set(session.runtimeId, session.id, session.limit);
+		if (asDefault) store?.setDefault(session.runtimeId, limit);
+		const defaultLimit = store?.defaultFor(session.runtimeId);
+		return defaultLimit === undefined ? { contextInfo } : { contextInfo, defaultLimit };
+	}
+
 	async create(workspace: WorkspaceInfo, name?: string, runtimeId?: AgentRuntimeId): Promise<ManagedSession> {
 		const runtime = this.runtime(runtimeId);
 		const info = await runtime.info();
 		if (!info.available) {
 			throw new PierProtocolError("CONFLICT", info.reason ?? `${runtime.name} is not available on this computer`);
 		}
-		const session = this.add(await runtime.create(this.sessionOptions(workspace)));
+		const limit = runtime.capabilities.contextLimit ? this.options.contextLimits?.defaultFor(runtime.id) : undefined;
+		const session = this.add(await runtime.create(this.sessionOptions(workspace, limit)));
+		this.rememberLimit(session);
 		if (name) {
 			try {
 				await session.rename(name);
@@ -235,7 +280,8 @@ export class SessionPool {
 		if (this.deleting.has(key)) throw new PierProtocolError("NOT_FOUND", "Session is being deleted");
 		const pending = this.opening.get(key);
 		if (pending) return pending;
-		const promise = (async () => this.add(await runtime.open(this.sessionOptions(workspace), stored)))();
+		const limit = this.storedLimit(runtime, stored.id);
+		const promise = (async () => this.add(await runtime.open(this.sessionOptions(workspace, limit), stored)))();
 		this.opening.set(key, promise);
 		try {
 			return await promise;
@@ -253,8 +299,10 @@ export class SessionPool {
 		if (!workspace) throw new PierProtocolError("NOT_FOUND", "Workspace no longer exists");
 		if (!source.capabilities.fork) throw new PierProtocolError("UNSUPPORTED", "This session cannot be forked");
 		const runtime = this.runtime(source.runtimeId);
-		const forked = await runtime.fork(source, entryId, position, this.sessionOptions(workspace));
+		// A fork continues the same conversation, so it keeps the limit.
+		const forked = await runtime.fork(source, entryId, position, this.sessionOptions(workspace, source.limit));
 		this.add(forked.session);
+		this.rememberLimit(forked.session);
 		return forked;
 	}
 
@@ -307,6 +355,11 @@ export class SessionPool {
 		}
 		const key = file ? resolve(file) : entry ? `${entry.runtime.id}:${sessionId}` : undefined;
 		if (key && this.deleting.has(key)) throw new PierProtocolError("CONFLICT", "Session is already being deleted");
+		const runtimeId = active?.runtimeId ?? entry?.runtime.id ?? DEFAULT_AGENT_RUNTIME;
+		const forget = () => {
+			this.options.archive.set([sessionId], false);
+			this.options.contextLimits?.set(runtimeId, sessionId, undefined);
+		};
 		if (key) this.deleting.add(key);
 		this.storedLists.delete(workspace.id);
 		try {
@@ -315,11 +368,11 @@ export class SessionPool {
 			active = this.sessions.get(sessionId) ?? (file ? this.findActiveByPath(file) : undefined);
 			if (active) await this.close(active.id, force, "deleted");
 			if (entry?.runtime.deleteStored && (await entry.runtime.deleteStored(workspace, entry.stored))) {
-				this.options.archive.set([sessionId], false);
+				forget();
 				return true;
 			}
 			if (!file || !existsSync(file)) {
-				this.options.archive.set([sessionId], false);
+				forget();
 				return active !== undefined;
 			}
 			// Refuses when another Pier host has the session open.
@@ -329,7 +382,7 @@ export class SessionPool {
 			} finally {
 				lock.release();
 			}
-			this.options.archive.set([sessionId], false);
+			forget();
 			return true;
 		} finally {
 			if (key) this.deleting.delete(key);

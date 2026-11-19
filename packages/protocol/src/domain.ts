@@ -432,6 +432,8 @@ export interface AgentRuntimeCapabilities {
 	thinking: boolean;
 	/** `fast.set` (1.43). Absent from older hosts: unsupported. */
 	fastMode?: boolean;
+	/** `contextLimit.set` (1.64). Absent from older hosts: unsupported. */
+	contextLimit?: ContextLimitSupport;
 	/** `session.reload`. */
 	reload: boolean;
 	/** Image attachments in prompts. */
@@ -439,6 +441,24 @@ export interface AgentRuntimeCapabilities {
 	/** pi extensions, packages and `settings.json` apply to this runtime. */
 	piExtensions: boolean;
 }
+
+/**
+ * How a runtime keeps a session's context under the limit set with `contextLimit.set` (1.64).
+ * The limit never shortens the model's own window: the runtime compacts the conversation before
+ * it grows past the limit.
+ */
+export interface ContextLimitSupport {
+	/** Smallest limit the runtime accepts, in tokens. */
+	min: number;
+	/**
+	 * `request`: the runtime checks the context before each model request, also in the middle of a
+	 * turn. `turn`: only after a turn ends, so one long turn can still grow past the limit.
+	 */
+	enforcement: "request" | "turn";
+}
+
+/** Largest context limit a client may set (1.64). */
+export const MAX_CONTEXT_LIMIT = 100_000_000;
 
 /** One agent runtime the host knows (1.22). */
 export interface AgentRuntimeInfo {
@@ -454,6 +474,8 @@ export interface AgentRuntimeInfo {
 	/** Executable the host runs, for CLI runtimes. */
 	executable?: string;
 	capabilities: AgentRuntimeCapabilities;
+	/** Context limit new sessions of this runtime start with (`contextLimit.set` with `asDefault`, 1.64). */
+	contextLimitDefault?: number;
 }
 
 export interface SessionSummary {
@@ -531,6 +553,12 @@ export interface SessionContextInfo {
 	reserveTokens?: number;
 	/** Recent tokens retained verbatim by the configured compaction policy. */
 	keepRecentTokens?: number;
+	/**
+	 * The session's context limit (`contextLimit.set`, 1.64): the runtime compacts the conversation
+	 * before it grows past this many tokens. Clients measure the context against the smaller of it
+	 * and `contextWindow`. Absent: the model's window is the limit.
+	 */
+	contextLimit?: number;
 }
 
 /** Where a slash command offered by the host comes from (1.5). */

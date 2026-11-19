@@ -6,6 +6,7 @@ import {
 	PierProtocolError,
 	PROTOCOL_VERSION,
 	parseClientFrame,
+	parseContextLimit,
 	parseHostFrame,
 	parseProtocolVersion,
 } from "../src/index.ts";
@@ -119,5 +120,31 @@ describe("PierProtocolError", () => {
 			message: "bad",
 			data: { field: "x" },
 		});
+	});
+});
+
+describe("context limits (1.64)", () => {
+	it("parses token counts with units and separators", () => {
+		expect(parseContextLimit("200k")).toBe(200_000);
+		expect(parseContextLimit(" 1.5M ")).toBe(1_500_000);
+		expect(parseContextLimit("200,000")).toBe(200_000);
+		expect(parseContextLimit("200 000")).toBe(200_000);
+		expect(parseContextLimit("20万")).toBe(200_000);
+		expect(parseContextLimit("150000")).toBe(150_000);
+		for (const bad of ["", "k", "-5", "abc", "1e6", "0", "200 tokens", "999m"])
+			expect(parseContextLimit(bad)).toBeUndefined();
+	});
+
+	it("validates contextLimit.set", () => {
+		const schema = MethodParamsSchemas["contextLimit.set"];
+		expect(schema.parse({ sessionId: "s", limit: 200_000, asDefault: true })).toEqual({
+			sessionId: "s",
+			limit: 200_000,
+			asDefault: true,
+		});
+		expect(schema.parse({ sessionId: "s", limit: null })).toEqual({ sessionId: "s", limit: null });
+		for (const limit of [0, -1, 1.5, 200_000_000, "200k", undefined]) {
+			expect(schema.safeParse({ sessionId: "s", limit }).success).toBe(false);
+		}
 	});
 });

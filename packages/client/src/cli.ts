@@ -18,7 +18,9 @@ import {
 	type MethodResult,
 	type ModelInfo,
 	type PairingRequest,
+	parseContextLimit,
 	type RemoteAccessStatus,
+	type SessionContextInfo,
 	type SessionRunState,
 	type SessionSnapshot,
 	type SessionSummary,
@@ -82,6 +84,7 @@ const HELP_SECTIONS: HelpSection[] = [
 			["/rename <name>", "rename the attached session"],
 			["/fork [n]", "fork before message n (no argument: pick it with ↑/↓)"],
 			["/compact [instructions]", "compact the context"],
+			["/context [tokens|off] [default]", "show or set the context limit (e.g. 200k; default: also for new sessions)"],
 		],
 	},
 	{
@@ -324,6 +327,7 @@ class Cli {
 	private queued = 0;
 	private model: ModelInfo | undefined;
 	private thinkingLevel: string | undefined;
+	/** What the context is measured against (see `contextBudget`). */
 	private contextWindow: number | undefined;
 	private contextUsed: number | undefined;
 	private readonly stream: MessageStream;
@@ -465,6 +469,13 @@ class Cli {
 			if (percent !== undefined) right.push(`${percent}% context`);
 		} else right.push(this.workspace ? "/new or /open to start" : "/ws add <path> to start");
 		return rule(this.width, left, c.gray(right.join(" · ")));
+	}
+
+	/** What the context is measured against: the session's limit (1.64), else the model's window. */
+	private contextBudget(info: SessionContextInfo | undefined): number | undefined {
+		const window = info?.contextWindow ?? this.model?.contextWindow;
+		const limit = info?.contextLimit;
+		return limit !== undefined && window ? Math.min(limit, window) : (limit ?? window);
 	}
 
 	private contextPercent(): number | undefined {
@@ -979,7 +990,7 @@ class Cli {
 				if (model) this.model = model;
 				this.thinkingLevel = String(event.thinkingLevel);
 				const info = event.contextInfo as SessionSnapshot["contextInfo"];
-				this.contextWindow = info?.contextWindow ?? this.model?.contextWindow;
+				this.contextWindow = this.contextBudget(info);
 				if (info?.contextTokens) this.contextUsed = info.contextTokens;
 				this.emit([]);
 				break;
@@ -1016,7 +1027,7 @@ class Cli {
 		this.agent = runtimeName(snapshot.session.runtime, this.runtimes);
 		this.model = snapshot.model;
 		this.thinkingLevel = snapshot.thinkingLevel;
-		this.contextWindow = snapshot.contextInfo?.contextWindow ?? snapshot.model?.contextWindow;
+		this.contextWindow = this.contextBudget(snapshot.contextInfo);
 		this.pendingUi.clear();
 		this.subagentStatus.clear();
 		for (const subagent of snapshot.subagents ?? []) this.subagentStatus.set(subagent.id, subagent.status);
@@ -1271,6 +1282,52 @@ class Cli {
 	 * `/models <agent>`: the models of any agent, `●` marking its default for new sessions in this
 	 * workspace. Not numbered and not remembered, since `/model <n>` switches the attached session.
 	 */
+	/** `/context [tokens|off] [default]`: show or set the attached session's context limit (1.64). */
+	private async contextLimitCommand(arg: string): Promise<void> {
+		const sessionId = this.requireSession();
+		const words = arg.split(/\s+/).filter(Boolean);
+		const asDefault = words.at(-1)?.toLowerCase() === "default";
+		if (asDefault) words.pop();
+		const value = words.join(" ");
+		const tokens = (n: number) => `${n.toLocaleString("en-US")} tokens`;
+		if (!value) {
+			const snapshot = await this.client.request("session.snapshot", { sessionId });
+			const info = snapshot.contextInfo;
+			const window = info?.contextWindow ?? snapshot.model?.contextWindow;
+			const limit = info?.contextLimit;
+			const support = snapshot.capabilities?.contextLimit;
+			this.say([
+				span("Context limit: ", c.gray),
+				span(limit !== undefined ? tokens(limit) : "follows the model", c.bold),
+				span(window ? ` (model window ${tokens(window)})` : "", c.gray),
+			]);
+			if (!support) this.say("This agent (or an older host) cannot limit the context.", c.gray);
+			else
+				this.say(
+					`Set it with /context <tokens> (at least ${tokens(support.min)}), /context off to follow the model.`,
+					c.gray,
+				);
+			return;
+		}
+		const off = ["off", "none", "model", "auto"].includes(value.toLowerCase());
+		const limit = off ? null : parseContextLimit(value);
+		if (limit === undefined) throw new Error("Usage: /context [tokens|off] [default], e.g. /context 200k");
+		const result = await this.client.request("contextLimit.set", {
+			sessionId,
+			limit,
+			...(asDefault ? { asDefault } : {}),
+		});
+		this.contextWindow = this.contextBudget(result.contextInfo);
+		this.say([
+			span("Context limit: ", c.gray),
+			span(
+				result.contextInfo.contextLimit !== undefined ? tokens(result.contextInfo.contextLimit) : "follows the model",
+				c.bold,
+			),
+			span(asDefault ? `, also for new ${this.agent} sessions` : "", c.gray),
+		]);
+	}
+
 	private async listAgentModels(ref: string): Promise<void> {
 		const runtime = requireAvailable(resolveRuntime(await this.fetchRuntimes(), ref));
 		const { models, current } = await this.client.request("model.list", {
@@ -1649,13 +1706,15 @@ class Cli {
 				const s = snapshot.session;
 				this.model = snapshot.model;
 				this.thinkingLevel = snapshot.thinkingLevel;
-				this.contextWindow = snapshot.contextInfo?.contextWindow ?? snapshot.model?.contextWindow;
+				this.contextWindow = this.contextBudget(snapshot.contextInfo);
 				if (snapshot.contextInfo?.contextTokens) this.contextUsed = snapshot.contextInfo.contextTokens;
 				const percent = this.contextPercent();
+				const limit = snapshot.contextInfo?.contextLimit;
 				const context =
-					percent === undefined
+					(percent === undefined
 						? "unknown"
-						: `${this.contextUsed?.toLocaleString("en-US")} / ${this.contextWindow?.toLocaleString("en-US")} tokens (${percent}%)`;
+						: `${this.contextUsed?.toLocaleString("en-US")} / ${this.contextWindow?.toLocaleString("en-US")} tokens (${percent}%)`) +
+					(limit !== undefined ? c.gray(` · limit ${limit.toLocaleString("en-US")}`) : "");
 				const pending = snapshot.pendingUi.length;
 				this.emit(
 					keyValues(
@@ -1731,6 +1790,9 @@ class Cli {
 				this.say(`Compacted from ${result.tokensBefore.toLocaleString("en-US")} tokens`, c.gray);
 				break;
 			}
+			case "context":
+				await this.contextLimitCommand(arg);
+				break;
 			case "models":
 				if (arg) await this.listAgentModels(arg);
 				else await this.chooseModel(true);

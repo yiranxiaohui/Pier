@@ -269,6 +269,66 @@ describe("Hermes runtime", () => {
 		// The resumed session's replayed history is not added again.
 		expect(snapshot.messages.map((m) => (m as Json).role)).toEqual(["user", "assistant", "user", "assistant"]);
 	});
+
+	it("compresses with /compress once a turn ends past the context limit (1.64)", async () => {
+		await start("auto");
+		const { runtimes } = await client.request("runtime.list", {});
+		expect(runtimes.find((r) => r.id === "hermes")?.capabilities).toMatchObject({
+			compact: true,
+			contextLimit: { min: 64_000, enforcement: "turn" },
+		});
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "hermes" });
+		const rec = new Recorder();
+		await client.subscribe(session.id, rec.handler, { workspaceId: workspace.id });
+		await rec.waitForType("session.snapshot");
+		const sessionId = session.id;
+		const compresses = () =>
+			requests("session/prompt")
+				.map((r) => ((r.params as { prompt: Array<{ text?: string }> }).prompt[0]?.text ?? "").trim())
+				.filter((text) => text.startsWith("/compress"));
+
+		const { contextInfo } = await client.request("contextLimit.set", { sessionId, limit: 64_000 });
+		expect(contextInfo).toMatchObject({
+			autoCompaction: "configured",
+			contextLimit: 64_000,
+			compactionThreshold: 64_000,
+		});
+		await client.request("session.prompt", { sessionId, text: "hello" });
+		await rec.waitForType("agent_settled");
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(compresses()).toEqual([]);
+
+		let from = rec.mark();
+		await client.request("session.prompt", { sessionId, text: "grow 70000" });
+		const end = await rec.waitForType("compaction_end", from);
+		expect(end.event).toMatchObject({ reason: "threshold", aborted: false, result: { tokensBefore: 71_000 } });
+		expect(compresses()).toEqual(["/compress"]);
+		await rec.waitFor((f) => f.event.type === "session.status" && f.event.state === "idle", from);
+		const snapshot = await client.request("session.snapshot", { sessionId });
+		expect(snapshot.messages.at(-1)).toMatchObject({ role: "compactionSummary", tokensBefore: 71_000 });
+		expect(snapshot.contextInfo?.contextTokens).toBe(1500);
+		// Hermes' answer to the command stays out of the conversation.
+		expect(JSON.stringify(snapshot.messages)).not.toContain("Context compressed");
+
+		// Manual compaction passes the instructions as the summary's focus.
+		expect(await client.request("session.compact", { sessionId, instructions: "keep the TODOs" })).toEqual({
+			summary: "",
+			tokensBefore: 1500,
+		});
+		expect(compresses().at(-1)).toBe("/compress keep the TODOs");
+
+		// Without a limit nothing happens; lowering it below the current context compresses at once.
+		await client.request("contextLimit.set", { sessionId, limit: null });
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId, text: "grow 80000" });
+		await rec.waitForType("agent_settled", from);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(compresses()).toHaveLength(2);
+		from = rec.mark();
+		await client.request("contextLimit.set", { sessionId, limit: 64_000 });
+		await rec.waitForType("compaction_end", from);
+		expect(compresses()).toHaveLength(3);
+	});
 });
 
 describe("Hermes conversions", () => {

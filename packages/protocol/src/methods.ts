@@ -53,6 +53,7 @@ import {
 	ImageInputSchema,
 	type LoopbackCallbackPage,
 	type LoopbackRequest,
+	MAX_CONTEXT_LIMIT,
 	type ModelInfo,
 	NativeAgentRuntimeSchema,
 	type NewApiAuthorizeResult,
@@ -70,6 +71,7 @@ import {
 	type RemoteAccessStatus,
 	type SessionCleanupResult,
 	type SessionCommandInfo,
+	type SessionContextInfo,
 	type SessionSnapshot,
 	type SessionSummary,
 	StreamingBehaviorSchema,
@@ -599,6 +601,15 @@ export const MethodParamsSchemas = {
 	"thinking.set": z.object({ ...SessionRef, level: ThinkingLevelSchema, persist: z.boolean().optional() }),
 	/** Codex Fast mode (1.43). Omit `enabled` to toggle the current thread setting. */
 	"fast.set": z.object({ ...SessionRef, enabled: z.boolean().optional() }),
+	/**
+	 * The session's context limit (1.64): `null` follows the model's window. `asDefault` also makes
+	 * it the limit new sessions of the session's runtime start with (`null` clears that default).
+	 */
+	"contextLimit.set": z.object({
+		...SessionRef,
+		limit: z.number().int().positive().max(MAX_CONTEXT_LIMIT).nullable(),
+		asDefault: z.boolean().optional(),
+	}),
 	"model.setDefault": z.object({ provider: Id, modelId: Id }),
 
 	"provider.list": z.object({}).optional(),
@@ -1152,6 +1163,8 @@ export interface MethodResults {
 	"model.set": { model: ModelInfo };
 	"thinking.set": { level: string };
 	"fast.set": { enabled: boolean };
+	/** The session's context state after the change, and the runtime's default for new sessions. */
+	"contextLimit.set": { contextInfo: SessionContextInfo; defaultLimit?: number };
 	"model.setDefault": { defaultModel: DefaultModelRef };
 	"provider.list": ProviderListResult;
 	"provider.login": { flowId: string };

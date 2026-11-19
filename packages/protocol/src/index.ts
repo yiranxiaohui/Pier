@@ -1,5 +1,6 @@
 export * from "./addresses.ts";
 export * from "./browser.ts";
+export * from "./context-limit.ts";
 export * from "./domain.ts";
 export * from "./errors.ts";
 export * from "./events.ts";

@@ -35,6 +35,12 @@ export interface SessionSubscriber {
 	send(frame: EventFrame): void;
 }
 
+/**
+ * Smallest context limit (1.64) of most runtimes: below it the system prompt, tools and the recent
+ * conversation kept by a compaction leave too little room, and every turn would compact again.
+ */
+export const MIN_CONTEXT_LIMIT = 64_000;
+
 interface SubscriberEntry {
 	subscriber: SessionSubscriber;
 	/** Until `start()` runs, live frames are buffered so they follow the replay/snapshot. */
@@ -60,6 +66,8 @@ export interface ManagedSessionOptions {
 	onActivity?: (session: ManagedSession) => void;
 	/** Whether a session id is archived (`session.archive`). */
 	isArchived?: (sessionId: string) => boolean;
+	/** Context limit the session starts with (`contextLimit.set`, 1.64). */
+	contextLimit?: number;
 }
 
 /** Summary fields a runtime reports about its session; the base class adds the live state. */
@@ -123,9 +131,12 @@ export abstract class ManagedSession {
 	protected disposed = false;
 	/** Subagents the session's agent started (1.54). */
 	protected readonly subagents: SubagentTracker;
+	/** The session's context limit in tokens (`contextLimit.set`, 1.64); the model's window without one. */
+	protected contextLimit: number | undefined;
 	lastActivity = Date.now();
 
 	protected constructor(protected readonly options: ManagedSessionOptions) {
+		this.contextLimit = options.contextLimit;
 		this.log = new EventLog(options.eventLogCapacity ?? DEFAULT_EVENT_LOG_CAPACITY);
 		this.subagents = new SubagentTracker(
 			(event) => this.emit(event),
@@ -412,6 +423,56 @@ export abstract class ManagedSession {
 
 	setFast(_enabled?: boolean): Promise<boolean> {
 		return Promise.reject(this.unsupported("Fast mode"));
+	}
+
+	/** The session's context limit (1.64), or `undefined` when it follows the model's window. */
+	get limit(): number | undefined {
+		return this.contextLimit;
+	}
+
+	/**
+	 * Limit the session's context (`contextLimit.set`, 1.64): the runtime compacts the conversation
+	 * before it grows past `limit` tokens; `undefined` follows the model's window again. Clients learn
+	 * the new state from a `session.model` event.
+	 */
+	async setContextLimit(limit: number | undefined): Promise<SessionContextInfo> {
+		const support = this.capabilities.contextLimit;
+		if (!support) throw this.unsupported("context limits");
+		if (limit !== undefined && limit < support.min) {
+			throw new PierProtocolError(
+				"BAD_REQUEST",
+				`${runtimeName(this.runtimeId)} needs a context limit of at least ${support.min} tokens`,
+			);
+		}
+		this.lastActivity = Date.now();
+		const previous = this.contextLimit;
+		if (limit !== previous) {
+			this.contextLimit = limit;
+			try {
+				await this.applyContextLimit(previous);
+			} catch (error) {
+				this.contextLimit = previous;
+				throw error;
+			}
+		}
+		const c = this.content();
+		const contextInfo = c.contextInfo ?? this.withContextLimit({ autoCompaction: "runtime" });
+		this.emit({
+			type: "session.model",
+			...(c.model ? { model: c.model } : {}),
+			contextInfo,
+			thinkingLevel: c.thinkingLevel,
+		});
+		return contextInfo;
+	}
+
+	/** Make the runtime follow `this.contextLimit`, which was `previous`. Throw to keep `previous`. */
+	protected applyContextLimit(_previous: number | undefined): Promise<void> | void {}
+
+	/** `info` with the session's context limit. */
+	protected withContextLimit(info: SessionContextInfo): SessionContextInfo {
+		const { contextLimit: _previous, ...rest } = info;
+		return this.contextLimit === undefined ? rest : { ...rest, contextLimit: this.contextLimit };
 	}
 
 	/** Slash commands the runtime handles when they arrive as a prompt. */

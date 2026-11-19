@@ -392,6 +392,51 @@ describe("Claude Code runtime", () => {
 		await expect(client.request("session.reload", { sessionId: session.id })).rejects.toThrow(/do not support/);
 	});
 
+	it("limits the context through Claude Code's autoCompactWindow, restarting it once idle (1.64)", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		fake.responder = async function* (ctx) {
+			if (ctx.text === "slow") await gate;
+			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
+		};
+		const { runtimes } = await client.request("runtime.list", {});
+		expect(runtimes[1]?.capabilities.contextLimit).toEqual({ min: 100_000, enforcement: "request" });
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		await expect(client.request("contextLimit.set", { sessionId: session.id, limit: 64_000 })).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+		});
+
+		// Before Claude Code runs, the limit goes into the options it starts with.
+		const set = await client.request("contextLimit.set", { sessionId: session.id, limit: 150_000 });
+		expect(set.contextInfo).toEqual({ autoCompaction: "runtime", contextLimit: 150_000 });
+		await expect.poll(() => state().contextInfo?.contextLimit).toBe(150_000);
+		await client.request("session.prompt", { sessionId: session.id, text: "one" });
+		await rec.waitForType("agent_settled");
+		expect(fake.options).toHaveLength(1);
+		expect(fake.options[0]?.settings).toEqual({ autoCompactWindow: 150_000 });
+
+		// Idle: Claude Code stops, and the next prompt resumes it with the new limit.
+		await client.request("contextLimit.set", { sessionId: session.id, limit: 300_000 });
+		let from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "slow" });
+		await expect.poll(() => fake.options.length).toBe(2);
+		expect(fake.options[1]).toMatchObject({ resume: session.id, settings: { autoCompactWindow: 300_000 } });
+
+		// Running: the process stays until the turn ends; then the limit applies to the next start.
+		await client.request("contextLimit.set", { sessionId: session.id, limit: null });
+		release();
+		await rec.waitForType("agent_settled", from);
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "three" });
+		await rec.waitForType("agent_settled", from);
+		expect(fake.options).toHaveLength(3);
+		expect(fake.options[2]).not.toHaveProperty("settings");
+		expect(state().contextInfo).not.toHaveProperty("contextLimit");
+	});
+
 	it("queues follow-ups while the agent works", async () => {
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {

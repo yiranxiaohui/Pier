@@ -205,6 +205,72 @@ describe("Codex runtime", () => {
 		expect(reply.usage).toMatchObject({ input: 15, cacheRead: 5, cacheWrite: 0, output: 10, totalTokens: 30 });
 	});
 
+	it("loads threads with the context limit and reloads them when it changes (1.64)", async () => {
+		const loadedConfig = (threadId: string) =>
+			runtime()
+				.server()
+				.request<{ loaded: boolean; config: Record<string, unknown> | null }>("fake/loadedConfig", { threadId });
+		const { runtimes } = await client.request("runtime.list", {});
+		expect(runtimes.find((r) => r.id === "codex")?.capabilities.contextLimit).toEqual({
+			min: 64_000,
+			enforcement: "request",
+		});
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const { rec, state } = await open(session);
+		expect(await loadedConfig(session.id)).toEqual({ loaded: true, config: null });
+
+		// Idle: the thread is unloaded and resumed with the limit right away.
+		const set = await client.request("contextLimit.set", {
+			sessionId: session.id,
+			limit: 80_000,
+			asDefault: true,
+		});
+		expect(set).toEqual({
+			// Codex reports the window with the first turn's usage.
+			contextInfo: { autoCompaction: "configured", contextLimit: 80_000, compactionThreshold: 80_000 },
+			defaultLimit: 80_000,
+		});
+		expect(await loadedConfig(session.id)).toEqual({
+			loaded: true,
+			config: { model_auto_compact_token_limit: 80_000 },
+		});
+		await client.request("session.prompt", { sessionId: session.id, text: "hello" });
+		await rec.waitForType("agent_settled");
+
+		// Running: the thread keeps its limit until the turn ends; the queued follow-up waits for the reload.
+		let from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "wait here" });
+		await expect.poll(() => state().runState).toBe("streaming");
+		await client.request("contextLimit.set", { sessionId: session.id, limit: 120_000 });
+		expect((await loadedConfig(session.id)).config).toEqual({ model_auto_compact_token_limit: 80_000 });
+		await client.request("session.followUp", { sessionId: session.id, text: "later" });
+		await client.request("session.steer", { sessionId: session.id, text: "now" });
+		await rec.waitFor(
+			(f) => f.event.type === "message_end" && JSON.stringify(f.event.message).includes("Reply to later"),
+			from,
+		);
+		expect(await loadedConfig(session.id)).toEqual({
+			loaded: true,
+			config: { model_auto_compact_token_limit: 120_000 },
+		});
+		expect(rec.types(from)).not.toContain("ui.notify");
+
+		// New threads start with the default; reopened ones with their own limit.
+		const { session: fresh } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		expect((await loadedConfig(fresh.id)).config).toEqual({ model_auto_compact_token_limit: 80_000 });
+		await rec.waitFor((f) => f.event.type === "session.status" && f.event.state === "idle", from);
+		await client.request("session.close", { sessionId: session.id });
+		from = rec.mark();
+		await client.request("session.open", { workspaceId: workspace.id, sessionId: session.id });
+		expect(await loadedConfig(session.id)).toEqual({
+			loaded: true,
+			config: { model_auto_compact_token_limit: 120_000 },
+		});
+		expect((await client.request("session.snapshot", { sessionId: session.id })).contextInfo?.contextLimit).toBe(
+			120_000,
+		);
+	});
+
 	it("restores the context size when a session is reopened or forked", async () => {
 		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
 		const { rec } = await open(session);

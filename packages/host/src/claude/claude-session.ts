@@ -69,6 +69,7 @@ export const CLAUDE_CAPABILITIES: AgentRuntimeCapabilities = {
 	reload: false,
 	images: true,
 	piExtensions: false,
+	contextLimit: { min: 100_000, enforcement: "request" },
 };
 
 /** An idle session stops its Claude Code process after this long (it resumes on the next prompt). */
@@ -180,6 +181,8 @@ export class ClaudeCodeSession extends ManagedSession {
 	private runWaiters: Array<() => void> = [];
 	private lastCompactTokens = 0;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
+	/** The context limit changed while Claude Code was busy: restart it once the run ends. */
+	private restartForLimit = false;
 	/** Claude Code task id of each subagent (keyed by its `Agent` tool call id), for `stopTask`. */
 	private readonly agentTasks = new Map<string, string>();
 	/** Subagent (`Agent` tool call id) of each Claude Code task id. */
@@ -265,6 +268,9 @@ export class ClaudeCodeSession extends ManagedSession {
 				: this.thinkingChosen
 					? { effort: this.thinkingLevel as Options["effort"] }
 					: {}),
+			// Claude Code compacts before the context reaches this window (1.64; `autoCompactWindow`
+			// takes 100k and more, and at most the model's own window).
+			...(this.contextLimit !== undefined ? { settings: { autoCompactWindow: this.contextLimit } } : {}),
 			env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "pier" },
 			stderr: (data: string) => {
 				const line = data.trim();
@@ -611,7 +617,35 @@ export class ClaudeCodeSession extends ManagedSession {
 		const waiters = this.runWaiters;
 		this.runWaiters = [];
 		for (const resolve of waiters) resolve();
-		this.scheduleProcessStop();
+		if (this.restartForLimit) setTimeout(() => this.restartIfIdle(), 0);
+		else this.scheduleProcessStop();
+	}
+
+	private get idle(): boolean {
+		return !this.running && this.queued.length === 0 && this.bridge.pendingRequests.length === 0;
+	}
+
+	/**
+	 * Claude Code reads the context limit (`autoCompactWindow`) when it starts, so stop it once it
+	 * has nothing to do; the next prompt resumes the session with the new limit.
+	 */
+	private restartIfIdle(): void {
+		if (!this.query) {
+			this.restartForLimit = false;
+			return;
+		}
+		if (!this.idle) {
+			this.restartForLimit = true;
+			return;
+		}
+		this.restartForLimit = false;
+		if (this.idleTimer) clearTimeout(this.idleTimer);
+		this.idleTimer = undefined;
+		this.stopProcess();
+	}
+
+	protected override applyContextLimit(): void {
+		this.restartIfIdle();
 	}
 
 	/** Stop the idle Claude Code process to free memory; the next prompt resumes the session. */
@@ -1093,10 +1127,10 @@ export class ClaudeCodeSession extends ManagedSession {
 
 	private contextInfo(model = this.modelInfo()): SessionContextInfo {
 		const contextWindow = this.reportedWindow ?? model.contextWindow;
-		return {
+		return this.withContextLimit({
 			autoCompaction: "runtime",
 			...(contextWindow ? { contextWindow } : {}),
-		};
+		});
 	}
 
 	protected content(): SessionContent {

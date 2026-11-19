@@ -5,6 +5,8 @@ import {
 	buildTranscript,
 	type ChatState,
 	cacheableChatState,
+	contextBudget,
+	contextLimitPresets,
 	editReplacements,
 	initialChatState,
 	isSubagentTool,
@@ -573,6 +575,66 @@ describe("helpers", () => {
 		expect(usage).toMatchObject({ input: 2000, output: 20, cacheRead: 900, cacheWrite: 950, lastContext: 1010 });
 		expect(usage.cacheHitRate).toBeCloseTo(0.45);
 		expect(sessionUsage(loaded()).cacheHitRate).toBeUndefined();
+	});
+
+	it("ignores the usage of replies from before the latest compaction", () => {
+		const reply = (totalTokens: number, timestamp: number) => ({
+			role: "assistant",
+			content: [{ type: "text", text: "ok" }],
+			usage: { input: totalTokens - 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens },
+			timestamp,
+		});
+		const compaction = { role: "compactionSummary", summary: "", tokensBefore: 900, timestamp: 50 };
+		// pi keeps the latest turns after its summary: their usage measured the old conversation.
+		let state = loaded({ messages: [compaction, reply(900, 40)] as SessionSnapshot["messages"] });
+		expect(sessionUsage(state)).toMatchObject({ lastContext: 0, output: 10 });
+		state = loaded({ messages: [compaction, reply(900, 40), reply(300, 60)] as SessionSnapshot["messages"] });
+		expect(sessionUsage(state).lastContext).toBe(300);
+		// Claude Code and OpenCode add the marker after the conversation it replaced.
+		state = loaded({ messages: [reply(900, 40), compaction] as SessionSnapshot["messages"] });
+		expect(sessionUsage(state).lastContext).toBe(0);
+	});
+
+	it("measures the context against the session's limit, else the model's window (1.64)", () => {
+		const reply = {
+			role: "assistant",
+			content: [{ type: "text", text: "ok" }],
+			usage: { input: 90_000, output: 10_000, cacheRead: 0, cacheWrite: 0, totalTokens: 100_000 },
+			timestamp: 1,
+		};
+		const messages = [reply] as SessionSnapshot["messages"];
+		expect(
+			contextBudget(loaded({ messages, contextInfo: { autoCompaction: "runtime", contextWindow: 400_000 } })),
+		).toEqual({
+			used: 100_000,
+			window: 400_000,
+			budget: 400_000,
+			share: 0.25,
+		});
+		const limited = loaded({
+			messages,
+			contextInfo: { autoCompaction: "configured", contextWindow: 400_000, contextLimit: 200_000 },
+		});
+		expect(contextBudget(limited)).toEqual({
+			used: 100_000,
+			window: 400_000,
+			limit: 200_000,
+			budget: 200_000,
+			share: 0.5,
+		});
+		// A limit above the window does not raise it; without a window the limit is the budget.
+		expect(
+			contextBudget(
+				loaded({ contextInfo: { autoCompaction: "runtime", contextWindow: 128_000, contextLimit: 500_000 } }),
+			),
+		).toMatchObject({ budget: 128_000 });
+		expect(contextBudget(loaded({ contextInfo: { autoCompaction: "runtime", contextLimit: 150_000 } }))).toEqual({
+			used: 0,
+			limit: 150_000,
+			budget: 150_000,
+		});
+		expect(contextLimitPresets(64_000, 200_000)).toEqual([64_000, 100_000, 128_000]);
+		expect(contextLimitPresets(100_000)).toEqual([100_000, 128_000, 200_000, 256_000, 400_000, 500_000]);
 	});
 
 	it("prefers the context size the runtime reports to the usage of the last reply", () => {

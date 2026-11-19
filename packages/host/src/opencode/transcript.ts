@@ -1,5 +1,16 @@
 import type { AssistantMessage, Event, Part, SessionMessagesResponse2 } from "@opencode-ai/sdk/v2/client";
-import { type ImagePart, type LiveTranscript, type TextPart, usageFrom } from "../runtimes/live-transcript.ts";
+import {
+	type ImagePart,
+	type LiveTranscript,
+	type TextPart,
+	type TranscriptMessage,
+	usageFrom,
+} from "../runtimes/live-transcript.ts";
+
+/** Tokens in the context after a reply, counted as OpenCode counts them for its own compaction. */
+export function contextTokensOf(tokens: AssistantMessage["tokens"]): number {
+	return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write;
+}
 
 export function errorText(error: AssistantMessage["error"]): string | undefined {
 	if (!error || error.name === "MessageAbortedError") return;
@@ -14,7 +25,11 @@ export class OpenCodeTranscript {
 	private readonly inputs = new Map<string, Record<string, unknown>>();
 	private readonly users = new Set<string>();
 
-	constructor(readonly transcript: LiveTranscript) {}
+	constructor(
+		readonly transcript: LiveTranscript,
+		/** Called with each reply that finished. */
+		private readonly onReply?: (info: AssistantMessage) => void,
+	) {}
 
 	toolInput(callID?: string): Record<string, unknown> | undefined {
 		return callID ? this.inputs.get(callID) : undefined;
@@ -22,6 +37,18 @@ export class OpenCodeTranscript {
 
 	history(messages: SessionMessagesResponse2): void {
 		for (const { info, parts } of messages) {
+			// A compaction is a user message with a `compaction` part, answered by the summary.
+			if (info.role === "user" && parts.some((part) => part.type === "compaction")) continue;
+			if (info.role === "assistant" && info.summary) {
+				this.transcript.endAssistant();
+				this.transcript.messages.push({
+					role: "compactionSummary",
+					summary: parts.map((part) => (part.type === "text" ? part.text : "")).join(""),
+					tokensBefore: 0,
+					timestamp: info.time.created,
+				} as unknown as TranscriptMessage);
+				continue;
+			}
 			if (info.role === "user") {
 				const content: Array<TextPart | ImagePart> = [];
 				for (const part of parts) {
@@ -111,6 +138,7 @@ export class OpenCodeTranscript {
 	}
 
 	private end(info: AssistantMessage): void {
+		this.onReply?.(info);
 		const t = this.transcript;
 		if (t.streaming) {
 			t.streaming.timestamp = info.time.created;

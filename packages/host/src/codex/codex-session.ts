@@ -16,6 +16,7 @@ import {
 	errorMessage,
 	ManagedSession,
 	type ManagedSessionOptions,
+	MIN_CONTEXT_LIMIT,
 	type SessionContent,
 	type SessionDescription,
 } from "../managed-session.ts";
@@ -58,9 +59,22 @@ export const CODEX_CAPABILITIES: AgentRuntimeCapabilities = {
 	reload: false,
 	images: true,
 	piExtensions: false,
+	contextLimit: { min: MIN_CONTEXT_LIMIT, enforcement: "request" },
 };
 
 type Json = Record<string, unknown>;
+
+/** How long a thread may take to unload before it is resumed with a new context limit. */
+const UNLOAD_TIMEOUT_MS = 5000;
+
+/**
+ * Configuration overrides for `thread/start`, `thread/resume` and `thread/fork` that make Codex
+ * compact before the context reaches `limit` (1.64). Codex reads them only when it loads the
+ * thread: before a request it compacts once the context reaches the limit.
+ */
+export function codexLimitConfig(limit: number | undefined): { config?: Json } {
+	return limit === undefined ? {} : { config: { model_auto_compact_token_limit: limit } };
+}
 
 /** What a Codex session needs from its runtime. */
 export interface CodexSessionHost {
@@ -161,7 +175,10 @@ export class CodexSession extends ManagedSession {
 	private modelId: string | undefined;
 	private thinkingLevel: ThinkingLevel;
 	private serviceTier: string | null | undefined;
+	/** Changes of thread settings (Fast mode, reloading for a context limit), one after another. */
 	private fastChange: Promise<unknown> = Promise.resolve();
+	/** The context limit changed while the thread was busy: reload it once it is idle. */
+	private reloadForLimit = false;
 	private turnId: string | undefined;
 	/** Content index of streamed text and reasoning items. */
 	private readonly itemIndex = new Map<string, number>();
@@ -173,6 +190,8 @@ export class CodexSession extends ManagedSession {
 	private pendingError: string | undefined;
 	private retrying = false;
 	private compacting = false;
+	/** Why the running compaction started, for its `compaction_end`. */
+	private compactionReason: "manual" | "threshold" = "manual";
 	private compactWaiters: Array<() => void> = [];
 	/** Usage of the latest model request of the running turn, for the reply that ends it. */
 	private lastUsage: Json | undefined;
@@ -254,11 +273,14 @@ export class CodexSession extends ManagedSession {
 
 	private contextInfo(model = this.currentModel()): SessionContextInfo {
 		const contextWindow = model?.contextWindow ?? this.contextWindow;
-		return {
-			autoCompaction: "runtime",
+		const limit = this.contextLimit;
+		return this.withContextLimit({
+			// With a limit Codex compacts once the context reaches it (`model_auto_compact_token_limit`).
+			autoCompaction: limit === undefined ? "runtime" : "configured",
 			...(contextWindow ? { contextWindow } : {}),
 			...(this.contextTokens ? { contextTokens: this.contextTokens } : {}),
-		};
+			...(limit !== undefined ? { compactionThreshold: contextWindow ? Math.min(limit, contextWindow) : limit } : {}),
+		});
 	}
 
 	/**
@@ -516,6 +538,7 @@ export class CodexSession extends ManagedSession {
 			case "contextCompaction":
 				if (!this.compacting) {
 					this.compacting = true;
+					this.compactionReason = "threshold";
 					this.emit({ type: "compaction_start", reason: "threshold" });
 					this.setRunState("compacting");
 				}
@@ -883,6 +906,8 @@ export class CodexSession extends ManagedSession {
 		for (const q of this.queued) q.steer = false;
 		t.endRun(failure);
 		this.setRunState("idle");
+		// Before the next queued turn, which waits for the thread settings to change.
+		if (this.reloadForLimit && !this.compacting) this.reloadLater();
 		const next = this.queued.shift();
 		if (next) {
 			this.emitQueue();
@@ -897,7 +922,7 @@ export class CodexSession extends ManagedSession {
 		this.compacting = false;
 		this.emit({
 			type: "compaction_end",
-			reason: "manual",
+			reason: this.compactionReason,
 			...(failure ? {} : { result: { summary: "", tokensBefore: 0 } }),
 			aborted: false,
 			willRetry: false,
@@ -907,6 +932,7 @@ export class CodexSession extends ManagedSession {
 		const waiters = this.compactWaiters;
 		this.compactWaiters = [];
 		for (const resolve of waiters) resolve();
+		if (this.reloadForLimit && !this.running) this.reloadLater();
 	}
 
 	// ---------------------------------------------------------------- ManagedSession
@@ -971,6 +997,7 @@ export class CodexSession extends ManagedSession {
 		this.setRunState("streaming");
 		const user = this.transcript.addUser(content);
 		try {
+			// Also waits for the thread to be reloaded with a new context limit.
 			await this.fastChange;
 			const response = await this.host.server().request<{ turn?: Json }>("turn/start", {
 				threadId: this.threadId,
@@ -1084,8 +1111,10 @@ export class CodexSession extends ManagedSession {
 
 	override async compact(_instructions?: string): Promise<{ summary: string; tokensBefore: number }> {
 		if (this.running) throw new PierProtocolError("CONFLICT", "Wait for the agent to finish before compacting");
+		await this.fastChange;
 		const done = new Promise<void>((resolve) => this.compactWaiters.push(resolve));
 		this.compacting = true;
+		this.compactionReason = "manual";
 		this.emit({ type: "compaction_start", reason: "manual" });
 		this.setRunState("compacting");
 		try {
@@ -1163,6 +1192,80 @@ export class CodexSession extends ManagedSession {
 		});
 		this.fastChange = change.catch(() => {});
 		return change;
+	}
+
+	/**
+	 * Codex takes the context limit only when it loads a thread (`thread/resume` with `config`), so a
+	 * new limit reloads the thread: right away when it is idle, otherwise after the running turn.
+	 * Prompts sent meanwhile wait for the reload.
+	 */
+	protected override async applyContextLimit(): Promise<void> {
+		if (this.running || this.compacting) {
+			this.reloadForLimit = true;
+			return;
+		}
+		await this.reloadThread();
+	}
+
+	/** Reload the thread for a context limit set during the turn that just ended. */
+	private reloadLater(): void {
+		void this.reloadThread().catch((error: unknown) => {
+			this.emit({ type: "ui.notify", level: "error", message: errorMessage(error) });
+		});
+	}
+
+	/** Unload the thread and resume it with the current context limit (after other settings changes). */
+	private reloadThread(): Promise<void> {
+		this.reloadForLimit = false;
+		const change = this.fastChange.then(() => this.resumeWithLimit());
+		this.fastChange = change.catch(() => {});
+		return change;
+	}
+
+	private async resumeWithLimit(): Promise<void> {
+		const server = this.host.server();
+		const threadId = this.threadId;
+		let finish: () => void = () => {};
+		const unloaded = new Promise<void>((resolve) => {
+			const timer = setTimeout(() => finish(), UNLOAD_TIMEOUT_MS);
+			timer.unref?.();
+			const off = server.onNotification((method, params) => {
+				if (params.threadId !== threadId) return;
+				const status = (params.status ?? {}) as Json;
+				if (method === "thread/closed" || (method === "thread/status/changed" && status.type === "notLoaded")) {
+					finish();
+				}
+			});
+			finish = () => {
+				clearTimeout(timer);
+				off();
+				resolve();
+			};
+		});
+		try {
+			// The app server unloads a thread when its last subscriber leaves; resuming a loaded
+			// thread would keep the limit it was loaded with.
+			const left = await server.request<Json>("thread/unsubscribe", { threadId });
+			if (left?.status === "unsubscribed") await unloaded;
+		} finally {
+			finish();
+		}
+		const policy = codexPolicy(this.options.workspace().policy);
+		const params = {
+			threadId,
+			cwd: this.workspacePath,
+			approvalPolicy: policy.approvalPolicy,
+			sandbox: policy.sandbox,
+			excludeTurns: true,
+		};
+		try {
+			await server.request("thread/resume", { ...params, ...codexLimitConfig(this.contextLimit) });
+		} catch (error) {
+			// Keep the thread usable without the limit rather than leave it unloaded.
+			this.host.log(`resuming Codex thread ${threadId} with a context limit failed: ${errorMessage(error)}`);
+			await server.request("thread/resume", params);
+			throw new PierProtocolError("CONFLICT", `Codex did not accept the context limit: ${errorMessage(error)}`);
+		}
 	}
 
 	override forkPoints(): Array<{ entryId: string; text: string }> {

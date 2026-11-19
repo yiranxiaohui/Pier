@@ -55,6 +55,7 @@ export const CLI_COMMANDS: ReadonlyArray<{ name: string; args: boolean }> = [
 	{ name: "follow", args: true },
 	{ name: "abort", args: false },
 	{ name: "compact", args: true },
+	{ name: "context", args: true },
 	{ name: "models", args: true },
 	{ name: "model", args: true },
 	{ name: "thinking", args: true },
