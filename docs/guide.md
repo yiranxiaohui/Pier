@@ -188,6 +188,29 @@ CLI 不在 `PATH` 中时，可以用 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH` 指�
 
 桌面端和手机端新建会话时选择「OpenCode」。Host 通过带身份验证的本地 `opencode serve` 连接工作区，支持切换模型、发送文字和图片、查看流式回复与工具结果、处理审批以及中止当前回合。会话由 OpenCode 保存，可在 Pier 里重新打开，也可以进入同一目录运行 `opencode --session <ID>` 继续。安装和更新使用 OpenCode 自己的发行渠道。
 
+### Hermes Agent
+
+在工作区所在的电脑安装 [Hermes Agent](https://github.com/NousResearch/hermes-agent)（`curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`），再用 `hermes setup` 或 `hermes model` 选择服务商与模型。Pier 会从 `PATH` 和 `~/.local/bin` 查找 `hermes`；自定义安装可以在启动 Host 时设置 `PIER_HERMES_PATH` 为可执行文件的绝对路径。Hermes 的上下文窗口至少需要 64K。
+
+使用 DeepSeek 时，把 `DEEPSEEK_API_KEY` 写进 `~/.hermes/.env` 并把服务商设为 `deepseek`；使用兼容 OpenAI 的中转接口时，在 `~/.hermes/config.yaml` 的 `providers:` 中添加一项，并在 `model:` 中引用它：
+
+```yaml
+providers:
+  my-relay:
+    api: https://api.example.com/v1
+    key_env: MY_RELAY_KEY        # 密钥写在 ~/.hermes/.env
+    discover_models: false
+    models:
+      deepseek-v4.1-flash:
+        context_length: 256000
+
+model:
+  default: deepseek-v4.1-flash
+  provider: custom:my-relay
+```
+
+桌面端和手机端新建会话时选择「Hermes」。Host 通过 `hermes acp`（[Agent Client Protocol](https://agentclientprotocol.com)）驱动 Hermes，所有 Hermes 会话共用一个进程，没有打开的 Hermes 会话 5 分钟后停止。支持切换模型与思考程度、发送文字和图片、查看流式回复与工具结果（终端命令、读写文件、搜索显示为对应的工具卡片）、回答 Hermes 的提问、重命名和中止当前回合。Hermes 请求执行危险命令或修改文件时，Pier 按工作区审批策略放行或询问你。会话由 Hermes 保存（`~/.hermes`），可在 Pier 里重新打开，也可以在终端用 `hermes --resume <ID>` 继续；在 Pier 中删除会话会调用 `hermes sessions delete`。Hermes 的记忆、技能、MCP 与其他设置使用它自己的配置。暂不支持排队消息、压缩与分叉。
+
 ### Subagent
 
 Agent 把任务委派给 subagent 时，对话中会出现一张 Subagent 卡片：Claude Code 的 `Agent` 工具、Codex 的 sub-agent（`spawn_agent`，需要 Codex 的多 Agent 功能 `multi_agent`，新版 Codex 默认开启）和 pi 的 [pi-subagents](https://github.com/nicobailon/pi-subagents) 扩展都会显示。卡片顶部是主 Agent，下面列出它派出的每个 subagent 的名称、模型与思考程度、状态、运行时长、任务描述、已执行的步骤和正在做的事；连续派出的多个 subagent 合并在一张卡片里。

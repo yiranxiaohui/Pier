@@ -11,6 +11,7 @@ const KNOWN_NAMES: Record<string, string> = {
 	"claude-code": "Claude Code",
 	codex: "Codex",
 	opencode: "OpenCode",
+	hermes: "Hermes",
 };
 
 export type CliRuntimeRef = Pick<AgentRuntimeInfo, "id" | "name">;

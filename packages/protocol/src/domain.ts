@@ -410,7 +410,7 @@ export type SessionRunState = "inactive" | "idle" | "streaming" | "compacting" |
  * Agent runtime that runs a session (1.22). `pi` is built in; `claude-code` and `codex` drive
  * the Claude Code and Codex CLIs installed on the host. Other ids may be added later.
  */
-export type AgentRuntimeId = "pi" | "claude-code" | "codex" | "opencode" | (string & {});
+export type AgentRuntimeId = "pi" | "claude-code" | "codex" | "opencode" | "hermes" | (string & {});
 
 export const DEFAULT_AGENT_RUNTIME: AgentRuntimeId = "pi";
 

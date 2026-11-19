@@ -1,6 +1,6 @@
 import type { AgentRuntimeId } from "@pier/protocol";
 import type { ReactNode } from "react";
-import { IconBot, IconTerminal } from "./Icons.tsx";
+import { IconBot, IconSparkles, IconTerminal } from "./Icons.tsx";
 
 type AgentIconProps = { size?: number; className?: string };
 
@@ -56,6 +56,11 @@ export function IconOpenCode(props: AgentIconProps) {
 	return <IconTerminal {...props} />;
 }
 
+/** Hermes Agent has no bundled brand mark either. */
+export function IconHermes(props: AgentIconProps) {
+	return <IconSparkles {...props} />;
+}
+
 export function AgentIcon({ runtime, ...props }: AgentIconProps & { runtime: AgentRuntimeId }) {
 	switch (runtime) {
 		case "pi":
@@ -66,6 +71,8 @@ export function AgentIcon({ runtime, ...props }: AgentIconProps & { runtime: Age
 			return <IconCodex {...props} />;
 		case "opencode":
 			return <IconOpenCode {...props} />;
+		case "hermes":
+			return <IconHermes {...props} />;
 		default:
 			return <IconBot {...props} />;
 	}

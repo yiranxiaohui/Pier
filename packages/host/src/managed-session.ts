@@ -477,6 +477,8 @@ export function runtimeName(id: AgentRuntimeId): string {
 			return "Codex";
 		case "opencode":
 			return "OpenCode";
+		case "hermes":
+			return "Hermes";
 		default:
 			return id;
 	}

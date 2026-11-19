@@ -125,7 +125,7 @@ export async function startTestHost(
 		sessionTitles: false,
 		...hostOptions,
 		// Only pi unless a test sets up other runtimes (the CLIs may be installed on this machine).
-		agents: { claudeCode: false, codex: false, opencode: false, ...hostOptions.agents },
+		agents: { claudeCode: false, codex: false, opencode: false, hermes: false, ...hostOptions.agents },
 		agentInstaller: {
 			homeDirectory: join(root, "home"),
 			configurePath: async () => {}, // Never change the test runner's shell profiles or Windows registry.

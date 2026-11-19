@@ -49,15 +49,20 @@ export function findExecutable(name: string, override?: string, managed?: string
 }
 
 /** Run `<executable> --version` and return the first version-looking token of its output. */
-export function probeVersion(executable: string, timeoutMs = 10_000): Promise<string | undefined> {
+export function probeVersion(
+	executable: string,
+	timeoutMs = 10_000,
+	options: { args?: string[]; env?: NodeJS.ProcessEnv } = {},
+): Promise<string | undefined> {
 	return new Promise((resolve) => {
 		try {
 			execFile(
 				executable,
-				["--version"],
+				options.args ?? ["--version"],
 				{
 					timeout: timeoutMs,
 					windowsHide: true,
+					...(options.env ? { env: options.env } : {}),
 					shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable),
 				},
 				(error, stdout) => {

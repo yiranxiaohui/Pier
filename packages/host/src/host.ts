@@ -50,6 +50,7 @@ import {
 } from "./connection.ts";
 import { DiagnosticLog } from "./diagnostic-log.ts";
 import { GitService, samePath } from "./git.ts";
+import { HermesRuntime, type HermesRuntimeOptions } from "./hermes/hermes-runtime.ts";
 import { absoluteHostDirectory, listHostDirectories } from "./host-directories.ts";
 import { hostFileTarget } from "./host-files.ts";
 import { HostProcessManager } from "./host-processes.ts";
@@ -199,6 +200,7 @@ export interface PierHostOptions {
 		claudeCode?: ClaudeCodeRuntimeOptions | false;
 		codex?: CodexRuntimeOptions | false;
 		opencode?: OpenCodeRuntimeOptions | false;
+		hermes?: HermesRuntimeOptions | false;
 	};
 	/**
 	 * Configuration directories of Claude Code, Codex and OpenCode for `agentConfig.*` (tests).
@@ -652,6 +654,9 @@ export class PierHost implements RequestHandler {
 				new PiRuntime(env),
 				...Object.values(nativeRuntimes).filter((r) => r !== undefined),
 				...(agents.opencode === false ? [] : [new OpenCodeRuntime(agents.opencode)]),
+				...(agents.hermes === false
+					? []
+					: [new HermesRuntime({ log, clientVersion: PIER_HOST_VERSION, ...agents.hermes })]),
 			],
 			log,
 			config: this.config,

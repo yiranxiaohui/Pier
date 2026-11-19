@@ -130,6 +130,8 @@ export function agentRuntimeLabel(id: AgentRuntimeId | undefined): string {
 			return "Codex";
 		case "opencode":
 			return "OpenCode";
+		case "hermes":
+			return "Hermes";
 		default:
 			return id;
 	}

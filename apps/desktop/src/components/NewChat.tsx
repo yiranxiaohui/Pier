@@ -262,6 +262,8 @@ function agentDescription(id: string): string {
 			return "这台电脑上安装的 Codex，使用它自己的登录与配置";
 		case "opencode":
 			return "这台电脑上安装的 OpenCode，使用它自己的模型与配置";
+		case "hermes":
+			return "这台电脑上安装的 Hermes Agent，使用它自己的模型、记忆与配置";
 		default:
 			return "";
 	}

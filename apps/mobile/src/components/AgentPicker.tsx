@@ -13,6 +13,8 @@ function agentIcon(id: AgentRuntimeId): IconName {
 		case "codex":
 		case "opencode":
 			return "terminal";
+		case "hermes":
+			return "planet-outline";
 		default:
 			return "hardware-chip-outline";
 	}
@@ -28,6 +30,8 @@ function agentDescription(id: AgentRuntimeId): string {
 			return "电脑上的 Codex，使用它自己的登录与配置";
 		case "opencode":
 			return "电脑上的 OpenCode，使用它自己的模型与配置";
+		case "hermes":
+			return "电脑上的 Hermes Agent，使用它自己的模型、记忆与配置";
 		default:
 			return "";
 	}
