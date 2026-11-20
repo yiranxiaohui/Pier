@@ -40,6 +40,7 @@ const PI_LABELS: Partial<Record<AgentInstallationStatus["state"], string>> = {
 export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) {
 	const store = useStore();
 	const pi = runtime === "pi";
+	const opencode = runtime === "opencode";
 	const target = useSettingsTarget();
 	const version = useAppState((s) => s.agentConfigVersion);
 	const [data, setData] = useState<AgentInstallationResult>();
@@ -51,12 +52,14 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 	// Recent byte counts of a running download, so the card can show its speed.
 	const samples = useRef<DownloadSample[]>([]);
 	const [rate, setRate] = useState<number>();
-	// Hosts before 1.61 have pi built in and update it with Pier.
-	const supported = hostSpeaksMinor(target.hostInfo, pi ? 61 : 32);
+	// Hosts before 1.61 have pi built in and update it with Pier; OpenCode needs 1.65.
+	const since = pi ? 61 : opencode ? 65 : 32;
+	const supported = hostSpeaksMinor(target.hostInfo, since);
 	// pi updates itself (`pi update`); a running Host keeps the pi it loaded until it restarts.
-	const supportsAutoUpdate = !pi && hostSpeaksMinor(target.hostInfo, 56);
+	// OpenCode checks for its own updates (its `autoupdate` setting).
+	const supportsAutoUpdate = !pi && !opencode && hostSpeaksMinor(target.hostInfo, 56);
 	// Hosts before 1.50 only download from the official route.
-	const routes = hostSpeaksMinor(target.hostInfo, pi ? 61 : 50);
+	const routes = hostSpeaksMinor(target.hostInfo, Math.max(since, 50));
 	const [source, setSource] = useState(() => readAgentInstallSource(target.node, runtime));
 	const identity = `${target.node}:${runtime}`;
 	const identityRef = useRef(identity);
@@ -143,7 +146,7 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 	}, [store, runtime, identity, routes, source]);
 
 	async function setAutoUpdate(enabled: boolean) {
-		if (runtime === "pi") return;
+		if (runtime === "pi" || runtime === "opencode") return;
 		setSavingAutoUpdate(true);
 		setError(undefined);
 		try {
@@ -170,7 +173,12 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 	// Both POSIX shells and PowerShell accept single-quoted paths, with different quote escaping.
 	const windows = target.hostInfo?.platform === "win32";
 	const quoted = executable ? `'${executable.replaceAll("'", windows ? "''" : "'\\''")}'` : "";
-	const login = executable && !pi ? `${windows ? "& " : ""}${quoted}${runtime === "codex" ? " login" : ""}` : undefined;
+	const login =
+		executable && !pi
+			? `${windows ? "& " : ""}${quoted}${runtime === "codex" ? " login" : opencode ? " auth login" : ""}`
+			: opencode
+				? "opencode auth login"
+				: undefined;
 	const installedVersion = pi ? data?.installedVersion : undefined;
 	const canRestart = target.local && store.bridgeKind === "tauri";
 
@@ -190,9 +198,11 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 							? supported
 								? `Pier 使用${target.local ? "本机" : target.name}上你自己安装的 pi，与终端里的 pi 是同一份，版本由你管理。没有 pi 时运行 pi 的官方安装程序，已安装时运行 pi update；需要 Node.js 22.19 或更新版本及 npm。更新后重启 Pier Host 生效。`
 								: "这台电脑上的 Pier 内置了 pi，随 Pier 一起更新。更新 Pier 后可以改用自己安装的 pi。"
-							: supported
-								? `在${target.local ? "本机" : target.name}安装官方最新原生版本，无需 Node.js。Pier 与外部终端共用；安装后请重新打开终端。`
-								: "请先更新这台电脑上的 Pier，以支持应用内安装和更新。"
+							: opencode && supported
+								? `在${target.local ? "本机" : target.name}安装 OpenCode 官方最新原生版本（OpenCode 1），无需 Node.js。放在 ~/.opencode/bin，与 OpenCode 官方安装脚本相同，Pier 与外部终端共用，也可以在终端用 opencode upgrade 更新；安装后请重新打开终端。`
+								: supported
+									? `在${target.local ? "本机" : target.name}安装官方最新原生版本，无需 Node.js。Pier 与外部终端共用；安装后请重新打开终端。`
+									: "请先更新这台电脑上的 Pier，以支持应用内安装和更新。"
 					}
 				>
 					<button
@@ -261,9 +271,11 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 						description={
 							pi
 								? "npmmirror 镜像提供 pi 依赖的 npm 包，适合国内网络；pi 的安装程序与版本信息仍从 pi.dev 获取。"
-								: runtime === "codex"
-									? "加速线路转发 GitHub 上的官方发行包，版本与 SHA-256 校验值仍从 GitHub 官方获取。"
-									: "npmmirror 镜像提供与官方相同的原生程序，适合国内网络；版本与 SHA-256 校验值仍从官方获取。"
+								: opencode
+									? "加速线路转发 GitHub 上的官方发行包；npmmirror 镜像提供同一版本的 npm 平台包，适合国内网络。版本与校验值仍从 npm 和 GitHub 官方获取。"
+									: runtime === "codex"
+										? "加速线路转发 GitHub 上的官方发行包，版本与 SHA-256 校验值仍从 GitHub 官方获取。"
+										: "npmmirror 镜像提供与官方相同的原生程序，适合国内网络；版本与 SHA-256 校验值仍从官方获取。"
 						}
 					>
 						<Select
@@ -313,9 +325,11 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 					<SettingRow
 						title="账号登录"
 						description={
-							runtime === "codex"
-								? "首次使用可在这台电脑的终端运行登录命令；也可以在个人中心配置接口。"
-								: "首次使用可运行此命令，在 Claude Code 中执行 /login；也可以在个人中心配置接口。"
+							opencode
+								? "在这台电脑的终端运行登录命令，选择服务商并保存凭据；也可以在下方「服务商」中填写接口地址与 API Key。"
+								: runtime === "codex"
+									? "首次使用可在这台电脑的终端运行登录命令；也可以在个人中心配置接口。"
+									: "首次使用可运行此命令，在 Claude Code 中执行 /login；也可以在个人中心配置接口。"
 						}
 					>
 						<CopyButton text={login} label="复制登录命令" />

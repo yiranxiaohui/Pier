@@ -1350,16 +1350,19 @@ export type NativeAgentRuntime = z.infer<typeof NativeAgentRuntimeSchema>;
 
 /**
  * Agents Pier installs and updates on the Host computer: Claude Code and Codex (1.32) from their
- * native releases, pi (1.61) through pi's own installer and `pi update`.
+ * native releases, pi (1.61) through pi's own installer and `pi update`, OpenCode (1.65) from
+ * its native release into `~/.opencode/bin`, where OpenCode's own installer puts it.
  */
-export const AgentInstallRuntimeSchema = z.enum(["claude-code", "codex", "pi"]);
+export const AgentInstallRuntimeSchema = z.enum(["claude-code", "codex", "pi", "opencode"]);
 export type AgentInstallRuntime = z.infer<typeof AgentInstallRuntimeSchema>;
 
 /**
  * Download routes of the agent installer (1.50). `official` downloads from Anthropic or GitHub;
  * `npmmirror` fetches Claude Code's npm package and the others relay Codex's GitHub release. Every
  * route is verified against the official SHA-256. For pi (1.61) `npmmirror` makes npm install pi's
- * packages from npmmirror; pi's installer and versions still come from pi.dev.
+ * packages from npmmirror; pi's installer and versions still come from pi.dev. OpenCode (1.65)
+ * relays its GitHub release, or fetches its npm platform package from npmmirror (verified against
+ * the SHA-512 that registry.npmjs.org publishes).
  */
 export const AgentInstallSourceSchema = z.enum(["official", "npmmirror", "ghfast", "gh-proxy", "ghproxy"]);
 export type AgentInstallSource = z.infer<typeof AgentInstallSourceSchema>;
@@ -1369,6 +1372,7 @@ export const AGENT_INSTALL_SOURCES: Record<AgentInstallRuntime, readonly AgentIn
 	"claude-code": ["official", "npmmirror"],
 	codex: ["official", "ghfast", "gh-proxy", "ghproxy"],
 	pi: ["official", "npmmirror"],
+	opencode: ["official", "ghfast", "gh-proxy", "ghproxy", "npmmirror"],
 };
 
 /** An agent installation on the Host computer (1.32). Jobs survive client disconnects. */

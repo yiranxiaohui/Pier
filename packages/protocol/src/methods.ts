@@ -492,12 +492,13 @@ export const MethodParamsSchemas = {
 
 	/** Agent runtimes the host knows and whether they can run sessions (1.22). */
 	"runtime.list": z.object({}).optional(),
-	/** Agent installation and progress on the Host computer (1.32; `pi` 1.61). */
+	/** Agent installation and progress on the Host computer (1.32; `pi` 1.61; `opencode` 1.65). */
 	"runtime.installStatus": z.object({ runtime: AgentInstallRuntimeSchema, refresh: z.boolean().optional() }),
 	/**
 	 * Starts an asynchronous install/update of the latest official release. `source` (1.50) picks
 	 * a download route the runtime accepts; it defaults to `official`. `pi` (1.61) runs
-	 * `pi update --self`, or pi's official installer when pi is not installed.
+	 * `pi update --self`, or pi's official installer when pi is not installed. `opencode` (1.65)
+	 * installs the latest OpenCode 1 release into `~/.opencode/bin`.
 	 */
 	"runtime.install": z.object({ runtime: AgentInstallRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
 	"runtime.setAutoUpdate": z.object({ runtime: NativeAgentRuntimeSchema, enabled: z.boolean() }),

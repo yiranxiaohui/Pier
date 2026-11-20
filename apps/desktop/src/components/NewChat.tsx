@@ -247,7 +247,7 @@ function AgentPicker({
 	);
 }
 
-/** Agents Pier can install (or, for OpenCode, explain how to install) from the settings page. */
+/** Agents Pier can install from the settings page (OpenCode since Host 1.65; older Hosts explain how). */
 function installable(id: string): boolean {
 	return id === "claude-code" || id === "codex" || id === "pi" || id === "opencode";
 }

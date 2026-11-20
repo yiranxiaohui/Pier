@@ -184,9 +184,9 @@ CLI 不在 `PATH` 中时，可以用 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH` 指�
 
 ### OpenCode
 
-在工作区所在的电脑安装 OpenCode（例如 `npm install -g opencode-ai`），用 `opencode auth login` 登录服务商，或在「设置 → Agent 配置 → OpenCode」中配置模型与服务商（见上文「可视化配置」）。Pier 会从 `PATH`、常见安装目录和 `~/.opencode/bin` 查找 CLI。自定义安装可以在启动 Host 时设置 `PIER_OPENCODE_PATH` 为可执行文件的绝对路径。
+在「设置 → Agent 配置 → OpenCode → 安装与更新」点击「安装」，Pier 会在所选电脑上安装 OpenCode 1 的官方最新原生版本（无需 Node.js），放在 `~/.opencode/bin`（与 OpenCode 官方安装脚本相同）并把该目录加入用户 `PATH`，重新打开终端即可运行 `opencode`，之后也可以在终端用 `opencode upgrade` 更新。「下载线路」可选 GitHub 直连、GHFast / GH-Proxy / GHProxy 加速线路（转发 GitHub 上的官方发行包），或 npmmirror 国内镜像（从 registry.npmmirror.com 下载同一版本的 npm 平台包）；版本与校验值始终从 npm 与 GitHub 官方获取，下载内容校验通过后才会安装。也可以自己在终端安装（例如 `npm install -g opencode-ai`，国内网络可加 `--registry=https://registry.npmmirror.com`，或 `curl -fsSL https://opencode.ai/install | bash`）。然后用 `opencode auth login` 登录服务商，或在「设置 → Agent 配置 → OpenCode」中配置模型与服务商（见上文「可视化配置」）。Pier 依次从 `~/.opencode/bin`、`PATH` 和常见安装目录查找 CLI。自定义安装可以在启动 Host 时设置 `PIER_OPENCODE_PATH` 为可执行文件的绝对路径。
 
-桌面端和手机端新建会话时选择「OpenCode」。Host 通过带身份验证的本地 `opencode serve` 连接工作区，支持切换模型、发送文字和图片、查看流式回复与工具结果、处理审批以及中止当前回合。会话由 OpenCode 保存，可在 Pier 里重新打开，也可以进入同一目录运行 `opencode --session <ID>` 继续。安装和更新使用 OpenCode 自己的发行渠道。
+桌面端和手机端新建会话时选择「OpenCode」。Host 通过带身份验证的本地 `opencode serve` 连接工作区，支持切换模型、发送文字和图片、查看流式回复与工具结果、处理审批以及中止当前回合。会话由 OpenCode 保存，可在 Pier 里重新打开，也可以进入同一目录运行 `opencode --session <ID>` 继续。
 
 ### Hermes Agent
 

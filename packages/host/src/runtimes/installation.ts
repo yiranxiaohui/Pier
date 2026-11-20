@@ -3,18 +3,26 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, readFileSync } from "node:fs";
 import { chmod, cp, lstat, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { UPDATE_ROUTES, updateDownloadUrl } from "@pier/client";
 import {
 	AGENT_INSTALL_SOURCES,
 	type AgentInstallationStatus,
+	type AgentInstallRuntime,
 	type AgentInstallSource,
 	type NativeAgentRuntime,
 	NativeAgentRuntimeSchema,
 	PierProtocolError,
 } from "@pier/protocol";
+import {
+	detectOpenCodeTarget,
+	opencodePaths,
+	opencodeRelease,
+	publishOpenCode,
+	removeReplacedOpenCode,
+} from "../opencode/installer.ts";
 import { compareVersions } from "../peers/ssh/remote.ts";
 import { probeVersion } from "./executable.ts";
 import { configureInstallationPath } from "./installation-path.ts";
@@ -50,6 +58,9 @@ export function installationTarget(
 	};
 }
 
+/** Agents this installer downloads and verifies; pi runs its own installer (`PiInstaller`). */
+export type InstallableRuntime = Exclude<AgentInstallRuntime, "pi">;
+
 export interface AgentInstallerOptions {
 	/** Defaults to the OS user's home; tests use a separate temporary home. */
 	homeDirectory?: string;
@@ -57,7 +68,11 @@ export interface AgentInstallerOptions {
 	fetch?: typeof fetch;
 	probe?: typeof probeVersion;
 	autoUpdateTarget?: (runtime: NativeAgentRuntime) => { executable: string; source: AgentInstallSource } | undefined;
-	onInstalled?: (runtime: NativeAgentRuntime) => Promise<void> | void;
+	onInstalled?: (runtime: InstallableRuntime) => Promise<void> | void;
+	/** This computer's OpenCode build (`linux-x64`, `windows-x64-baseline`, …); detected by default. */
+	opencodeTarget?: () => Promise<string>;
+	/** The OpenCode the Host uses now, wherever it is installed; it is not replaced while current. */
+	currentOpenCode?: () => string | undefined;
 }
 
 interface Release {
@@ -72,7 +87,7 @@ interface Release {
 }
 
 interface Job {
-	runtime: NativeAgentRuntime;
+	runtime: InstallableRuntime;
 	source: AgentInstallSource;
 	/** The active command to check; manual jobs may also do a first-time installation. */
 	autoExecutable?: string;
@@ -86,8 +101,9 @@ function sourceName(source: AgentInstallSource): string {
 	return `${UPDATE_ROUTES.find((route) => route.id === source)?.label ?? source} 加速线路`;
 }
 
-function verifyChecksum(actual: string, expected: string): void {
-	if (actual.toLowerCase() !== expected.toLowerCase()) throw new Error("SHA-256 校验失败，下载文件未安装，请重试");
+function verifyChecksum(actual: string, expected: string, algorithm: "sha256" | "sha512" = "sha256"): void {
+	if (actual.toLowerCase() !== expected.toLowerCase())
+		throw new Error(`${algorithm === "sha512" ? "SHA-512" : "SHA-256"} 校验失败，下载文件未安装，请重试`);
 }
 
 async function fileChecksum(path: string): Promise<string> {
@@ -103,11 +119,13 @@ function extract(
 	directory: string,
 	signal: AbortSignal,
 	member?: string,
+	/** `-xf` lets tar detect the format, for zip archives (bsdtar on macOS and Windows). */
+	mode: "-xzf" | "-xf" = "-xzf",
 ): Promise<void> {
 	return new Promise<void>((resolve, reject) =>
 		execFile(
 			"tar",
-			["-xzf", archive, "-C", directory, ...(member ? [member] : [])],
+			[mode, archive, "-C", directory, ...(member ? [member] : [])],
 			{ signal, timeout: 120_000, windowsHide: true },
 			(error) => (error ? reject(new Error(`解压 ${name} 失败，请确认系统已安装 tar：${error.message}`)) : resolve()),
 		),
@@ -116,8 +134,8 @@ function extract(
 
 /** Verified native releases, with public user-level commands shared by Pier and external terminals. */
 export class AgentInstaller {
-	private readonly statuses = new Map<NativeAgentRuntime, AgentInstallationStatus>();
-	private readonly jobs = new Map<NativeAgentRuntime, Job>();
+	private readonly statuses = new Map<InstallableRuntime, AgentInstallationStatus>();
+	private readonly jobs = new Map<InstallableRuntime, Job>();
 	private autoTimer?: ReturnType<typeof setTimeout>;
 	private closed = false;
 
@@ -143,7 +161,7 @@ export class AgentInstaller {
 		}
 	}
 
-	status(runtime: NativeAgentRuntime): AgentInstallationStatus {
+	status(runtime: InstallableRuntime): AgentInstallationStatus {
 		return this.statuses.get(runtime) ?? { runtime, state: "idle" };
 	}
 
@@ -173,12 +191,12 @@ export class AgentInstaller {
 	}
 
 	/** Choosing another route while a job still fetches metadata or downloads restarts it on that route. */
-	start(runtime: NativeAgentRuntime, source: AgentInstallSource = "official"): AgentInstallationStatus {
+	start(runtime: InstallableRuntime, source: AgentInstallSource = "official"): AgentInstallationStatus {
 		return this.startJob(runtime, source);
 	}
 
 	private startJob(
-		runtime: NativeAgentRuntime,
+		runtime: InstallableRuntime,
 		source: AgentInstallSource,
 		autoExecutable?: string,
 	): AgentInstallationStatus {
@@ -288,14 +306,22 @@ export class AgentInstaller {
 		return { version, checksum, format: "package", url: updateDownloadUrl(asset.browser_download_url, mirror) };
 	}
 
-	/** Downloads `release` to `path` and returns its SHA-256. */
-	private async download(job: Job, release: Release, path: string, signal: AbortSignal): Promise<string> {
+	/**
+	 * Downloads `release` to `path` and returns its digest: SHA-256 unless `release.algorithm` says
+	 * otherwise (OpenCode's npm packages publish SHA-512).
+	 */
+	private async download(
+		job: Job,
+		release: { url: string; algorithm?: "sha256" | "sha512" },
+		path: string,
+		signal: AbortSignal,
+	): Promise<string> {
 		const response = await this.response(release.url, signal, 600_000, job.source);
 		if (!response.body) throw new Error("下载内容为空");
 		const total = Number(response.headers.get("content-length")) || undefined;
 		if (total && total > MAX_DOWNLOAD_BYTES) throw new Error("下载文件过大");
 		this.update(job, { state: "downloading", downloadedBytes: 0, ...(total ? { totalBytes: total } : {}) });
-		const hash = createHash("sha256");
+		const hash = createHash(release.algorithm ?? "sha256");
 		let bytes = 0;
 		const progress = new Transform({
 			transform: (chunk: Buffer, _encoding, callback) => {
@@ -316,97 +342,15 @@ export class AgentInstaller {
 	}
 
 	private async install(job: Job): Promise<void> {
-		const { runtime } = job;
 		const { signal } = job.abort;
-		let staging: string | undefined;
+		// Temporary files to remove when the job ends, unless they were published.
+		const staging: { path?: string } = {};
 		const timeout = setTimeout(() => job.abort.abort(new Error("安装超过 10 分钟，请检查网络后重试")), 600_000);
 		timeout.unref?.();
 		try {
 			signal.throwIfAborted();
-			const home = this.options.homeDirectory ?? homedir();
-			const paths = sharedAgentPaths(runtime, home);
-			const release = await this.release(runtime, job.source, signal);
-			this.update(job, { version: release.version });
-			const current = job.autoExecutable ?? AgentInstaller.executable(this.directory, runtime, home);
-			const installed = current && (await (this.options.probe ?? probeVersion)(current));
-			if (job.autoExecutable) {
-				signal.throwIfAborted();
-				if (!installed || !VERSION.test(installed))
-					throw new Error("无法确认已安装的 Agent 版本，将在下次后台检查时重试");
-				// Background checks only move forward to stable releases. Build metadata has no precedence.
-				if (
-					!/^\d+\.\d+\.\d+$/.test(release.version) ||
-					compareVersions(release.version, installed.replace(/\+.*/, "")) <= 0
-				) {
-					this.update(job, { state: "idle" });
-					return;
-				}
-			}
-			const upToDate = current && installed === release.version;
-			if (upToDate && sharedAgentExecutable(runtime, home)) {
-				signal.throwIfAborted();
-				await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
-				await this.options.onInstalled?.(runtime);
-				this.update(job, { state: "ready" });
-				return;
-			}
-			const root = paths.versions;
-			await mkdir(root, { recursive: true, mode: 0o700 });
-			staging = await mkdtemp(join(root, ".install-"));
-			const name = runtime === "codex" ? "Codex" : "Claude Code";
-			const filename = `${runtime === "codex" ? "codex" : "claude"}${process.platform === "win32" ? ".exe" : ""}`;
-			const executable = join(staging, ...(release.format === "package" ? ["bin", filename] : [filename]));
-			if (upToDate && current) {
-				// Migrate an already verified Pier-only installation even when its version is latest.
-				if (release.format === "package") await cp(dirname(current), join(staging, "bin"), { recursive: true });
-				else await cp(current, executable);
-				this.update(job, { state: "installing" });
-			} else {
-				const downloaded = release.format === "binary" ? executable : join(staging, "download.tar.gz");
-				const checksum = await this.download(job, release, downloaded, signal);
-				this.update(job, { state: "verifying" });
-				if (release.format === "npm") {
-					// The official manifest checksums the executable inside the package, not the tarball.
-					await extract(name, downloaded, staging, signal, `package/${filename}`);
-					const extracted = join(staging, "package", filename);
-					if (!(await lstat(extracted)).isFile()) throw new Error(`${sourceName(job.source)}返回的安装包无效`);
-					verifyChecksum(await fileChecksum(extracted), release.checksum);
-					await rename(extracted, executable);
-					await rm(join(staging, "package"), { recursive: true, force: true });
-				} else {
-					verifyChecksum(checksum, release.checksum);
-				}
-				this.update(job, { state: "installing" });
-				if (release.format === "package") await extract(name, downloaded, staging, signal);
-				if (downloaded !== executable) await rm(downloaded);
-			}
-			await chmod(executable, 0o755);
-			signal.throwIfAborted();
-			const version = await (this.options.probe ?? probeVersion)(executable, 15_000);
-			if (version !== release.version) throw new Error("安装后版本验证失败，已保留之前的 Agent，请重试");
-			if (job.autoExecutable) {
-				// An external updater or uninstall may have changed the active CLI during the download.
-				const active = this.options.autoUpdateTarget?.(runtime)?.executable;
-				if (active !== job.autoExecutable || (await (this.options.probe ?? probeVersion)(active)) !== installed) {
-					this.update(job, { state: "idle" });
-					return;
-				}
-			}
-			signal.throwIfAborted();
-			const destination = join(root, `${release.version}-${randomUUID()}`);
-			await rename(staging, destination);
-			staging = destination;
-			await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
-			signal.throwIfAborted();
-			// Retain this verified release if publication/rollback encounters a filesystem error.
-			staging = undefined;
-			await publishAgentCommand(
-				runtime,
-				join(destination, ...(release.format === "package" ? ["bin", filename] : [filename])),
-				home,
-			);
-			await this.options.onInstalled?.(runtime);
-			this.update(job, { state: "ready" });
+			if (job.runtime === "opencode") await this.installOpenCode(job, staging);
+			else await this.installNative(job, job.runtime, staging);
 		} catch (error) {
 			if (signal.reason === AUTO_UPDATE_DISABLED) {
 				this.update(job, { state: "idle" });
@@ -415,8 +359,143 @@ export class AgentInstaller {
 			}
 		} finally {
 			clearTimeout(timeout);
-			if (staging) await rm(staging, { recursive: true, force: true }).catch(() => {});
+			if (staging.path) await rm(staging.path, { recursive: true, force: true }).catch(() => {});
 		}
+	}
+
+	private async installNative(job: Job, runtime: NativeAgentRuntime, staging: { path?: string }): Promise<void> {
+		const { signal } = job.abort;
+		const home = this.options.homeDirectory ?? homedir();
+		const paths = sharedAgentPaths(runtime, home);
+		const release = await this.release(runtime, job.source, signal);
+		this.update(job, { version: release.version });
+		const current = job.autoExecutable ?? AgentInstaller.executable(this.directory, runtime, home);
+		const installed = current && (await (this.options.probe ?? probeVersion)(current));
+		if (job.autoExecutable) {
+			signal.throwIfAborted();
+			if (!installed || !VERSION.test(installed))
+				throw new Error("无法确认已安装的 Agent 版本，将在下次后台检查时重试");
+			// Background checks only move forward to stable releases. Build metadata has no precedence.
+			if (
+				!/^\d+\.\d+\.\d+$/.test(release.version) ||
+				compareVersions(release.version, installed.replace(/\+.*/, "")) <= 0
+			) {
+				this.update(job, { state: "idle" });
+				return;
+			}
+		}
+		const upToDate = current && installed === release.version;
+		if (upToDate && sharedAgentExecutable(runtime, home)) {
+			signal.throwIfAborted();
+			await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
+			await this.options.onInstalled?.(runtime);
+			this.update(job, { state: "ready" });
+			return;
+		}
+		const root = paths.versions;
+		await mkdir(root, { recursive: true, mode: 0o700 });
+		staging.path = await mkdtemp(join(root, ".install-"));
+		const name = runtime === "codex" ? "Codex" : "Claude Code";
+		const filename = `${runtime === "codex" ? "codex" : "claude"}${process.platform === "win32" ? ".exe" : ""}`;
+		const executable = join(staging.path, ...(release.format === "package" ? ["bin", filename] : [filename]));
+		if (upToDate && current) {
+			// Migrate an already verified Pier-only installation even when its version is latest.
+			if (release.format === "package") await cp(dirname(current), join(staging.path, "bin"), { recursive: true });
+			else await cp(current, executable);
+			this.update(job, { state: "installing" });
+		} else {
+			const downloaded = release.format === "binary" ? executable : join(staging.path, "download.tar.gz");
+			const checksum = await this.download(job, release, downloaded, signal);
+			this.update(job, { state: "verifying" });
+			if (release.format === "npm") {
+				// The official manifest checksums the executable inside the package, not the tarball.
+				await extract(name, downloaded, staging.path, signal, `package/${filename}`);
+				const extracted = join(staging.path, "package", filename);
+				if (!(await lstat(extracted)).isFile()) throw new Error(`${sourceName(job.source)}返回的安装包无效`);
+				verifyChecksum(await fileChecksum(extracted), release.checksum);
+				await rename(extracted, executable);
+				await rm(join(staging.path, "package"), { recursive: true, force: true });
+			} else {
+				verifyChecksum(checksum, release.checksum);
+			}
+			this.update(job, { state: "installing" });
+			if (release.format === "package") await extract(name, downloaded, staging.path, signal);
+			if (downloaded !== executable) await rm(downloaded);
+		}
+		await chmod(executable, 0o755);
+		signal.throwIfAborted();
+		const version = await (this.options.probe ?? probeVersion)(executable, 15_000);
+		if (version !== release.version) throw new Error("安装后版本验证失败，已保留之前的 Agent，请重试");
+		if (job.autoExecutable) {
+			// An external updater or uninstall may have changed the active CLI during the download.
+			const active = this.options.autoUpdateTarget?.(runtime)?.executable;
+			if (active !== job.autoExecutable || (await (this.options.probe ?? probeVersion)(active)) !== installed) {
+				this.update(job, { state: "idle" });
+				return;
+			}
+		}
+		signal.throwIfAborted();
+		const destination = join(root, `${release.version}-${randomUUID()}`);
+		await rename(staging.path, destination);
+		staging.path = destination;
+		await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
+		signal.throwIfAborted();
+		// Retain this verified release if publication/rollback encounters a filesystem error.
+		staging.path = undefined;
+		await publishAgentCommand(
+			runtime,
+			join(destination, ...(release.format === "package" ? ["bin", filename] : [filename])),
+			home,
+		);
+		await this.options.onInstalled?.(runtime);
+		this.update(job, { state: "ready" });
+	}
+
+	/**
+	 * OpenCode's native release goes into `~/.opencode/bin`, where OpenCode's own installer puts it,
+	 * replacing an earlier copy there in one step. An up-to-date OpenCode the Host already uses,
+	 * wherever it is installed, is kept as it is.
+	 */
+	private async installOpenCode(job: Job, staging: { path?: string }): Promise<void> {
+		const { signal } = job.abort;
+		const home = this.options.homeDirectory ?? homedir();
+		const paths = opencodePaths(home);
+		const probe = this.options.probe ?? probeVersion;
+		const target = await (this.options.opencodeTarget ?? detectOpenCodeTarget)();
+		const release = await opencodeRelease(job.source, target, (url) => this.response(url, signal), signal);
+		this.update(job, { version: release.version });
+		const current = this.options.currentOpenCode?.() ?? (existsSync(paths.executable) ? paths.executable : undefined);
+		if (current && (await probe(current)) === release.version) {
+			signal.throwIfAborted();
+			if (current === paths.executable)
+				await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
+			this.update(job, { state: "ready" });
+			return;
+		}
+		await mkdir(paths.bin, { recursive: true });
+		await removeReplacedOpenCode(paths.bin);
+		// Staged beside the command directory, so publishing it is a rename on the same file system.
+		staging.path = await mkdtemp(join(paths.root, ".pier-install-"));
+		const archive = join(staging.path, release.gzip ? "download.tgz" : "download.zip");
+		const checksum = await this.download(job, release, archive, signal);
+		this.update(job, { state: "verifying" });
+		verifyChecksum(checksum, release.checksum, release.algorithm);
+		this.update(job, { state: "installing" });
+		await extract("OpenCode", archive, staging.path, signal, release.member, release.gzip ? "-xzf" : "-xf");
+		await rm(archive);
+		const extracted = join(staging.path, ...release.member.split("/"));
+		if (!(await lstat(extracted)).isFile()) throw new Error(`${sourceName(job.source)}返回的安装包无效`);
+		const executable = join(staging.path, basename(paths.executable));
+		if (extracted !== executable) await rename(extracted, executable);
+		await chmod(executable, 0o755);
+		signal.throwIfAborted();
+		const version = await probe(executable, 15_000);
+		if (version !== release.version) throw new Error("安装后版本验证失败，已保留之前的 OpenCode，请重试");
+		await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
+		signal.throwIfAborted();
+		await publishOpenCode(executable, paths.executable);
+		await this.options.onInstalled?.("opencode");
+		this.update(job, { state: "ready" });
 	}
 
 	async shutdown(): Promise<void> {

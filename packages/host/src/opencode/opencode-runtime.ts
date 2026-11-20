@@ -5,12 +5,15 @@ import { type AgentRuntimeInfo, type ModelInfo, PierProtocolError, type Workspac
 import type { ManagedSessionOptions } from "../managed-session.ts";
 import { findExecutable, probeVersion } from "../runtimes/executable.ts";
 import type { AgentRuntime, StoredSession } from "../runtimes/types.ts";
+import { opencodePaths } from "./installer.ts";
 import { OPENCODE_CAPABILITIES, OpenCodeSession } from "./opencode-session.ts";
 import { OpenCodeServer } from "./server.ts";
 
 export interface OpenCodeRuntimeOptions {
 	executable?: string;
 	env?: NodeJS.ProcessEnv;
+	/** Home of the OpenCode that Pier installs (`~/.opencode/bin`); tests use a temporary one. */
+	installationHome?: string;
 }
 
 /**
@@ -35,15 +38,25 @@ export class OpenCodeRuntime implements AgentRuntime {
 		this.server = new OpenCodeServer(() => this.executable(), options.env);
 	}
 
+	/** `PIER_OPENCODE_PATH`, else `~/.opencode/bin` (where Pier and OpenCode's installer put it), else `PATH`. */
 	executable(): string | undefined {
-		return findExecutable("opencode", this.options.executable ?? process.env.PIER_OPENCODE_PATH);
+		return findExecutable(
+			"opencode",
+			this.options.executable ?? process.env.PIER_OPENCODE_PATH,
+			opencodePaths(this.options.installationHome).executable,
+		);
 	}
 
 	async info(refresh = false): Promise<AgentRuntimeInfo> {
 		const executable = this.executable();
 		const base = { id: this.id, name: this.name, capabilities: this.capabilities };
 		if (!executable)
-			return { ...base, available: false, reason: "请在目标电脑安装 OpenCode，或设置 PIER_OPENCODE_PATH。" };
+			return {
+				...base,
+				available: false,
+				reason:
+					"在「设置 → Agent 配置 → OpenCode」中安装，或在目标电脑的终端安装 OpenCode；也可以设置 PIER_OPENCODE_PATH。",
+			};
 		if (refresh || this.probe?.executable !== executable)
 			this.probe = { executable, version: probeVersion(executable) };
 		const version = await this.probe.version;
@@ -148,6 +161,12 @@ export class OpenCodeRuntime implements AgentRuntime {
 		}
 		this.reloadPending = false;
 		void this.server.restart();
+	}
+
+	/** Pier installed or updated OpenCode (1.65): probe the version again and restart the server once idle. */
+	installationChanged(): void {
+		this.probe = undefined;
+		this.configChanged();
 	}
 
 	/** A session starts a turn on the shared server; call the returned function when it ends. */

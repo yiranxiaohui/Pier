@@ -22,7 +22,6 @@ import {
 	type MethodName,
 	MethodParamsSchemas,
 	type MethodResult,
-	type NativeAgentRuntime,
 	type ParsedMethodParams,
 	type PierHostEvent,
 	PierProtocolError,
@@ -87,7 +86,7 @@ import { LocalPortForwards } from "./ports/forwards.ts";
 import { HostPortSampler } from "./ports/listening.ts";
 import { RemoteAccess, type RemoteAccessOptions } from "./remote/remote-access.ts";
 import { AgentConfigFiles } from "./runtimes/agent-config.ts";
-import { AgentInstaller, type AgentInstallerOptions } from "./runtimes/installation.ts";
+import { AgentInstaller, type AgentInstallerOptions, type InstallableRuntime } from "./runtimes/installation.ts";
 import { configureInstallationPath } from "./runtimes/installation-path.ts";
 import { McpManager } from "./runtimes/mcp.ts";
 import { testMcp } from "./runtimes/mcp-client.ts";
@@ -137,8 +136,8 @@ const PI_METHODS: ReadonlySet<MethodName> = new Set<MethodName>([
 	"extension.delete",
 ]);
 
-function agentPathOverride(runtime: NativeAgentRuntime): string {
-	return runtime === "codex" ? "PIER_CODEX_PATH" : "PIER_CLAUDE_PATH";
+function agentPathOverride(runtime: InstallableRuntime): string {
+	return runtime === "codex" ? "PIER_CODEX_PATH" : runtime === "opencode" ? "PIER_OPENCODE_PATH" : "PIER_CLAUDE_PATH";
 }
 
 /**
@@ -213,7 +212,10 @@ export interface PierHostOptions {
 	/** Shared skill home (tests); defaults to the current user's home. */
 	resourceHome?: string;
 	/** Installer dependencies for tests; production always downloads official native releases. */
-	agentInstaller?: Pick<AgentInstallerOptions, "fetch" | "probe" | "homeDirectory" | "configurePath">;
+	agentInstaller?: Pick<
+		AgentInstallerOptions,
+		"fetch" | "probe" | "homeDirectory" | "configurePath" | "opencodeTarget"
+	>;
 	/** pi's installer (tests: a fake command runner). */
 	piInstaller?: Pick<PiInstallerOptions, "fetch" | "run" | "platform">;
 	browser?: BrowserOptions;
@@ -654,11 +656,13 @@ export class PierHost implements RequestHandler {
 					? undefined
 					: new CodexRuntime({ log, managedDirectory, installationHome, ...agents.codex }),
 		};
+		const opencode =
+			agents.opencode === false ? undefined : new OpenCodeRuntime({ installationHome, ...agents.opencode });
 		this.pool = new SessionPool({
 			runtimes: [
 				new PiRuntime(env),
 				...Object.values(nativeRuntimes).filter((r) => r !== undefined),
-				...(agents.opencode === false ? [] : [new OpenCodeRuntime(agents.opencode)]),
+				...(opencode ? [opencode] : []),
 				...(agents.hermes === false
 					? []
 					: [new HermesRuntime({ log, clientVersion: PIER_HOST_VERSION, ...agents.hermes })]),
@@ -716,6 +720,7 @@ export class PierHost implements RequestHandler {
 				const executable = nativeRuntimes[runtime]?.executable();
 				return executable ? { executable, source: settings.source } : undefined;
 			},
+			currentOpenCode: () => opencode?.executable(),
 			onInstalled: (runtime) => {
 				this.pool.runtime(runtime).installationChanged?.();
 				this.broadcast({ type: "runtime.changed", runtime });
@@ -1012,6 +1017,11 @@ export class PierHost implements RequestHandler {
 			}
 			return response;
 		}
+	}
+
+	/** The background update switch of Claude Code and Codex; OpenCode (1.65) updates itself. */
+	private agentAutoUpdate(runtime: InstallableRuntime): { autoUpdate?: boolean } {
+		return runtime === "opencode" ? {} : { autoUpdate: this.config.agentUpdate(runtime).enabled };
 	}
 
 	/** pi's installation status: the job, the loaded pi, and a newer pi on disk waiting for a restart. */
@@ -1585,7 +1595,7 @@ export class PierHost implements RequestHandler {
 				return {
 					installation: this.agentInstaller.status(params.runtime),
 					agent: await this.pool.runtime(params.runtime).info(params.refresh),
-					autoUpdate: this.config.agentUpdate(params.runtime).enabled,
+					...this.agentAutoUpdate(params.runtime),
 				};
 			},
 			"runtime.setAutoUpdate": (_ctx, { runtime, enabled }) => {
@@ -1621,7 +1631,8 @@ export class PierHost implements RequestHandler {
 					);
 				// Publication retains the old command if Windows prevents replacing an executable in use.
 				const installation = this.agentInstaller.start(params.runtime, params.source);
-				this.config.setAgentUpdate(params.runtime, { source: installation.source ?? "official" });
+				if (params.runtime !== "opencode")
+					this.config.setAgentUpdate(params.runtime, { source: installation.source ?? "official" });
 				const device = ctx.connection.device;
 				if (device)
 					this.broadcastLocal({
@@ -1629,7 +1640,7 @@ export class PierHost implements RequestHandler {
 						level: "info",
 						message: `${device.name} 正在远程安装或更新 ${agent.name}`,
 					});
-				return { installation, agent: await agent.info(), autoUpdate: this.config.agentUpdate(params.runtime).enabled };
+				return { installation, agent: await agent.info(), ...this.agentAutoUpdate(params.runtime) };
 			},
 			"session.create": async (_ctx, params) => {
 				const session = await this.pool.create(this.requireWorkspace(params.workspaceId), params.name, params.runtime);

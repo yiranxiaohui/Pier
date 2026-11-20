@@ -11,7 +11,7 @@ export function agentInstallSourceInfo(
 ): { name: string; host: string } {
 	if (source === "official") {
 		if (runtime === "pi") return { name: "官方", host: "pi.dev" };
-		return runtime === "codex"
+		return runtime === "codex" || runtime === "opencode"
 			? { name: "GitHub 直连", host: "github.com" }
 			: { name: "官方", host: "downloads.claude.ai" };
 	}

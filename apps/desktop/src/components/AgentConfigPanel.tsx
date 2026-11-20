@@ -36,6 +36,7 @@ import {
 	type SettingsObject,
 	sameValue,
 } from "../lib/config-fields.ts";
+import { hostSpeaksMinor } from "../lib/settings-target.ts";
 import { useAppState, useSettingsTarget, useSettingsWorkspaces, useStore } from "../lib/store.tsx";
 import { AgentInstallCard } from "./AgentInstallCard.tsx";
 import { ConfigGroups, DraftList, FieldRow, resolveFallback, TextFileEditor } from "./ConfigFields.tsx";
@@ -312,7 +313,7 @@ function AgentConfigPage({ runtime }: { runtime: AgentConfigRuntime }) {
 	return (
 		<>
 			<Intro runtime={runtime} />
-			{runtime === "opencode" ? <OpenCodeInstallCard /> : <AgentInstallCard runtime={runtime} />}
+			{runtime === "opencode" ? <OpenCodeInstall /> : <AgentInstallCard runtime={runtime} />}
 
 			<SettingsGroup>
 				<SettingsCard>
@@ -865,7 +866,16 @@ function OpenCodeProviders({
 	);
 }
 
-/** OpenCode installs and updates itself: what Pier found on the computer, and how to install or log in. */
+/** Pier installs OpenCode on Hosts since 1.65; older ones offer the commands to install it. */
+function OpenCodeInstall() {
+	const target = useSettingsTarget();
+	return hostSpeaksMinor(target.hostInfo, 65) ? <AgentInstallCard runtime="opencode" /> : <OpenCodeInstallCard />;
+}
+
+/**
+ * Hosts before 1.65 cannot install OpenCode: what Pier found on the computer, and commands to
+ * install it (also from the npmmirror registry) or log in.
+ */
 function OpenCodeInstallCard() {
 	const store = useStore();
 	const target = useSettingsTarget();
@@ -911,6 +921,7 @@ function OpenCodeInstallCard() {
 	const quoted = executable ? `'${executable.replaceAll("'", windows ? "''" : "'\\''")}'` : "";
 	const login = executable ? `${windows ? "& " : ""}${quoted} auth login` : "opencode auth login";
 	const install = "npm install -g opencode-ai";
+	const mirrorInstall = `${install} --registry=https://registry.npmmirror.com`;
 
 	return (
 		<SettingsGroup title="安装与登录">
@@ -926,7 +937,7 @@ function OpenCodeInstallCard() {
 					description={
 						info?.available
 							? `Pier 使用${where}上你自己安装的 opencode，与终端中的是同一份；安装和更新使用 OpenCode 自己的渠道，在终端运行 opencode upgrade 即可更新。`
-							: `在${where}安装 OpenCode 后即可创建 OpenCode 会话，例如在终端运行 ${install}。安装在其他位置时，可在启动 Host 前设置 PIER_OPENCODE_PATH。`
+							: `在${where}安装 OpenCode 后即可创建 OpenCode 会话，例如在终端运行 ${install}。安装在其他位置时，可在启动 Host 前设置 PIER_OPENCODE_PATH。更新${where}的 Pier 后可以在这里一键安装并选择下载线路。`
 					}
 				>
 					{info && !info.available ? <CopyButton text={install} label="复制安装命令" /> : null}
@@ -940,6 +951,19 @@ function OpenCodeInstallCard() {
 						{loading ? <IconLoader size={14} className="spin" /> : <IconRefresh size={14} />}
 					</button>
 				</SettingRow>
+				{info && !info.available ? (
+					<SettingRow
+						title="国内镜像"
+						description={
+							<>
+								npm 从 npmmirror（registry.npmmirror.com）下载 OpenCode，适合国内网络：
+								<span className="mono">{mirrorInstall}</span>
+							</>
+						}
+					>
+						<CopyButton text={mirrorInstall} label="复制镜像安装命令" />
+					</SettingRow>
+				) : null}
 				<SettingRow
 					title="账号登录"
 					description="在这台电脑的终端运行登录命令，选择服务商并保存凭据；也可以在下方「服务商」中填写接口地址与 API Key。"
