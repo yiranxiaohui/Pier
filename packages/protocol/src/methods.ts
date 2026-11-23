@@ -497,8 +497,9 @@ export const MethodParamsSchemas = {
 	/**
 	 * Starts an asynchronous install/update of the latest official release. `source` (1.50) picks
 	 * a download route the runtime accepts; it defaults to `official`. `pi` (1.61) runs
-	 * `pi update --self`, or pi's official installer when pi is not installed. `opencode` (1.65)
-	 * installs the latest OpenCode 1 release into `~/.opencode/bin`.
+	 * `pi update --self`, or pi's official installer when pi is not installed; before the installer
+	 * it reads the user's PATH again and checks for Node.js and npm (1.66, `nodeRequirement`).
+	 * `opencode` (1.65) installs the latest OpenCode 1 release into `~/.opencode/bin`.
 	 */
 	"runtime.install": z.object({ runtime: AgentInstallRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
 	"runtime.setAutoUpdate": z.object({ runtime: NativeAgentRuntimeSchema, enabled: z.boolean() }),

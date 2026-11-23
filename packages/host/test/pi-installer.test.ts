@@ -3,11 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type CommandRun, PI_INSTALLER_URLS, PiInstaller, type PiInstallerOptions } from "../src/pi/installer.ts";
+import type { NodeToolchain } from "../src/pi/node-requirement.ts";
 import type { PiLocation } from "../src/pi/sdk.ts";
 
 const found = (version: string, command?: string): PiLocation => ({
 	state: "found",
 	installation: { packageDir: "/opt/pi", version, ...(command ? { command } : {}) },
+});
+
+/** Node.js and npm as pi's installer needs them (the test machine's own do not matter). */
+const readyNode = async (): Promise<NodeToolchain> => ({
+	node: { path: "/usr/bin/node", version: "22.19.0" },
+	npm: "/usr/bin/npm",
 });
 
 async function finished(installer: PiInstaller) {
@@ -40,11 +47,13 @@ describe("pi installation", () => {
 		const onInstalled = vi.fn();
 		const fetch = vi.fn<typeof globalThis.fetch>();
 		const configurePath = vi.fn(async () => {});
+		const findNode = vi.fn(readyNode);
 		const installer = create({
 			locate: () => location,
 			fetch,
 			onInstalled,
 			configurePath,
+			findNode,
 			run: async (run) => {
 				runs.push(run);
 				run.onLine("\u001b[2mUpdating pi with npm install -g https://user:pass@registry.example/x...\u001b[0m");
@@ -61,6 +70,8 @@ describe("pi installation", () => {
 		expect(runs[0]?.env.npm_config_registry).toBe("https://registry.npmmirror.com/");
 		expect(fetch).not.toHaveBeenCalled();
 		expect(configurePath).not.toHaveBeenCalled();
+		// pi's own update knows how it was installed; only the installer needs the Node.js check.
+		expect(findNode).not.toHaveBeenCalled();
 		expect(onInstalled).toHaveBeenCalledOnce();
 	});
 
@@ -75,6 +86,7 @@ describe("pi installation", () => {
 			platform: "linux",
 			home: "/home/u",
 			configurePath,
+			findNode: readyNode,
 			run: async (run) => {
 				runs.push({ ...run, script: readFileSync(run.args[0] ?? "", "utf8") });
 				location = found("1.6.0", "/home/u/.local/bin/pi");
@@ -97,6 +109,7 @@ describe("pi installation", () => {
 		const installer = create({
 			locate: () => location,
 			platform: "win32",
+			findNode: readyNode,
 			fetch: async () => new Response("Write-Host 'pi'"),
 			run: async (run) => {
 				runs.push(run);
@@ -131,6 +144,7 @@ describe("pi installation", () => {
 			locate: () => ({ state: "missing" }),
 			fetch: async () => new Response("#!/bin/sh\n"),
 			platform: "linux",
+			findNode: readyNode,
 			run: async () => 0,
 		});
 		lost.start();
@@ -152,6 +166,162 @@ describe("pi installation", () => {
 		await vi.waitFor(() => expect(release).toBeDefined());
 		release?.();
 		expect((await finished(installer)).state).toBe("ready");
+	});
+
+	it("explains how to install Node.js instead of running pi's installer without it", async () => {
+		let location: PiLocation = { state: "missing" };
+		let toolchain: NodeToolchain = {};
+		const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response("Write-Host 'pi'"));
+		const run = vi.fn(async () => {
+			location = found("1.6.0", "C:\\Users\\u\\.pi\\agent\\bin\\pi.cmd");
+			return 0;
+		});
+		const refreshPath = vi.fn(async () => []);
+		const installer = create({
+			locate: () => location,
+			platform: "win32",
+			fetch,
+			run,
+			refreshPath,
+			findNode: async () => toolchain,
+		});
+		installer.start("npmmirror");
+		const failed = await finished(installer);
+		expect(failed).toMatchObject({
+			runtime: "pi",
+			state: "error",
+			source: "npmmirror",
+			nodeRequirement: { minimum: "22.19.0", problem: "missing", command: "winget install OpenJS.NodeJS.LTS" },
+		});
+		expect(failed.nodeRequirement?.node).toBeUndefined();
+		expect(failed.error).toContain("找不到 Node.js");
+		expect(failed.error).toContain("winget install OpenJS.NodeJS.LTS");
+		// The Host reads PATH again before the next attempt: no restart after installing Node.js.
+		expect(failed.error).toContain("无需重启");
+		expect(fetch).not.toHaveBeenCalled();
+		expect(run).not.toHaveBeenCalled();
+
+		// Node.js installed meanwhile: the next attempt runs the installer, without the old hint.
+		toolchain = await readyNode();
+		// The failed job lets go of the installer right after reporting its error.
+		await vi.waitFor(() => expect(installer.start()).toMatchObject({ state: "checking" }));
+		const ready = await finished(installer);
+		expect(ready).toMatchObject({ state: "ready", version: "1.6.0" });
+		expect(ready.nodeRequirement).toBeUndefined();
+		expect(ready.error).toBeUndefined();
+		expect(run).toHaveBeenCalledOnce();
+		expect(refreshPath).toHaveBeenCalledTimes(2);
+	});
+
+	it("reports an older Node.js and a missing npm, with the command that fits the computer", async () => {
+		const outdated = create({
+			locate: () => ({ state: "missing" }),
+			platform: "darwin",
+			run: async () => 0,
+			findNode: async () => ({
+				node: { path: "/usr/local/bin/node", version: "20.11.1" },
+				npm: "/usr/local/bin/npm",
+				brew: "/opt/homebrew/bin/brew",
+			}),
+		});
+		outdated.start();
+		const old = await finished(outdated);
+		expect(old.nodeRequirement).toEqual({
+			minimum: "22.19.0",
+			problem: "outdated",
+			node: "/usr/local/bin/node",
+			nodeVersion: "20.11.1",
+			command: "brew install node",
+		});
+		expect(old.error).toContain("v20.11.1（/usr/local/bin/node）");
+		expect(old.error).toContain("brew install node");
+		// Without a way to read PATH again, the Host may need a restart.
+		expect(old.error).toContain("可能需要重启 Pier Host");
+
+		const broken = create({
+			locate: () => ({ state: "missing" }),
+			platform: "darwin",
+			run: async () => 0,
+			findNode: async () => ({ node: { path: "/usr/local/bin/node", error: "Killed: 9" }, npm: "/usr/local/bin/npm" }),
+		});
+		broken.start();
+		const unusable = await finished(broken);
+		expect(unusable.nodeRequirement).toEqual({ minimum: "22.19.0", problem: "outdated", node: "/usr/local/bin/node" });
+		expect(unusable.error).toContain("无法运行 /usr/local/bin/node（Killed: 9）");
+		expect(unusable.error).toContain("nodejs.org");
+
+		const noNpm = create({
+			locate: () => ({ state: "missing" }),
+			platform: "linux",
+			run: async () => 0,
+			findNode: async () => ({ node: { path: "/usr/bin/node", version: "24.1.0" } }),
+		});
+		noNpm.start();
+		const npm = await finished(noNpm);
+		// No single command installs a recent Node.js on every Linux distribution.
+		expect(npm.nodeRequirement).toEqual({
+			minimum: "22.19.0",
+			problem: "npm-missing",
+			node: "/usr/bin/node",
+			nodeVersion: "24.1.0",
+		});
+		expect(npm.error).toContain("找不到 npm");
+	});
+
+	it("reads the user's PATH again before each job", async () => {
+		vi.stubEnv("PATH", "/usr/bin");
+		const refreshPath = vi.fn(async () => {
+			process.env.PATH = "/usr/bin:/opt/node/bin";
+			return ["/opt/node/bin"];
+		});
+		const searched: string[] = [];
+		const runs: CommandRun[] = [];
+		const log = vi.fn();
+		let location: PiLocation = { state: "missing" };
+		const installer = create({
+			locate: () => location,
+			platform: "linux",
+			home: "/home/u",
+			refreshPath,
+			log,
+			findNode: async (env) => {
+				searched.push(env.PATH ?? "");
+				return readyNode();
+			},
+			fetch: async () => new Response("#!/bin/sh\n"),
+			run: async (run) => {
+				runs.push(run);
+				location = found("1.6.0", "/home/u/.local/bin/pi");
+				return 0;
+			},
+		});
+		installer.start();
+		expect(await finished(installer)).toMatchObject({ state: "ready" });
+		expect(searched[0]?.split(":")).toContain("/opt/node/bin");
+		expect(runs[0]?.env.PATH?.split(":")).toContain("/opt/node/bin");
+		expect(log).toHaveBeenCalledWith("pi: added to PATH: /opt/node/bin");
+
+		// A PATH that cannot be read does not stop the update.
+		const update = create({
+			locate: () => found("1.5.2", "/usr/bin/pi"),
+			refreshPath: async () => {
+				throw new Error("login shell failed");
+			},
+			run: async () => 0,
+		});
+		update.start();
+		expect((await finished(update)).state).toBe("ready");
+
+		// Stopping the Host does not wait for a slow shell.
+		const slow = create({
+			locate: () => found("1.5.2", "/usr/bin/pi"),
+			refreshPath: () => new Promise(() => {}),
+			run: async () => 0,
+		});
+		slow.start();
+		await vi.waitFor(() => expect(slow.status().state).toBe("checking"));
+		await slow.shutdown();
+		expect(slow.status()).toMatchObject({ state: "error", error: "Pier Host 已停止安装" });
 	});
 
 	it.runIf(process.platform !== "win32")("runs a real command without a terminal and reads its output", async () => {

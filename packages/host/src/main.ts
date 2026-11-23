@@ -21,6 +21,7 @@ import { createPtyTerminals } from "./pty-terminals.ts";
 import { checkP2PSupport } from "./remote/p2p.ts";
 import { StdioShell } from "./shell.ts";
 import { createStandaloneUpdater } from "./standalone/updater.ts";
+import { refreshWindowsPath } from "./windows-path.ts";
 
 const HELP = `pier ${PIER_HOST_VERSION}
 
@@ -52,7 +53,9 @@ Options:
                       clients (terminal.*), declared up front so clients that connect
                       before its first stdin message already see them
   --no-login-shell-path
-                      Do not ask the login shell for its PATH in sidecar mode
+                      Do not ask the login shell for its PATH in sidecar mode (at start, and
+                      again before installing pi). On Windows the host reads the user's PATH
+                      from the registry before installing pi, whatever this option
   --check-pi          Load the installed pi, resize a sample image through it (Photon),
                       print the result, and exit
   --check-p2p         Open a local WebRTC data channel (peer-to-peer support), print the
@@ -142,15 +145,22 @@ async function main(): Promise<void> {
 	if (terminals) log("terminals: the host runs them in its own pseudo-terminals");
 	// An app started from the Dock / a launcher lacks the terminal's PATH; ask the login shell
 	// while the host starts, so pi finds npm / pnpm / bun / git as it would in a terminal.
-	const loginPath =
-		values["watch-stdin"] && !values["no-login-shell-path"] && process.platform !== "win32"
-			? applyLoginShellPath().catch(() => undefined)
-			: undefined;
+	const loginShellPath = values["watch-stdin"] && !values["no-login-shell-path"] && process.platform !== "win32";
+	const loginPath = loginShellPath ? applyLoginShellPath().catch(() => undefined) : undefined;
+	// Before installing pi, read the user's PATH again: a Node.js installed while the host runs is
+	// then found without a restart (new terminals read the registry on Windows).
+	const refreshPath =
+		process.platform === "win32"
+			? () => refreshWindowsPath()
+			: loginShellPath
+				? () => applyLoginShellPath()
+				: undefined;
 	const host = await PierHost.create({
 		pierDir,
 		...(shell ? { shell } : { updater: createStandaloneUpdater(pierDir) }),
 		...(terminals ? { terminals } : {}),
 		localToken: token,
+		...(refreshPath ? { refreshPath } : {}),
 		env: { loader: new PiLoader({ log }), ...(values["agent-dir"] ? { agentDir: values["agent-dir"] } : {}) },
 		log: writeLog,
 		remote: {

@@ -1375,6 +1375,30 @@ export const AGENT_INSTALL_SOURCES: Record<AgentInstallRuntime, readonly AgentIn
 	opencode: ["official", "ghfast", "gh-proxy", "ghproxy", "npmmirror"],
 };
 
+/**
+ * Node.js that pi's installer needs and the Host did not find on its PATH (1.66). The Host reads
+ * the user's PATH again before each pi installation, so installing Node.js and starting the
+ * installation again is enough.
+ */
+export interface NodeRequirement {
+	/** The oldest Node.js pi's installer accepts, e.g. "22.19.0". */
+	minimum: string;
+	/**
+	 * `missing`: no `node` on PATH; `outdated`: an older `node` (or one whose version could not be
+	 * read); `npm-missing`: a recent enough `node`, but no `npm`.
+	 */
+	problem: "missing" | "outdated" | "npm-missing";
+	/** The `node` found on PATH. */
+	node?: string;
+	/** Its version, without a leading "v". */
+	nodeVersion?: string;
+	/**
+	 * A command the user can run in a terminal of that computer to install Node.js with npm
+	 * (`winget install OpenJS.NodeJS.LTS`, `brew install node`); absent where no single command fits.
+	 */
+	command?: string;
+}
+
 /** An agent installation on the Host computer (1.32). Jobs survive client disconnects. */
 export interface AgentInstallationStatus {
 	runtime: AgentInstallRuntime;
@@ -1387,6 +1411,8 @@ export interface AgentInstallationStatus {
 	/** The last line the installer printed while `installing` (pi, 1.61). */
 	detail?: string;
 	error?: string;
+	/** pi (1.66), with `state: "error"`: the installation needs Node.js or npm first. */
+	nodeRequirement?: NodeRequirement;
 }
 
 export interface AgentInstallationResult {

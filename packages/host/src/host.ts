@@ -217,7 +217,13 @@ export interface PierHostOptions {
 		"fetch" | "probe" | "homeDirectory" | "configurePath" | "opencodeTarget"
 	>;
 	/** pi's installer (tests: a fake command runner). */
-	piInstaller?: Pick<PiInstallerOptions, "fetch" | "run" | "platform">;
+	piInstaller?: Pick<PiInstallerOptions, "fetch" | "run" | "platform" | "findNode">;
+	/**
+	 * Reads the user's PATH again and adds its new entries to this process (main.ts: the registry on
+	 * Windows, the login shell in sidecar mode on macOS / Linux). Run before installing pi, so a
+	 * Node.js installed while the Host runs is found without a restart.
+	 */
+	refreshPath?: () => Promise<string[] | undefined>;
 	browser?: BrowserOptions;
 	remoteBrowser?: RemoteBrowserOptions;
 	/**
@@ -732,6 +738,7 @@ export class PierHost implements RequestHandler {
 				(options.agentInstaller?.configurePath ?? configureInstallationPath)(bin, {
 					home: installationHome ?? homedir(),
 				}),
+			...(options.refreshPath ? { refreshPath: options.refreshPath } : {}),
 			...options.piInstaller,
 			locate: () => env.loader.locate(),
 			log,

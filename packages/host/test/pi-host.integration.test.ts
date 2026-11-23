@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PiLoader, type PiLocation } from "../src/pi/sdk.ts";
 import { DEV_PI_PACKAGE_DIR, Recorder, startTestHost, testPiSdk } from "./helpers.ts";
 
@@ -47,6 +47,32 @@ describe("a Host without pi", () => {
 				agent: { available: true, version: testPiSdk().version },
 				installedVersion: "99.0.0",
 			});
+		} finally {
+			await host.close();
+		}
+	});
+
+	it("asks for Node.js before running pi's installer, after reading the user's PATH again", async () => {
+		const loader = new PiLoader({ locate: () => ({ state: "missing" }), load: async () => testPiSdk() });
+		const refreshPath = vi.fn(async () => ["C:\\Program Files\\nodejs\\"]);
+		const host = await startTestHost({
+			piLoader: loader,
+			refreshPath,
+			piInstaller: { platform: "win32", findNode: async () => ({}) },
+		});
+		try {
+			const client = await host.connect();
+			await client.request("runtime.install", { runtime: "pi", source: "npmmirror" });
+			await vi.waitFor(async () =>
+				expect((await client.request("runtime.installStatus", { runtime: "pi" })).installation.state).toBe("error"),
+			);
+			expect((await client.request("runtime.installStatus", { runtime: "pi" })).installation).toMatchObject({
+				state: "error",
+				source: "npmmirror",
+				error: expect.stringContaining("winget install OpenJS.NodeJS.LTS"),
+				nodeRequirement: { minimum: "22.19.0", problem: "missing", command: "winget install OpenJS.NodeJS.LTS" },
+			});
+			expect(refreshPath).toHaveBeenCalledOnce();
 		} finally {
 			await host.close();
 		}

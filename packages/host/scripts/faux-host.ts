@@ -23,7 +23,8 @@
  * "delegate" start sub-agents ("delegate slow team" paces two of them, "delegate-hold" runs one
  * until it is stopped).
  * `--no-pi` starts without pi, as on a computer where it is not installed yet; installing it from
- * Settings → Agent 配置 → pi runs a scripted installer and then loads the development pi.
+ * Settings → Agent 配置 → pi runs a scripted installer and then loads the development pi. With
+ * `--no-node`, the first attempt finds no Node.js and explains how to install it.
  * `--demo-terminals` lets clients open terminals (`terminal.*`, for the remote terminal UI):
  * a real `bash` through `script(1)` on Linux (no resizing), a line-echo shell elsewhere. State
  * lives in a temporary directory that is removed on exit.
@@ -298,11 +299,22 @@ const remoteAddress = flag("--remote-address");
 const relayUrl = flag("--relay");
 const accountSite = flag("--account-site");
 // `--no-pi`: pi is missing until it is "installed" (scripted installer output, then the dev pi).
+// `--no-node` with it: the first installation finds no Node.js (as on Windows, which offers the
+// winget command), the next one finds it.
 let piLocation: PiLocation = { state: "missing" };
+let nodeMissing = process.argv.includes("--no-node");
 const noPi = process.argv.includes("--no-pi")
 	? {
 			piLoader: new PiLoader({ locate: () => piLocation, load: async () => testPiSdk() }),
+			refreshPath: async () => [],
 			piInstaller: {
+				...(nodeMissing ? { platform: "win32" as const } : {}),
+				findNode: async () => {
+					await sleep(800);
+					if (!nodeMissing) return { node: { path: process.execPath, version: process.versions.node }, npm: "npm" };
+					nodeMissing = false;
+					return {};
+				},
 				fetch: async () => new Response("#!/bin/sh\n"),
 				run: async ({ onLine }: { onLine: (line: string) => void }) => {
 					for (const line of ["Downloading managed installer release metadata", "Installing managed Pi dependencies"]) {

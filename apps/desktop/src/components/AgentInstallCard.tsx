@@ -3,6 +3,7 @@ import {
 	type AgentInstallationResult,
 	type AgentInstallationStatus,
 	type AgentInstallRuntime,
+	type NodeRequirement,
 } from "@pier/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_CONFIG_META } from "../lib/agent-config.ts";
@@ -16,7 +17,7 @@ import {
 import { agentInstallSourceInfo, readAgentInstallSource, saveAgentInstallSource } from "../lib/agent-install-source.ts";
 import { hostSpeaksMinor } from "../lib/settings-target.ts";
 import { useAppState, useSettingsTarget, useStore } from "../lib/store.tsx";
-import { IconAlert, IconDownload, IconLoader, IconRefresh } from "./Icons.tsx";
+import { IconAlert, IconDownload, IconExternal, IconLoader, IconRefresh } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
 import { Select } from "./Select.tsx";
 import { SettingRow, SettingsCard, SettingsGroup, Switch } from "./SettingsUi.tsx";
@@ -36,6 +37,14 @@ const PI_LABELS: Partial<Record<AgentInstallationStatus["state"], string>> = {
 	checking: "正在检查 pi…",
 	installing: "正在安装或更新 pi…",
 };
+
+/** pi's installer needs Node.js and npm on the Host's PATH (Host 1.66 checks before running it). */
+const NODE_REQUIREMENT_TITLES: Record<NodeRequirement["problem"], string> = {
+	missing: "需要先安装 Node.js",
+	outdated: "需要更新 Node.js",
+	"npm-missing": "需要先安装 npm",
+};
+const NODE_DOWNLOAD_URL = "https://nodejs.org/zh-cn/download";
 
 export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) {
 	const store = useStore();
@@ -169,6 +178,7 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 		? `${pi ? "版本" : "目标版本"} v${status.version}${status.source && routes ? ` · 线路：${agentInstallSourceInfo(runtime, status.source).name}` : ""}`
 		: undefined;
 	const stateLabel = status ? ((pi ? PI_LABELS[status.state] : undefined) ?? LABELS[status.state]) : "";
+	const nodeRequirement = pi && status?.state === "error" ? status.nodeRequirement : undefined;
 	const executable = data?.agent.executable;
 	// Both POSIX shells and PowerShell accept single-quoted paths, with different quote escaping.
 	const windows = target.hostInfo?.platform === "win32";
@@ -296,7 +306,13 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 				{status && status.state !== "idle" ? (
 					<SettingRow
 						title={
-							<span role="status">{downloading && percent !== undefined ? `正在下载 ${percent}%` : stateLabel}</span>
+							<span role="status">
+								{nodeRequirement
+									? NODE_REQUIREMENT_TITLES[nodeRequirement.problem]
+									: downloading && percent !== undefined
+										? `正在下载 ${percent}%`
+										: stateLabel}
+							</span>
 						}
 						description={
 							status.state === "error" ? (
@@ -310,7 +326,17 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 								versionText
 							)
 						}
-					/>
+					>
+						{nodeRequirement ? (
+							<>
+								{nodeRequirement.command ? <CopyButton text={nodeRequirement.command} label="复制安装命令" /> : null}
+								<button type="button" className="ghost" onClick={() => store.openExternal(NODE_DOWNLOAD_URL)}>
+									<IconExternal size={14} />
+									nodejs.org
+								</button>
+							</>
+						) : null}
+					</SettingRow>
 				) : null}
 				{error || loadError ? (
 					<SettingRow

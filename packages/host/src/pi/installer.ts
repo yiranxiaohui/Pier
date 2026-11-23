@@ -7,9 +7,11 @@ import {
 	AGENT_INSTALL_SOURCES,
 	type AgentInstallationStatus,
 	type AgentInstallSource,
+	type NodeRequirement,
 	PierProtocolError,
 } from "@pier/protocol";
 import { mergePath } from "../login-shell-path.ts";
+import { findNodeToolchain, type NodeToolchain, nodeRequirement, nodeRequirementMessage } from "./node-requirement.ts";
 import type { PiLocation } from "./sdk.ts";
 
 /** pi's official installers (https://pi.dev, see pi's README). */
@@ -49,7 +51,35 @@ export interface PiInstallerOptions {
 	configurePath?: (bin: string) => Promise<void>;
 	/** Called after a successful installation or update. */
 	onInstalled?: () => Promise<void> | void;
+	/**
+	 * Reads the user's PATH again before each job, so a Node.js (or pi) installed while the Host
+	 * runs is found without a restart: the registry on Windows, the login shell on macOS / Linux.
+	 * Resolves to the entries it added, or undefined when it could not read the PATH.
+	 */
+	refreshPath?: () => Promise<string[] | undefined>;
+	/** Finds `node` and `npm` on the installer's PATH (tests). */
+	findNode?: (env: NodeJS.ProcessEnv, platform: NodeJS.Platform) => Promise<NodeToolchain>;
 	log?: (message: string) => void;
+}
+
+/** pi's installer cannot run yet: Node.js or npm is missing. */
+class NodeRequirementError extends Error {
+	constructor(
+		readonly requirement: NodeRequirement,
+		message: string,
+	) {
+		super(message);
+	}
+}
+
+/** `promise`, or the abort reason as soon as `signal` aborts. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	signal.throwIfAborted();
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => reject(signal.reason instanceof Error ? signal.reason : new Error("已取消"));
+		signal.addEventListener("abort", abort, { once: true });
+		promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+	});
 }
 
 interface Job {
@@ -120,8 +150,10 @@ function runCommand({ command, args, env, signal, onLine }: CommandRun): Promise
 /**
  * Installs or updates the user's pi the way pi documents it: `pi update --self` for an existing
  * installation (pi knows whether it came from its installer, npm, bun or pnpm), otherwise pi's
- * official installer from pi.dev. Clients only choose the npm registry route; they cannot pass
- * URLs, paths or commands. Jobs survive client disconnects, like the Claude Code / Codex installer.
+ * official installer from pi.dev, once Node.js and npm are on PATH (it cannot ask to install them
+ * without a terminal). Each job first reads the user's PATH again, so what the user installed while
+ * the Host runs counts. Clients only choose the npm registry route; they cannot pass URLs, paths or
+ * commands. Jobs survive client disconnects, like the Claude Code / Codex installer.
  */
 export class PiInstaller {
 	private current: AgentInstallationStatus = { runtime: "pi", state: "idle" };
@@ -156,6 +188,35 @@ export class PiInstaller {
 		const next: AgentInstallationStatus = { ...this.current, ...fields };
 		if (fields.state && fields.state !== "installing") delete next.detail;
 		this.current = next;
+	}
+
+	/** Pick up PATH entries added since the Host started (a Node.js installed meanwhile). */
+	private async refreshPath(signal: AbortSignal): Promise<void> {
+		const refresh = this.options.refreshPath;
+		if (!refresh) return;
+		try {
+			const added = await untilAborted(refresh(), signal);
+			if (added === undefined) this.options.log?.("pi: could not read the user's PATH again; using the Host's");
+			else if (added.length) this.options.log?.(`pi: added to PATH: ${added.join(", ")}`);
+		} catch (error) {
+			if (signal.aborted) throw error;
+			this.options.log?.(`pi: reading the user's PATH: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+
+	/** pi's installer stops without a terminal when Node.js or npm is missing: check first. */
+	private async requireNode(env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<void> {
+		const platform = this.options.platform ?? process.platform;
+		const toolchain = await untilAborted((this.options.findNode ?? findNodeToolchain)(env, platform), signal);
+		const requirement = nodeRequirement(toolchain, platform);
+		if (!requirement) {
+			this.options.log?.(`pi: Node.js ${toolchain.node?.version} at ${toolchain.node?.path}, npm at ${toolchain.npm}`);
+			return;
+		}
+		throw new NodeRequirementError(
+			requirement,
+			nodeRequirementMessage(requirement, toolchain, platform, this.options.refreshPath !== undefined),
+		);
 	}
 
 	private environment(source: AgentInstallSource, installing: boolean): NodeJS.ProcessEnv {
@@ -209,6 +270,7 @@ export class PiInstaller {
 		let staging: string | undefined;
 		const lines: string[] = [];
 		try {
+			await this.refreshPath(signal);
 			const before = this.options.locate();
 			const existing =
 				before.state === "found"
@@ -216,10 +278,12 @@ export class PiInstaller {
 					: before.state === "invalid"
 						? before.command
 						: undefined;
+			const env = this.environment(job.source, !existing);
 			let step: { command: string; args: string[] };
 			if (existing) {
 				step = { command: existing, args: ["update", "--self"] };
 			} else {
+				await this.requireNode(env, signal);
 				staging = await mkdtemp(join(tmpdir(), "pier-pi-install-"));
 				step = await this.installerScript(staging, signal);
 			}
@@ -228,7 +292,7 @@ export class PiInstaller {
 			this.options.log?.(`pi: running ${existing ? `${existing} update --self` : "pi's official installer"}`);
 			const code = await (this.options.run ?? runCommand)({
 				...step,
-				env: this.environment(job.source, !existing),
+				env,
 				signal,
 				onLine: (raw) => {
 					const line = cleanLine(raw);
@@ -265,6 +329,11 @@ export class PiInstaller {
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+			if (error instanceof NodeRequirementError) {
+				this.update({ state: "error", error: message, nodeRequirement: error.requirement });
+				this.options.log?.(`pi install needs Node.js first: ${error.requirement.problem}`);
+				return;
+			}
 			const missing = /\bENOENT\b/.test(message) ? "（找不到命令；pi 需要 Node.js 22.19 或更新版本及 npm）" : "";
 			this.update({ state: "error", error: `${message}${missing}` });
 			this.options.log?.(`pi install failed: ${message}`);
