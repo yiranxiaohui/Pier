@@ -49,6 +49,11 @@ export class FakeClaude {
 	readonly stoppedTasks: string[] = [];
 	/** `modelUsage` of each successful result. */
 	modelUsage: Record<string, Json> = {};
+	/**
+	 * When set, a closed `query()` ends its messages only once this settles, like the real SDK
+	 * whose iteration ends after the Claude Code process exits.
+	 */
+	closeDelay: Promise<void> | undefined;
 	responder: FakeResponder = async function* () {
 		yield { type: "assistant", message: { id: "msg_default", content: [{ type: "text", text: "ok" }] } };
 	};
@@ -186,6 +191,8 @@ export class FakeClaude {
 						: { type: "result", subtype: "success", is_error: false, result: "", modelUsage: this.modelUsage },
 				);
 			}
+			// The input closed (the runtime stops the process): its messages end once it exits.
+			if (this.closeDelay) await this.closeDelay;
 			output.close();
 		};
 		void run();
@@ -216,7 +223,10 @@ export class FakeClaude {
 			},
 			supportedCommands: async () => [{ name: "review", description: "Review code", argumentHint: "" }],
 			initializationResult: async () => ({ commands: [], models: [], agents: [] }),
-			close: () => output.close(),
+			close: () => {
+				if (this.closeDelay) void this.closeDelay.then(() => output.close());
+				else output.close();
+			},
 		};
 	}
 }

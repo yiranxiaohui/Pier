@@ -437,6 +437,55 @@ describe("Claude Code runtime", () => {
 		expect(state().contextInfo).not.toHaveProperty("contextLimit");
 	});
 
+	it("answers a prompt sent right after the run that changed the limit, while the old process exits", async () => {
+		let releaseSlow!: () => void;
+		const slow = new Promise<void>((resolve) => {
+			releaseSlow = resolve;
+		});
+		let releaseNext!: () => void;
+		const next = new Promise<void>((resolve) => {
+			releaseNext = resolve;
+		});
+		fake.responder = async function* (ctx) {
+			if (ctx.text === "slow") await slow;
+			if (ctx.text === "next") await next;
+			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
+		};
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		let from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "slow" });
+		await expect.poll(() => fake.options.length).toBe(1);
+		// Changed while Claude Code works: it restarts with the new limit after this turn.
+		await client.request("contextLimit.set", { sessionId: session.id, limit: 200_000 });
+		// The stopped process exits only when the test says so, as a real one may take a while.
+		let exit!: () => void;
+		fake.closeDelay = new Promise<void>((resolve) => {
+			exit = resolve;
+		});
+		releaseSlow();
+		await rec.waitForType("agent_settled", from);
+
+		// Sent at once: it must not reach the old process, which still has the old limit.
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "next" });
+		await expect.poll(() => fake.options.length).toBe(2);
+		expect(fake.options[1]).toMatchObject({ resume: session.id, settings: { autoCompactWindow: 200_000 } });
+		expect(fake.calls).toEqual(["slow", "next"]);
+
+		// The old process ending while the new one answers leaves the new turn running.
+		exit();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(rec.types(from)).not.toContain("agent_settled");
+		releaseNext();
+		await rec.waitForType("agent_settled", from);
+		expect(rec.types(from).filter((type) => type === "agent_settled")).toHaveLength(1);
+		expect(state().errorMessage).toBeUndefined();
+		const last = state().messages.at(-1);
+		expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: "reply to next" }] });
+		expect(last).not.toHaveProperty("errorMessage");
+	});
+
 	it("queues follow-ups while the agent works", async () => {
 		let release!: () => void;
 		const gate = new Promise<void>((resolve) => {

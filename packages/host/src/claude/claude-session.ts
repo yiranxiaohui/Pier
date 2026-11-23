@@ -247,6 +247,9 @@ export class ClaudeCodeSession extends ManagedSession {
 	private async ensureQuery(): Promise<{ query: Query; input: InputQueue<SDKUserMessage> }> {
 		if (this.idleTimer) clearTimeout(this.idleTimer);
 		this.idleTimer = undefined;
+		// A context limit changed during the last run takes effect when Claude Code starts. A prompt
+		// right after that run can arrive before the restart `finishRun` schedules: restart now.
+		if (this.restartForLimit) this.restartIfIdle();
 		if (this.query && this.input) return { query: this.query, input: this.input };
 		const executable = this.host.executable();
 		if (!executable)
@@ -299,12 +302,16 @@ export class ClaudeCodeSession extends ManagedSession {
 				this.input?.close();
 				this.input = undefined;
 			}
-			if (!this.disposed && this.running) {
-				this.finishRun(failure ?? "Claude Code exited before the reply finished.");
+			// A process stopped for a restart can end after its successor started: leave the new
+			// process's run, queue and subagents alone.
+			if (this.query === undefined) {
+				if (!this.disposed && this.running) {
+					this.finishRun(failure ?? "Claude Code exited before the reply finished.");
+				}
+				this.stopAllSubagents();
+				for (const prompt of this.queued) this.host.log(`dropped queued prompt ${prompt.uuid} (Claude Code exited)`);
+				this.queued = [];
 			}
-			this.stopAllSubagents();
-			for (const prompt of this.queued) this.host.log(`dropped queued prompt ${prompt.uuid} (Claude Code exited)`);
-			this.queued = [];
 		}
 	}
 
