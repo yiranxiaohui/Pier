@@ -79,6 +79,14 @@ const PANEL_KEY = "pier.terminal";
 export const TERMINAL_DEFAULT_HEIGHT = 280;
 export const TERMINAL_MIN_HEIGHT = 120;
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const isWindows = !isMac && typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
+
+/** Copy / paste / clear shortcuts on this platform, shown in the terminal's context menu. */
+export const TERMINAL_SHORTCUTS: { copy: string; paste: string; clear?: string } = isMac
+	? { copy: "⌘C", paste: "⌘V", clear: "⌘K" }
+	: isWindows
+		? { copy: "Ctrl+C", paste: "Ctrl+V" }
+		: { copy: "Ctrl+Shift+C", paste: "Ctrl+Shift+V" };
 
 export function clampTerminalHeight(height: number, available = window.innerHeight): number {
 	const max = Math.max(TERMINAL_MIN_HEIGHT, available - 220);
@@ -163,6 +171,7 @@ export class TerminalManager {
 	constructor(
 		private readonly backend: TerminalBridge | undefined,
 		private readonly openExternal: Bridge["openExternal"],
+		private readonly readClipboard: Bridge["readClipboardText"],
 	) {
 		const saved = (() => {
 			try {
@@ -279,6 +288,39 @@ export class TerminalManager {
 		this.instances.get(key)?.term.clear();
 	}
 
+	hasSelection(key: string): boolean {
+		return this.instances.get(key)?.term.hasSelection() ?? false;
+	}
+
+	/** Copy the selected text to the clipboard. */
+	copySelection(key: string): void {
+		const instance = this.instances.get(key);
+		if (instance) this.copy(instance);
+	}
+
+	/** Paste the clipboard's text into the shell (bracketed when the program asked for it). */
+	paste(key: string): void {
+		const instance = this.instances.get(key);
+		if (instance) this.pasteInto(key, instance);
+	}
+
+	selectAll(key: string): void {
+		this.instances.get(key)?.term.selectAll();
+	}
+
+	private copy(instance: Instance): void {
+		const selection = instance.term.getSelection();
+		if (selection) void navigator.clipboard?.writeText(selection).catch(() => {});
+	}
+
+	private pasteInto(key: string, instance: Instance): void {
+		void this.readClipboard()
+			.then((text) => {
+				if (text && this.instances.get(key) === instance) instance.term.paste(text);
+			})
+			.catch(() => {});
+	}
+
 	/** Show a tab's terminal in `container` (the visible panel body), replacing the previous one. */
 	attach(key: string, container: HTMLElement): void {
 		const instance = this.instances.get(key);
@@ -372,21 +414,31 @@ export class TerminalManager {
 			// Other ⌘ shortcuts (copy, paste, select all) belong to the webview.
 			return !event.metaKey;
 		}
-		if (event.ctrlKey && event.shiftKey && !event.altKey) {
-			if (lower === "c") {
+		// Windows conventions (Windows Terminal, VS Code): Ctrl+C copies a selection and otherwise
+		// interrupts; Ctrl+V pastes.
+		if (isWindows && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey) {
+			if (lower === "c" && instance.term.hasSelection()) {
 				event.preventDefault();
-				const selection = instance.term.getSelection();
-				if (selection) void navigator.clipboard?.writeText(selection).catch(() => {});
+				this.copy(instance);
+				// So that the next Ctrl+C interrupts again, as in Windows Terminal.
+				instance.term.clearSelection();
 				return false;
 			}
 			if (lower === "v") {
 				event.preventDefault();
-				void navigator.clipboard
-					?.readText()
-					.then((text) => {
-						if (text && this.instances.get(key) === instance) instance.term.paste(text);
-					})
-					.catch(() => {});
+				this.pasteInto(key, instance);
+				return false;
+			}
+		}
+		if (event.ctrlKey && event.shiftKey && !event.altKey) {
+			if (lower === "c") {
+				event.preventDefault();
+				this.copy(instance);
+				return false;
+			}
+			if (lower === "v") {
+				event.preventDefault();
+				this.pasteInto(key, instance);
 				return false;
 			}
 		}
@@ -465,7 +517,7 @@ export class TerminalManager {
 	}
 }
 
-export const terminals = new TerminalManager(bridge.terminal, bridge.openExternal);
+export const terminals = new TerminalManager(bridge.terminal, bridge.openExternal, bridge.readClipboardText);
 
 export function useTerminals<T>(selector: (state: TerminalState) => T): T {
 	return useSyncExternalStore(terminals.subscribe, () => selector(terminals.getState()));

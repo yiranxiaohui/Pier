@@ -32,6 +32,11 @@ export interface Bridge {
 	/** Ask the user for a directory. Resolves to an absolute path, or null when cancelled. */
 	pickDirectory(): Promise<string | null>;
 	openExternal(url: string): Promise<void>;
+	/**
+	 * The clipboard's text, for pasting outside a native paste (a menu item, a custom shortcut). The
+	 * desktop app reads it natively: WebView2 asks the user before every `navigator.clipboard.readText()`.
+	 */
+	readClipboardText(): Promise<string>;
 	/** Show a local file or directory in the system file manager; only the desktop app can. */
 	revealPath?(path: string): Promise<void>;
 	/**
@@ -186,6 +191,10 @@ function tauriBridge(): Bridge {
 			const { openUrl } = await import("@tauri-apps/plugin-opener");
 			await openUrl(url);
 		},
+		readClipboardText: async () => {
+			const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+			return readText();
+		},
 		revealPath: async (path) => {
 			const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
 			await revealItemInDir(path);
@@ -258,6 +267,7 @@ function browserBridge(): Bridge {
 		openExternal: async (target) => {
 			window.open(target, "_blank", "noopener,noreferrer");
 		},
+		readClipboardText: () => navigator.clipboard.readText(),
 		saveFile: async (name) => browserDownload(name),
 		quit: async () => window.close(),
 		updates: params.get("updates") === "demo" ? demoUpdates() : unsupportedUpdates,

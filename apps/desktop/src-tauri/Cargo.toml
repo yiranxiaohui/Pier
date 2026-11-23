@@ -16,6 +16,8 @@ cc = "1"
 
 [dependencies]
 tauri = { version = "2.12", features = ["tray-icon"] }
+# Reads the clipboard for the terminal's paste without WebView2's per-read permission prompt.
+tauri-plugin-clipboard-manager = "2.5"
 tauri-plugin-dialog = "2.8"
 tauri-plugin-opener = "2.6"
 tauri-plugin-single-instance = "2.5"

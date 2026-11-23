@@ -1,9 +1,26 @@
 import "@xterm/xterm/css/xterm.css";
 import type { WorkspaceInfo } from "@pier/protocol";
-import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCanOpenTerminal } from "../lib/remote-terminals.ts";
-import { TERMINAL_DEFAULT_HEIGHT, type TerminalTab, terminalLabel, terminals, useTerminals } from "../lib/terminals.ts";
-import { IconChevronDown, IconPlus, IconTerminal, IconTrash, IconX } from "./Icons.tsx";
+import {
+	TERMINAL_DEFAULT_HEIGHT,
+	TERMINAL_SHORTCUTS,
+	type TerminalTab,
+	terminalLabel,
+	terminals,
+	useTerminals,
+} from "../lib/terminals.ts";
+import { ContextMenu, type ContextMenuItem, type ContextMenuPosition, contextMenuPosition } from "./ContextMenu.tsx";
+import {
+	IconChevronDown,
+	IconCopy,
+	IconPaste,
+	IconPlus,
+	IconSelectAll,
+	IconTerminal,
+	IconTrash,
+	IconX,
+} from "./Icons.tsx";
 
 function ResizeHandle() {
 	const height = useTerminals((s) => s.height);
@@ -43,6 +60,35 @@ function tabTitle(tab: TerminalTab): string {
 	return parts.join("\n") || terminalLabel(tab);
 }
 
+/** The terminal's right-click menu: the webview's own is suppressed app-wide (see `main.tsx`). */
+function terminalMenu(tab: TerminalTab, selection: boolean): ContextMenuItem[] {
+	const ended = tab.status === "exited" || tab.status === "failed";
+	return [
+		{
+			label: "复制",
+			icon: <IconCopy size={14} />,
+			hint: TERMINAL_SHORTCUTS.copy,
+			disabled: !selection,
+			onSelect: () => terminals.copySelection(tab.key),
+		},
+		{
+			label: "粘贴",
+			icon: <IconPaste size={14} />,
+			hint: TERMINAL_SHORTCUTS.paste,
+			disabled: ended,
+			onSelect: () => terminals.paste(tab.key),
+		},
+		{ label: "全选", icon: <IconSelectAll size={14} />, onSelect: () => terminals.selectAll(tab.key) },
+		"separator",
+		{
+			label: "清屏",
+			icon: <IconTrash size={14} />,
+			...(TERMINAL_SHORTCUTS.clear ? { hint: TERMINAL_SHORTCUTS.clear } : {}),
+			onSelect: () => terminals.clear(tab.key),
+		},
+	];
+}
+
 /**
  * Bottom panel with the integrated terminals. `workspace` is where new terminals start
  * (the workspace on screen).
@@ -53,6 +99,8 @@ export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; 
 	const active = tabs.find((tab) => tab.key === state.active)?.key ?? tabs.at(-1)?.key;
 	const body = useRef<HTMLDivElement>(null);
 	const canOpen = useCanOpenTerminal(workspace, node);
+	const [menu, setMenu] = useState<{ position: ContextMenuPosition; key: string; selection: boolean }>();
+	const menuTab = menu && tabs.find((tab) => tab.key === menu.key);
 
 	useLayoutEffect(() => {
 		if (active && body.current) terminals.attach(active, body.current);
@@ -152,7 +200,29 @@ export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; 
 					)}
 				</div>
 			</header>
-			<div className="terminal-body" ref={body} key={active ?? "empty"} />
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: the terminal (xterm's focused textarea) takes the keyboard; this only opens its context menu. */}
+			<div
+				className="terminal-body"
+				ref={body}
+				key={active ?? "empty"}
+				onContextMenu={(event) => {
+					if (!active) return;
+					event.preventDefault();
+					setMenu({
+						position: contextMenuPosition(event),
+						key: active,
+						selection: terminals.hasSelection(active),
+					});
+				}}
+			/>
+			{menu && menuTab ? (
+				<ContextMenu
+					label="终端"
+					position={menu.position}
+					items={terminalMenu(menuTab, menu.selection)}
+					onClose={() => setMenu(undefined)}
+				/>
+			) : null}
 			{node && !tabs.length && (
 				<div className="host-shell-empty">
 					<IconTerminal size={26} />
