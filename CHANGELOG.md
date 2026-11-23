@@ -2,7 +2,7 @@
 
 Pier 的所有重要变更都记录在这里。版本号规则：日常发版只递增最后一位（0.2.1、0.2.2……），`x.y.0` 留给大版本；1.0 之前，大版本可能包含不兼容的变更。
 
-## Unreleased
+## v0.3.7 — 2026-11-24
 
 - **终端支持右键复制、粘贴**：桌面端的终端（底部终端面板与「远程主机」的 Shell 终端）此前屏蔽了 WebView 的右键菜单，又没有自己的菜单，右键没有反应；Windows 上选中文字后按 Ctrl+C 还会把 `^C` 发给 shell，而不是复制。现在在终端中右键会打开 Pier 的菜单：「复制」选中的文字、「粘贴」、「全选」和「清屏」，菜单中标出当前系统的快捷键。Windows 上按 Windows Terminal 与 VS Code 的习惯，Ctrl+C 在有选中文字时复制并取消选中（没有选中文字时仍是中断，再按一次也一样），Ctrl+V 粘贴；Ctrl+Shift+C / V 照常可用。Linux 仍用 Ctrl+Shift+C / V，macOS 仍用 ⌘C / ⌘V。粘贴由桌面端直接读取系统剪贴板，Windows 上不再每次弹出 WebView2「允许读取剪贴板」的询问（此前的 Ctrl+Shift+V 会）。粘贴的内容和键入一样发往终端所在的电脑，全屏程序请求时按括号粘贴模式发送。只需更新桌面端。
 
@@ -11,6 +11,8 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 - **一键安装 OpenCode，可选下载线路**：「设置 → Agent 配置 → OpenCode」的「安装与更新」和 Claude Code、Codex 一样新增「安装」/「更新到最新版本」按钮与「下载线路」选择，不再只能复制安装命令。Pier 在所选电脑上安装 OpenCode 1 的官方最新原生版本（无需 Node.js），按系统、架构、musl 与 CPU 是否支持 AVX2 选择对应的发行包，放在 `~/.opencode/bin`（与 OpenCode 官方安装脚本相同）并加入用户 `PATH`，Pier 与终端共用，之后在终端用 `opencode upgrade` 也能继续更新。下载线路可选 GitHub 直连、GHFast / GH-Proxy / GHProxy 加速线路（转发 GitHub 上的官方发行包），或 npmmirror 国内镜像（registry.npmmirror.com 上同一版本的 npm 平台包）；下载慢时可以切换线路重新下载，选择按电脑记住。版本与校验值始终从 npm 与 GitHub 官方获取（GitHub 发行包核对 SHA-256，npmmirror 的包核对 registry.npmjs.org 公布的 SHA-512），校验并确认版本后才替换旧程序；正在使用的 OpenCode 已是最新版本时不再下载。安装后 Pier 在 OpenCode 没有进行中的回合时重启共用的 `opencode serve`，新版本随即生效，无需重启 Host。Pier 现在优先使用 `~/.opencode/bin` 中的 `opencode`，其次才是 `PATH` 中的。需要更新会话所在电脑的 Host（协议 1.65）；旧版 Host 仍显示安装命令，并新增 npmmirror 国内镜像的安装命令（`npm install -g opencode-ai --registry=https://registry.npmmirror.com`）。
 
 - **为每个会话设置上下文上限**：点会话底部状态栏的上下文用量（例如 `103k / 500k`），可以给这个会话设一个比模型窗口小的上下文上限：选「跟随模型」、128k / 200k 等常用档位，或输入自定义值（`150k`、`1.5m`、`20万` 都可以）。Agent 会在上下文接近上限前自动压缩对话，长任务因此更省 token、请求更快。设了上限后，状态栏和圆环按上限计算占比，悬停时同时显示模型窗口。勾选「同时作为 … 新会话的默认上限」后，这个值也用于该 Agent 之后新建的会话。pi、Claude Code、Codex、OpenCode 和 Hermes Agent 都支持：pi 在每次请求模型前检查，修改立即生效；Claude Code（最小 100k）和 Codex 由各自的自动压缩执行，运行中修改在这一轮结束后生效（Claude Code 在空闲时自动重启、恢复会话，Codex 重新加载线程）；OpenCode 和 Hermes 没有按会话的设置，由 Pier 在每轮结束后检查，超过上限时调用它们自己的压缩（OpenCode 的 `session.summarize`、Hermes 的 `/compress`），所以一轮之内仍可能暂时超过上限；空闲时把上限设得比当前上下文还小会立即压缩。上限保存在运行 Agent 的电脑上（`~/.pier/context-limits.json`），重新打开、分叉会话时保留，不修改 Agent 自己的配置文件。手机端在会话「⋯」中的「上下文上限」设置，`pier` CLI 用 `/context [tokens|off] [default]`。OpenCode 和 Hermes 会话也可以手动「压缩上下文」了，历史中 OpenCode 的压缩显示为压缩标记。压缩之后，上下文用量不再沿用压缩前回复的数字（此前 pi 会话压缩后仍显示压缩前的大小），在下一次回复后更新。需要更新会话所在电脑的 Host（协议 1.64）以及桌面端或手机端；连接旧版 Host 时上下文用量不可点击。
+
+- **支持 Hermes Agent 会话**：除了 pi、Claude Code、Codex 和 OpenCode，现在也可以在 Pier 中使用电脑上安装的 [Hermes Agent](https://github.com/NousResearch/hermes-agent)：新建会话时选择「Hermes」。Pier 通过 `hermes acp`（Agent Client Protocol）驱动你自己安装、配置的 Hermes，所有 Hermes 会话共用一个进程，没有打开的 Hermes 会话 5 分钟后停止。支持切换模型与思考程度、发送文字和图片、查看流式回复与工具结果（终端命令、读写文件、搜索显示为对应的工具卡片，修改文件带 diff）、回答 Hermes 的提问与表单、重命名和中止当前回合；Hermes 请求执行危险命令或修改文件时，按工作区审批策略放行或询问你。模型与思考程度来自 Hermes 自己的配置，DeepSeek 或 `~/.hermes/config.yaml` 中配置的兼容 OpenAI 的中转服务商都能直接使用。会话由 Hermes 保存（`~/.hermes`），可在 Pier 中重新打开（历史会回放到对话中），也可以在终端用 `hermes --resume <ID>` 继续；在 Pier 中删除会话会调用 `hermes sessions delete`。Pier 从 `PATH` 和 `~/.local/bin` 查找 `hermes`，自定义安装可用 `PIER_HERMES_PATH` 指定。暂不支持排队消息与分叉。配置方法见使用指南的「Hermes Agent」一节。需要更新会话所在电脑的 Host；新建会话中 Hermes 的图标与说明需要同时更新桌面端或手机端。
 
 ## v0.3.6 — 2026-11-19
 
