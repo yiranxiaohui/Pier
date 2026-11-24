@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { chmod, cp, lstat, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
@@ -26,7 +26,12 @@ import {
 import { compareVersions } from "../peers/ssh/remote.ts";
 import { probeVersion } from "./executable.ts";
 import { configureInstallationPath } from "./installation-path.ts";
-import { publishAgentCommand, sharedAgentExecutable, sharedAgentPaths } from "./shared-installation.ts";
+import {
+	publishAgentCommand,
+	retireCopiedCommands,
+	sharedAgentExecutable,
+	sharedAgentPaths,
+} from "./shared-installation.ts";
 
 const CLAUDE_DOWNLOADS = "https://downloads.claude.ai/claude-code-releases";
 /** Claude Code publishes the same native executables as per-platform npm packages. */
@@ -73,6 +78,9 @@ export interface AgentInstallerOptions {
 	opencodeTarget?: () => Promise<string>;
 	/** The OpenCode the Host uses now, wherever it is installed; it is not replaced while current. */
 	currentOpenCode?: () => string | undefined;
+	/** Defaults to this computer's; tests repair a Windows installation on other systems. */
+	platform?: NodeJS.Platform;
+	log?: (message: string) => void;
 }
 
 interface Release {
@@ -91,6 +99,8 @@ interface Job {
 	source: AgentInstallSource;
 	/** The active command to check; manual jobs may also do a first-time installation. */
 	autoExecutable?: string;
+	/** A local repair at startup; installations queue behind it instead of replacing it. */
+	repair?: boolean;
 	abort: AbortController;
 	done: Promise<void>;
 }
@@ -130,6 +140,31 @@ function extract(
 			(error) => (error ? reject(new Error(`解压 ${name} 失败，请确认系统已安装 tar：${error.message}`)) : resolve()),
 		),
 	);
+}
+
+/** The Codex package directory around `<package>/bin/<executable>`, when it is complete. */
+function completePackage(executable: string): string | undefined {
+	const root = dirname(dirname(executable));
+	return basename(dirname(executable)) === "bin" && existsSync(join(root, "codex-package.json")) ? root : undefined;
+}
+
+/** A complete Codex package of `version` that this installer verified and kept in `versions`. */
+function keptPackage(versions: string, version: string, filename: string): string | undefined {
+	let names: string[];
+	try {
+		names = readdirSync(versions);
+	} catch {
+		return undefined;
+	}
+	for (const name of names.filter((n) => n.startsWith(`${version}-`))) {
+		const executable = join(versions, name, "bin", filename);
+		try {
+			if (statSync(executable).isFile() && completePackage(executable)) return join(versions, name);
+		} catch {
+			// Not a release directory.
+		}
+	}
+	return undefined;
 }
 
 /** Verified native releases, with public user-level commands shared by Pier and external terminals. */
@@ -190,6 +225,54 @@ export class AgentInstaller {
 		if (job?.autoExecutable) job.abort.abort(AUTO_UPDATE_DISABLED);
 	}
 
+	/**
+	 * Earlier Pier versions published Codex on Windows by copying the files of its `bin` to
+	 * `~/.local/bin`, where Codex 0.157 and later cannot find the rest of its package and refuse to
+	 * start their background server. Select the complete package those copies came from instead,
+	 * without downloading it again, and remove the copies.
+	 */
+	repairInstallations(): Promise<void> {
+		const platform = this.options.platform ?? process.platform;
+		if (platform !== "win32" || this.closed || this.jobs.has("codex")) return Promise.resolve();
+		const job: Job = {
+			runtime: "codex",
+			source: "official",
+			repair: true,
+			abort: new AbortController(),
+			done: Promise.resolve(),
+		};
+		job.done = this.repairCodex(job.abort.signal, platform)
+			.catch((error: unknown) => {
+				if (!job.abort.signal.aborted)
+					this.options.log?.(`修复 Codex 安装失败：${error instanceof Error ? error.message : String(error)}`);
+			})
+			.finally(() => {
+				if (this.jobs.get("codex") === job) this.jobs.delete("codex");
+			});
+		this.jobs.set("codex", job);
+		return job.done;
+	}
+
+	private async repairCodex(signal: AbortSignal, platform: NodeJS.Platform): Promise<void> {
+		const home = this.options.homeDirectory ?? homedir();
+		const paths = sharedAgentPaths("codex", home, platform);
+		const filename = basename(paths.executable);
+		const copy = join(paths.commands, filename);
+		if (!existsSync(copy)) return;
+		// Copies an earlier removal could not delete because they were running.
+		if (sharedAgentExecutable("codex", home, platform)) return retireCopiedCommands("codex", home, platform);
+		const version = await (this.options.probe ?? probeVersion)(copy);
+		signal.throwIfAborted();
+		const release = version && VERSION.test(version) ? keptPackage(paths.versions, version, filename) : undefined;
+		// Without one, the next installation or update downloads the complete package.
+		if (!release) return;
+		await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
+		signal.throwIfAborted();
+		await publishAgentCommand("codex", join(release, "bin", filename), home, platform);
+		this.options.log?.(`Codex ${version} 改为从完整发行包 ${release} 运行`);
+		await this.options.onInstalled?.("codex");
+	}
+
 	/** Choosing another route while a job still fetches metadata or downloads restarts it on that route. */
 	start(runtime: InstallableRuntime, source: AgentInstallSource = "official"): AgentInstallationStatus {
 		return this.startJob(runtime, source);
@@ -205,11 +288,15 @@ export class AgentInstaller {
 			throw new PierProtocolError("BAD_REQUEST", "这个 Agent 不支持所选下载线路");
 		}
 		const previous = this.jobs.get(runtime);
-		if (previous && (previous.source === source || !["checking", "downloading"].includes(this.status(runtime).state))) {
+		if (
+			previous &&
+			!previous.repair &&
+			(previous.source === source || !["checking", "downloading"].includes(this.status(runtime).state))
+		) {
 			throw new PierProtocolError("CONFLICT", "这个 Agent 正在安装，请等待完成");
 		}
 		installationTarget();
-		previous?.abort.abort(new Error("已切换下载线路"));
+		if (!previous?.repair) previous?.abort.abort(new Error("已切换下载线路"));
 		const job: Job = { runtime, source, autoExecutable, abort: new AbortController(), done: Promise.resolve() };
 		this.statuses.set(runtime, { runtime, state: "checking", source });
 		// Queue the job so it is registered before any asynchronous work can finish. A replaced job
@@ -388,6 +475,7 @@ export class AgentInstaller {
 		if (upToDate && sharedAgentExecutable(runtime, home)) {
 			signal.throwIfAborted();
 			await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
+			await retireCopiedCommands(runtime, home);
 			await this.options.onInstalled?.(runtime);
 			this.update(job, { state: "ready" });
 			return;
@@ -400,8 +488,12 @@ export class AgentInstaller {
 		const executable = join(staging.path, ...(release.format === "package" ? ["bin", filename] : [filename]));
 		if (upToDate && current) {
 			// Migrate an already verified Pier-only installation even when its version is latest.
-			if (release.format === "package") await cp(dirname(current), join(staging.path, "bin"), { recursive: true });
-			else await cp(current, executable);
+			if (release.format === "package") {
+				// It holds Codex's complete package around `bin`; Codex needs all of it.
+				const root = completePackage(current);
+				if (root) await cp(root, staging.path, { recursive: true });
+				else await cp(dirname(current), join(staging.path, "bin"), { recursive: true });
+			} else await cp(current, executable);
 			this.update(job, { state: "installing" });
 		} else {
 			const downloaded = release.format === "binary" ? executable : join(staging.path, "download.tar.gz");

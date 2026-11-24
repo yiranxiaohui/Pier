@@ -5,15 +5,16 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { configureInstallationPath } from "../src/runtimes/installation-path.ts";
-import { publishAgentCommand, sharedAgentPaths } from "../src/runtimes/shared-installation.ts";
+import { publishAgentCommand, sharedAgentExecutable, sharedAgentPaths } from "../src/runtimes/shared-installation.ts";
 
 describe("shared Agent commands", () => {
 	let root: string;
@@ -39,33 +40,79 @@ describe("shared Agent commands", () => {
 		expect(readFileSync(old, "utf8")).toBe("old-npm-package");
 	});
 
-	it("publishes Windows native commands and Codex companions, replacing older shell launchers", async () => {
-		const paths = sharedAgentPaths("codex", home, "win32");
+	it("publishes Windows native commands, replacing older shell launchers", async () => {
+		const paths = sharedAgentPaths("claude-code", home, "win32");
 		mkdirSync(paths.bin, { recursive: true });
-		for (const ext of ["exe", "cmd", "bat", "ps1"]) writeFileSync(join(paths.bin, `codex.${ext}`), "old-launcher");
-		const pkg = join(home, "package", "bin");
-		mkdirSync(pkg, { recursive: true });
-		writeFileSync(join(pkg, "codex.exe"), "native-codex");
-		writeFileSync(join(pkg, "codex-command-runner.exe"), "native-companion");
-		await publishAgentCommand("codex", join(pkg, "codex.exe"), home, "win32");
-		expect(readFileSync(paths.executable, "utf8")).toBe("native-codex");
-		expect(readFileSync(join(paths.bin, "codex-command-runner.exe"), "utf8")).toBe("native-companion");
-		expect(readdirSync(paths.bin).sort()).toEqual(["codex-command-runner.exe", "codex.exe"]);
+		for (const ext of ["exe", "cmd", "bat", "ps1"]) writeFileSync(join(paths.bin, `claude.${ext}`), "old-launcher");
+		const next = join(home, "claude.exe");
+		writeFileSync(next, "native-claude");
+		await publishAgentCommand("claude-code", next, home, "win32");
+		expect(readFileSync(paths.executable, "utf8")).toBe("native-claude");
+		expect(readdirSync(paths.bin)).toEqual(["claude.exe"]);
 	});
 
-	it("restores launchers and companion programs if Windows publication fails partway through", async () => {
-		const paths = sharedAgentPaths("codex", home, "win32");
+	it("restores launchers if Windows publication fails partway through", async () => {
+		const paths = sharedAgentPaths("claude-code", home, "win32");
 		mkdirSync(paths.executable, { recursive: true }); // Main entry cannot be replaced.
-		writeFileSync(join(paths.bin, "codex.cmd"), "old-command");
-		writeFileSync(join(paths.bin, "codex-command-runner.exe"), "old-companion");
-		const pkg = join(home, "package", "bin");
-		mkdirSync(pkg, { recursive: true });
-		writeFileSync(join(pkg, "codex.exe"), "new-codex");
-		writeFileSync(join(pkg, "codex-command-runner.exe"), "new-companion");
-		await expect(publishAgentCommand("codex", join(pkg, "codex.exe"), home, "win32")).rejects.toThrow("命令路径是目录");
-		expect(readFileSync(join(paths.bin, "codex.cmd"), "utf8")).toBe("old-command");
-		expect(readFileSync(join(paths.bin, "codex-command-runner.exe"), "utf8")).toBe("old-companion");
-		expect(readdirSync(paths.bin).sort()).toEqual(["codex-command-runner.exe", "codex.cmd", "codex.exe"]);
+		writeFileSync(join(paths.bin, "claude.cmd"), "old-command");
+		const next = join(home, "claude.exe");
+		writeFileSync(next, "new-claude");
+		await expect(publishAgentCommand("claude-code", next, home, "win32")).rejects.toThrow("命令路径是目录");
+		expect(readFileSync(join(paths.bin, "claude.cmd"), "utf8")).toBe("old-command");
+		expect(readdirSync(paths.bin).sort()).toEqual(["claude.cmd", "claude.exe"]);
+	});
+
+	/** A complete Codex package like the official `codex-package-<target>.tar.gz`, kept by version. */
+	const codexRelease = (version: string) => {
+		const release = join(sharedAgentPaths("codex", home, "win32").versions, `${version}-id`);
+		mkdirSync(join(release, "bin"), { recursive: true });
+		mkdirSync(join(release, "codex-resources"));
+		writeFileSync(join(release, "codex-package.json"), JSON.stringify({ layoutVersion: 1, version }));
+		writeFileSync(join(release, "bin", "codex.exe"), `codex ${version}`);
+		writeFileSync(join(release, "bin", "codex-code-mode-host.exe"), "code-mode-host");
+		writeFileSync(join(release, "codex-resources", "codex-command-runner.exe"), "command-runner");
+		return join(release, "bin", "codex.exe");
+	};
+
+	it("runs Windows Codex from its complete package through a junction, removing copied commands", async () => {
+		const paths = sharedAgentPaths("codex", home, "win32");
+		expect(paths.bin).toBe(join(home, ".local", "share", "codex", "current", "bin"));
+		// Earlier versions copied the package's `bin` here, where Codex cannot find the rest of it.
+		mkdirSync(paths.commands, { recursive: true });
+		const copied = ["codex.exe", "codex-code-mode-host.exe", "codex-exec-server.exe", "codex.cmd"];
+		for (const name of [...copied, "claude.exe", "codex-notes.txt"]) writeFileSync(join(paths.commands, name), name);
+		const first = codexRelease("1.0.0");
+		await publishAgentCommand("codex", first, home, "win32");
+		expect(sharedAgentExecutable("codex", home, "win32")).toBe(realpathSync(first));
+		// Codex resolves the junction and finds its package metadata and resources next to `bin`.
+		expect(readFileSync(join(paths.current, "codex-resources", "codex-command-runner.exe"), "utf8")).toBe(
+			"command-runner",
+		);
+		expect(readdirSync(paths.commands).sort()).toEqual(["claude.exe", "codex-notes.txt"]);
+
+		const second = codexRelease("1.1.0");
+		await publishAgentCommand("codex", second, home, "win32");
+		expect(sharedAgentExecutable("codex", home, "win32")).toBe(realpathSync(second));
+		expect(readFileSync(paths.executable, "utf8")).toBe("codex 1.1.0");
+		expect(readFileSync(first, "utf8")).toBe("codex 1.0.0"); // Running programs keep their release.
+		expect(readdirSync(dirname(paths.current)).sort()).toEqual(["current", "versions"]);
+	});
+
+	it("keeps a Windows Codex directory that Pier did not create", async () => {
+		const paths = sharedAgentPaths("codex", home, "win32");
+		mkdirSync(paths.bin, { recursive: true });
+		writeFileSync(paths.executable, "user-codex");
+		mkdirSync(paths.commands, { recursive: true });
+		writeFileSync(join(paths.commands, "codex.exe"), "copied");
+		await expect(publishAgentCommand("codex", codexRelease("1.0.0"), home, "win32")).rejects.toThrow(
+			"不是 Pier 创建的链接",
+		);
+		await expect(publishAgentCommand("codex", join(home, "codex.exe"), home, "win32")).rejects.toThrow(
+			"不在完整的发行包中",
+		);
+		expect(readFileSync(paths.executable, "utf8")).toBe("user-codex");
+		expect(readFileSync(join(paths.commands, "codex.exe"), "utf8")).toBe("copied");
+		expect(readdirSync(dirname(paths.current)).sort()).toEqual(["current", "versions"]);
 	});
 
 	it.skipIf(process.platform === "win32")(

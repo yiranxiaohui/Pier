@@ -1,6 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeAgentRuntime } from "@pier/protocol";
@@ -9,7 +18,7 @@ import { ConfigStore } from "../src/config.ts";
 import { findExecutable } from "../src/runtimes/executable.ts";
 import { AgentInstaller, installationTarget } from "../src/runtimes/installation.ts";
 import { configureInstallationPath } from "../src/runtimes/installation-path.ts";
-import { sharedAgentPaths } from "../src/runtimes/shared-installation.ts";
+import { sharedAgentExecutable, sharedAgentPaths } from "../src/runtimes/shared-installation.ts";
 import { Recorder, startTestHost } from "./helpers.ts";
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -205,7 +214,12 @@ describe("verified native Agent installation", () => {
 		mkdirSync(legacy, { recursive: true });
 		const filename = `${runtime === "codex" ? "codex" : "claude"}${process.platform === "win32" ? ".exe" : ""}`;
 		writeFileSync(join(legacy, filename), "verified-legacy");
-		if (runtime === "codex") writeFileSync(join(legacy, "companion"), "legacy-companion");
+		if (runtime === "codex") {
+			writeFileSync(join(legacy, "companion"), "legacy-companion");
+			writeFileSync(join(legacy, "..", "codex-package.json"), "{}");
+			mkdirSync(join(legacy, "..", "codex-resources"));
+			writeFileSync(join(legacy, "..", "codex-resources", "helper"), "legacy-resource");
+		}
 		writeFileSync(
 			join(root, runtime, "current.json"),
 			JSON.stringify({ executable: join("old", ...(runtime === "codex" ? ["bin"] : []), filename) }),
@@ -237,6 +251,9 @@ describe("verified native Agent installation", () => {
 		if (runtime === "codex") {
 			const executable = AgentInstaller.executable(root, runtime, root) ?? "";
 			expect(readFileSync(join(executable, "..", "companion"), "utf8")).toBe("legacy-companion");
+			// The whole package moves, so Codex still finds its metadata and resources.
+			expect(existsSync(join(executable, "..", "..", "codex-package.json"))).toBe(true);
+			expect(readFileSync(join(executable, "..", "..", "codex-resources", "helper"), "utf8")).toBe("legacy-resource");
 		}
 	});
 
@@ -308,11 +325,14 @@ describe("verified native Agent installation", () => {
 	it("extracts the full Codex package, including companion executables", async () => {
 		const packageDir = join(root, "fixture");
 		mkdirSync(join(packageDir, "bin"), { recursive: true });
+		mkdirSync(join(packageDir, "codex-resources"));
 		const name = process.platform === "win32" ? "codex.exe" : "codex";
 		writeFileSync(join(packageDir, "bin", name), "codex-native");
 		writeFileSync(join(packageDir, "bin", "companion"), "sandbox-companion");
+		writeFileSync(join(packageDir, "codex-package.json"), "{}");
+		writeFileSync(join(packageDir, "codex-resources", "helper"), "resource");
 		const archive = join(root, "fixture.tar.gz");
-		execFileSync("tar", ["-czf", archive, "-C", packageDir, "bin"]);
+		execFileSync("tar", ["-czf", archive, "-C", packageDir, "bin", "codex-package.json", "codex-resources"]);
 		const bytes = readFileSync(archive);
 		const installer = create({
 			probe: async () => "0.162.0",
@@ -336,6 +356,57 @@ describe("verified native Agent installation", () => {
 		const path = AgentInstaller.executable(root, "codex", root) ?? "";
 		expect(readFileSync(path, "utf8")).toBe("codex-native");
 		expect(readFileSync(join(path, "..", "companion"), "utf8")).toBe("sandbox-companion");
+		// The command resolves into the package, where Codex looks for the rest of it.
+		expect(existsSync(join(path, "..", "..", "codex-package.json"))).toBe(true);
+		expect(readFileSync(join(path, "..", "..", "codex-resources", "helper"), "utf8")).toBe("resource");
+	});
+
+	/** What earlier versions left on Windows: a kept package, and its `bin` copied to `~/.local/bin`. */
+	const copiedWindowsCodex = (version: string) => {
+		const paths = sharedAgentPaths("codex", root, "win32");
+		const release = join(paths.versions, `${version}-id`);
+		mkdirSync(join(release, "bin"), { recursive: true });
+		writeFileSync(join(release, "codex-package.json"), "{}");
+		writeFileSync(join(release, "bin", "codex.exe"), `codex ${version}`);
+		mkdirSync(paths.commands, { recursive: true });
+		for (const name of ["codex.exe", "codex-code-mode-host.exe", "claude.exe"])
+			writeFileSync(join(paths.commands, name), "copied");
+		return { paths, release };
+	};
+
+	it("repairs a Windows Codex that earlier versions copied out of its package, without a download", async () => {
+		const { paths, release } = copiedWindowsCodex("0.170.0");
+		const fetch = vi.fn<typeof globalThis.fetch>();
+		const configurePath = vi.fn<typeof configureInstallationPath>(async () => {});
+		const onInstalled = vi.fn();
+		const installer = create({
+			platform: "win32",
+			fetch,
+			configurePath,
+			onInstalled,
+			probe: async (path) => (path === join(paths.commands, "codex.exe") ? "0.170.0" : undefined),
+		});
+		await installer.repairInstallations();
+		expect(sharedAgentExecutable("codex", root, "win32")).toBe(realpathSync(join(release, "bin", "codex.exe")));
+		expect(configurePath).toHaveBeenCalledWith(paths.bin, { home: root });
+		expect(readdirSync(paths.commands)).toEqual(["claude.exe"]);
+		expect(onInstalled).toHaveBeenCalledWith("codex");
+		expect(fetch).not.toHaveBeenCalled();
+		expect(installer.status("codex").state).toBe("idle");
+	});
+
+	it("leaves a copied Windows Codex without a kept package of its version to the next update", async () => {
+		const { paths } = copiedWindowsCodex("0.170.0");
+		const configurePath = vi.fn<typeof configureInstallationPath>(async () => {});
+		const installer = create({ platform: "win32", configurePath, probe: async () => "0.171.0" });
+		await installer.repairInstallations();
+		expect(configurePath).not.toHaveBeenCalled();
+		expect(sharedAgentExecutable("codex", root, "win32")).toBeUndefined();
+		expect(readdirSync(paths.commands).sort()).toEqual(["claude.exe", "codex-code-mode-host.exe", "codex.exe"]);
+		// Other systems never had copies to repair.
+		const linux = create({ platform: "linux", configurePath, probe: async () => "0.170.0" });
+		await linux.repairInstallations();
+		expect(configurePath).not.toHaveBeenCalled();
 	});
 
 	const claudeName = process.platform === "win32" ? "claude.exe" : "claude";

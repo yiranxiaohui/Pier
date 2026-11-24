@@ -717,6 +717,7 @@ export class PierHost implements RequestHandler {
 			log,
 		});
 		this.agentInstaller = new AgentInstaller(managedDirectory, {
+			log,
 			...options.agentInstaller,
 			autoUpdateTarget: (runtime) => {
 				const settings = this.config.agentUpdate(runtime);
@@ -864,6 +865,7 @@ export class PierHost implements RequestHandler {
 		await host.remote.apply();
 		host.tasks.start();
 		host.agentInstaller.startAutoUpdates();
+		if (options.agents?.codex !== false) void host.agentInstaller.repairInstallations();
 		return host;
 	}
 
