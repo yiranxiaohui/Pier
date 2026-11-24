@@ -1,3 +1,4 @@
+import { remarkGfmCjk } from "@pier/chat-state/markdown";
 import {
 	type ComponentProps,
 	createContext,
@@ -10,7 +11,6 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
 import { filePreviewError, markdownFilePath, markdownUrlTransform } from "../lib/markdown-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
 import { useStore } from "../lib/store.tsx";
@@ -167,7 +167,7 @@ function Image({ src, alt, title }: ComponentProps<"img">) {
 }
 
 const components = { pre: Pre, a: Link, img: Image };
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfmCjk];
 const rehypePlugins = [[rehypeHighlight, { detect: false, ignoreMissing: true }]] as ComponentProps<
 	typeof ReactMarkdown
 >["rehypePlugins"];

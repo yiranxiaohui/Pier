@@ -1,16 +1,17 @@
+import { remarkGfmCjk } from "@pier/chat-state/markdown";
 import type { Root, Table } from "mdast";
 import { toString as mdastToString } from "mdast-util-to-string";
-import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
 /**
  * Markdown parsing for the mobile transcript. It uses the same parser as the desktop app
- * (remark-parse + remark-gfm), so tables, task lists, strikethrough, autolinks and
- * footnotes are understood the same way; only the rendering differs (native views).
+ * (remark-parse + remark-gfm, with URLs ending at full-width punctuation), so tables, task
+ * lists, strikethrough, autolinks and footnotes are understood the same way; only the
+ * rendering differs (native views).
  */
 
-const processor = unified().use(remarkParse).use(remarkGfm).freeze();
+const processor = unified().use(remarkParse).use(remarkGfmCjk).freeze();
 
 export function parseMarkdown(text: string): Root {
 	return processor.parse(text);

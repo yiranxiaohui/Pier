@@ -47,7 +47,6 @@
 		"react-native-web": "^0.21.3",
 		"react-native-webrtc": "124.0.8",
 		"react-native-worklets": "0.10.1",
-		"remark-gfm": "^4.0.1",
 		"remark-parse": "^11.0.0",
 		"unified": "^11.0.5"
 	},

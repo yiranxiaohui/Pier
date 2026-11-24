@@ -43,6 +43,15 @@ describe("parseMarkdown", () => {
 		expect(rule?.type).toBe("thematicBreak");
 	});
 
+	it("ends a URL at full-width punctuation instead of linking the rest of the sentence", () => {
+		const paragraph = parseMarkdown("管理页是 **http://172.20.0.182:8000**，现在可以打开。").children[0];
+		if (paragraph?.type !== "paragraph") throw new Error("expected paragraph");
+		const [, strong, rest] = paragraph.children;
+		if (strong?.type !== "strong" || strong.children[0]?.type !== "link") throw new Error("expected a bold link");
+		expect(strong.children[0].url).toBe("http://172.20.0.182:8000");
+		expect(rest).toMatchObject({ type: "text", value: "，现在可以打开。" });
+	});
+
 	it("never throws on half-streamed input", () => {
 		for (const partial of ["| a | b |\n|--", "```ts\nconst x", "**bold", "[link](https://exa", "- [ ", "> quote\n>"]) {
 			expect(() => parseMarkdown(partial)).not.toThrow();
