@@ -51,6 +51,26 @@ export function findChromium(): string {
 	return found;
 }
 
+/**
+ * Switches and environment that keep the process Pier starts the browser itself. On Windows,
+ * Chrome and Edge relaunch themselves when started elevated (de-elevation), and Edge does when it
+ * inherits an AppCompat layer (`__COMPAT_LAYER`, e.g. `Installer` when Pier was restarted by its
+ * installer). The relaunched browser does not get the CDP pipe: the one Pier started exits at once,
+ * before its profile is even created, and every launch fails with "本地浏览器已关闭".
+ */
+export function launchSettings(
+	platform: NodeJS.Platform,
+	env: NodeJS.ProcessEnv,
+): { args: string[]; env: NodeJS.ProcessEnv } {
+	if (platform !== "win32") return { args: [], env };
+	return {
+		// Chromium ignores switches it does not know: Chrome is fine with Edge's.
+		args: ["--do-not-de-elevate", "--edge-skip-compat-layer-relaunch"],
+		// Windows environment names are case-insensitive.
+		env: Object.fromEntries(Object.entries(env).filter(([name]) => name.toUpperCase() !== "__COMPAT_LAYER")),
+	};
+}
+
 interface Pending {
 	resolve(result: Record<string, unknown>): void;
 	reject(error: Error): void;
@@ -121,12 +141,14 @@ export class ChromiumBrowser {
 		launchOptions?: { executable?: string; args?: string[]; env?: NodeJS.ProcessEnv; downloadDir?: string },
 	): Promise<ChromiumBrowser> {
 		mkdirSync(profile, { recursive: true, mode: 0o700 });
+		const launch = launchSettings(process.platform, launchOptions?.env ?? process.env);
 		const args = [
 			"--remote-debugging-pipe",
 			`--user-data-dir=${profile}`,
 			"--no-first-run",
 			"--no-default-browser-check",
 			"--disable-background-networking",
+			...launch.args,
 		];
 		if (proxyPort)
 			args.push(
@@ -140,7 +162,7 @@ export class ChromiumBrowser {
 		const child = spawn(launchOptions?.executable ?? findChromium(), args, {
 			stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
 			windowsHide: false,
-			env: launchOptions?.env,
+			env: launch.env,
 		});
 		const browser = new ChromiumBrowser(child, onExit);
 		try {
