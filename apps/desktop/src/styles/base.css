@@ -447,6 +447,25 @@ body.resizing-sidebar .sidebar-shell {
 	transition: none;
 }
 
+/* The light theme sets the panel flush against the chrome (tokens.css). The hairline beside it is
+   the screen sidebar's, which runs on down past the status bar; collapsed, the sidebar leaves no
+   gap and no line of its own, and the rail's border serves. */
+:root[data-theme="light"] :where(main).main {
+	margin: 0;
+	border-radius: 0;
+}
+
+:root[data-theme="light"] .sidebar-shell,
+:root[data-theme="light"] .settings-nav,
+:root[data-theme="light"] .host-sidebar {
+	border-right: 1px solid var(--border);
+}
+
+:root[data-theme="light"] .sidebar-shell.collapsed {
+	width: 0;
+	border-right-width: 0;
+}
+
 .sidebar-resize {
 	position: absolute;
 	top: 8px;

@@ -62,6 +62,11 @@
 	-webkit-user-select: none;
 }
 
+/* Under the light theme's flush panels a hairline separates the bar instead of a gap. */
+:root[data-theme="light"] .statusbar {
+	border-top: 1px solid var(--border);
+}
+
 .statusbar-left,
 .statusbar-right {
 	display: flex;

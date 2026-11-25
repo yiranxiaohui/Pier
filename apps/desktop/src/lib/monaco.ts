@@ -5,7 +5,7 @@ import HtmlWorker from "monaco-editor/language/html/html.worker?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker?worker";
 import TsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 import { fallbackLanguage } from "./code-editor.ts";
-import { onThemeChange } from "./theme.ts";
+import { currentTheme, onThemeChange } from "./theme.ts";
 
 /**
  * The Monaco editor (VS Code's editor) set up for the file viewer. Loaded on demand by
@@ -99,8 +99,8 @@ export function languageName(id: string): string {
 	return info?.aliases?.[0] ?? id;
 }
 
-/** VS Code's Dark Modern editor on the app's code background. */
-export const THEME = "pier-dark";
+/** VS Code's Dark Modern editor, or Light Modern in the light theme, on the app's code background. */
+export const THEME = "pier";
 
 function cssVariable(name: string, fallback: string): string {
 	const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -108,46 +108,87 @@ function cssVariable(name: string, fallback: string): string {
 }
 
 function defineTheme() {
-	const background = cssVariable("--bg-code", "#0f1116");
-	monaco.editor.defineTheme(THEME, {
-		base: "vs-dark",
-		inherit: true,
-		rules: [],
-		colors: {
-			"editor.background": background,
-			"editor.foreground": "#D4D4D4",
-			"editorGutter.background": background,
-			"minimap.background": background,
-			"editorStickyScroll.background": background,
-			"editorLineNumber.foreground": "#6E7681",
-			"editorLineNumber.activeForeground": "#CCCCCC",
-			"editor.lineHighlightBackground": "#FFFFFF00",
-			"editor.lineHighlightBorder": "#FFFFFF14",
-			"editorIndentGuide.background1": "#FFFFFF14",
-			"editorIndentGuide.activeBackground1": "#FFFFFF33",
-			"editorWidget.background": "#202020",
-			"editorWidget.border": "#313131",
-			"editorHoverWidget.background": "#202020",
-			"editorHoverWidget.border": "#454545",
-			"editorSuggestWidget.background": "#202020",
-			"editorSuggestWidget.border": "#454545",
-			"editorSuggestWidget.selectedBackground": "#04395E",
-			"editor.findMatchBackground": "#9E6A03",
-			"input.background": "#313131",
-			"input.border": "#3C3C3C",
-			focusBorder: "#0078D4",
-			"widget.border": "#313131",
-			"menu.background": "#1F1F1F",
-			"menu.border": "#454545",
-			"menu.selectionBackground": "#0078D4",
-			"quickInput.background": "#222222",
-			"textLink.foreground": "#4DAAFC",
-		},
-	});
+	const light = currentTheme() === "light";
+	const background = cssVariable("--bg-code", light ? "#f7f6f3" : "#0f1116");
+	const surfaces = {
+		"editor.background": background,
+		"editorGutter.background": background,
+		"minimap.background": background,
+		"editorStickyScroll.background": background,
+	};
+	monaco.editor.defineTheme(
+		THEME,
+		light
+			? {
+					base: "vs",
+					inherit: true,
+					rules: [],
+					colors: {
+						...surfaces,
+						"editor.foreground": cssVariable("--code-text", "#1c1b19"),
+						"editorLineNumber.foreground": cssVariable("--code-gutter", "#a29d94"),
+						"editorLineNumber.activeForeground": cssVariable("--code-text", "#1c1b19"),
+						"editor.lineHighlightBackground": "#00000000",
+						"editor.lineHighlightBorder": "#2820140F",
+						"editorIndentGuide.background1": "#28201414",
+						"editorIndentGuide.activeBackground1": "#28201433",
+						"editorWidget.background": "#FFFFFF",
+						"editorWidget.border": "#E4E2DC",
+						"editorHoverWidget.background": "#FFFFFF",
+						"editorHoverWidget.border": "#E4E2DC",
+						"editorSuggestWidget.background": "#FFFFFF",
+						"editorSuggestWidget.border": "#E4E2DC",
+						"editorSuggestWidget.selectedBackground": "#EFEDE8",
+						"editor.findMatchBackground": "#F2D58A",
+						"input.background": "#FFFFFF",
+						"input.border": "#D9D6CF",
+						focusBorder: "#57534C",
+						"widget.border": "#E4E2DC",
+						"menu.background": "#FFFFFF",
+						"menu.border": "#E4E2DC",
+						"menu.selectionBackground": "#EFEDE8",
+						"menu.selectionForeground": "#1C1B19",
+						"quickInput.background": "#FFFFFF",
+						"textLink.foreground": "#005FB8",
+					},
+				}
+			: {
+					base: "vs-dark",
+					inherit: true,
+					rules: [],
+					colors: {
+						...surfaces,
+						"editor.foreground": "#D4D4D4",
+						"editorLineNumber.foreground": "#6E7681",
+						"editorLineNumber.activeForeground": "#CCCCCC",
+						"editor.lineHighlightBackground": "#FFFFFF00",
+						"editor.lineHighlightBorder": "#FFFFFF14",
+						"editorIndentGuide.background1": "#FFFFFF14",
+						"editorIndentGuide.activeBackground1": "#FFFFFF33",
+						"editorWidget.background": "#202020",
+						"editorWidget.border": "#313131",
+						"editorHoverWidget.background": "#202020",
+						"editorHoverWidget.border": "#454545",
+						"editorSuggestWidget.background": "#202020",
+						"editorSuggestWidget.border": "#454545",
+						"editorSuggestWidget.selectedBackground": "#04395E",
+						"editor.findMatchBackground": "#9E6A03",
+						"input.background": "#313131",
+						"input.border": "#3C3C3C",
+						focusBorder: "#0078D4",
+						"widget.border": "#313131",
+						"menu.background": "#1F1F1F",
+						"menu.border": "#454545",
+						"menu.selectionBackground": "#0078D4",
+						"quickInput.background": "#222222",
+						"textLink.foreground": "#4DAAFC",
+					},
+				},
+	);
 }
 
 defineTheme();
-// The code background differs slightly between the app's light and dark appearance.
+// The editor follows the app's light and dark appearance.
 onThemeChange(() => {
 	defineTheme();
 	monaco.editor.setTheme(THEME);

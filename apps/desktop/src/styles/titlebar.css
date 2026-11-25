@@ -69,6 +69,13 @@ button.titlebar-button:focus-visible {
 	margin-top: 0;
 }
 
+/* The light theme's flush panels meet the title bar on a hairline. */
+:root.custom-titlebar[data-theme="light"] .window-body > .app .main,
+:root.custom-titlebar[data-theme="light"] .side-panel-window:not(.overlay),
+:root.custom-titlebar[data-theme="light"] .host-detail {
+	border-top: 1px solid var(--border);
+}
+
 :root.custom-titlebar .sidebar {
 	padding-top: 0;
 }

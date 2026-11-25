@@ -401,7 +401,6 @@
 	flex-direction: column;
 	min-height: 0;
 	background: var(--bg-code);
-	color-scheme: dark;
 }
 
 /* The app styles form controls and a few generic class names (.message, .status-bar) globally;
@@ -448,7 +447,7 @@
 	justify-content: center;
 	gap: 8px;
 	font-size: 13px;
-	color: #8a8f9c;
+	color: var(--code-faint);
 }
 
 .code-editor-fallback {
@@ -461,7 +460,7 @@
 	font-size: 12.5px;
 	line-height: 1.6;
 	white-space: pre;
-	color: #e6e8eb;
+	color: var(--code-text);
 	background: transparent;
 }
 
@@ -475,11 +474,11 @@
 	gap: 8px;
 	height: 24px;
 	padding: 0 4px;
-	border-top: 1px solid rgba(255, 255, 255, 0.07);
-	background: #181a1f;
+	border-top: 1px solid var(--code-line);
+	background: var(--code-bar);
 	font-size: 11.5px;
 	line-height: 24px;
-	color: #a7abb4;
+	color: var(--code-muted);
 	user-select: none;
 }
 
@@ -507,8 +506,8 @@
 }
 
 .code-editor-status-item:hover:not(:disabled) {
-	background: rgba(255, 255, 255, 0.08);
-	color: #e6e8eb;
+	background: var(--code-hover);
+	color: var(--code-text);
 }
 
 .code-editor-status-item:disabled {
@@ -525,7 +524,7 @@
 }
 
 .code-editor-readonly {
-	color: #e9b44c;
+	color: var(--warning);
 }
 
 .file-viewer-markdown {
@@ -554,10 +553,10 @@
 	overflow: auto;
 	background-color: var(--bg-code);
 	background-image:
-		linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
-		linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
-		linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.04) 75%),
-		linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.04) 75%);
+		linear-gradient(45deg, var(--code-tint) 25%, transparent 25%),
+		linear-gradient(-45deg, var(--code-tint) 25%, transparent 25%),
+		linear-gradient(45deg, transparent 75%, var(--code-tint) 75%),
+		linear-gradient(-45deg, transparent 75%, var(--code-tint) 75%);
 	background-size: 20px 20px;
 	background-position:
 		0 0,

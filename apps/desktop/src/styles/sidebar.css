@@ -37,89 +37,33 @@
 	padding: 4px 14px 20px;
 }
 
-/* The primary workspace action stays visible above the project tree: a bar of metal cast in the
-   accent colour, with a bevelled rim and a diagonal shine that widens on hover and lifts it. */
+/* The primary workspace action stays visible above the project tree: a quiet raised bar on a
+   hairline, so the solid ink is left to what needs an answer (approvals, dialogs). */
 .new-session-button {
-	/* The metal's base tone: a muted teal, light enough for the dark lettering (contrast ≥ 4.5 even
-	   at the deep end) without glaring. It starts from --accent-bright, the same in both themes: the
-	   light theme's accent is a dark teal, and mixing that with white turns it grey. */
-	--metal: color-mix(in oklab, var(--accent-bright) 88%, black);
-	--metal-deep: color-mix(in oklab, var(--metal) 86%, black);
-	--metal-mid: var(--metal);
-	--metal-shine: color-mix(in oklab, var(--metal) 55%, white);
-	--metal-glint: color-mix(in oklab, var(--metal) 40%, white);
-	--metal-ink: color-mix(in oklab, var(--metal) 16%, black);
-	/* The tinted shadow the bar casts at rest. */
-	--metal-cast: color-mix(in oklab, var(--metal-deep) 40%, transparent);
-	--metal-gradient: linear-gradient(
-		160deg,
-		var(--metal-deep),
-		var(--metal-mid),
-		var(--metal-shine),
-		var(--metal-mid),
-		var(--metal-deep)
-	);
 	width: 100%;
 	justify-content: flex-start;
 	gap: 10px;
 	height: 40px;
 	padding: 0 12px;
-	border: 1px solid var(--metal-deep);
-	border-radius: 10px;
-	background: var(--metal-gradient) center / 100% 100%;
-	color: var(--metal-ink);
-	text-shadow: 0 1px 1px var(--metal-glint);
+	border-color: var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--bg-raised);
+	color: var(--text);
 	font-size: 14px;
-	font-weight: 600;
-	box-shadow:
-		0 3px 6px rgba(0, 0, 0, 0.16),
-		0 3px 6px var(--metal-cast),
-		inset 0 -2px 5px 1px var(--metal-deep),
-		inset 0 -1px 1px 3px var(--metal-glint);
-	transition:
-		background 0.2s ease-in-out,
-		box-shadow 0.2s ease-in-out,
-		border-color 0.2s ease-in-out,
-		transform 0.1s var(--ease);
+	font-weight: 550;
+	box-shadow: var(--shadow-sm), var(--highlight);
 }
 
 .new-session-button .icon-svg {
-	color: inherit;
-	filter: drop-shadow(0 1px 1px var(--metal-glint));
+	color: var(--accent-text);
 }
 
-/* On the dark theme's graphite the near-white shine and rim glare like a lit outline and the tinted
-   shadow reads as a glow, so there the shine and rim are cast softer and the shadow plain. The base
-   tone stays put: a deeper metal would cost the lettering its contrast. */
-:root:not([data-theme="light"]) .new-session-button {
-	--metal-shine: color-mix(in oklab, var(--metal) 74%, white);
-	--metal-glint: color-mix(in oklab, var(--metal) 68%, white);
-	--metal-cast: rgba(0, 0, 0, 0.28);
-}
-
-/* `background` again: the shared button hover replaces it with a flat colour. */
+/* `background` again: the shared button hover replaces it with the hover tint. */
 .new-session-button:hover:not(:disabled),
-.new-session-button:focus-visible {
-	background: var(--metal-gradient) center / 150% 150%;
-	border-color: color-mix(in oklab, var(--metal-deep) 60%, transparent);
-	box-shadow:
-		0 10px 20px rgba(0, 0, 0, 0.19),
-		0 6px 6px rgba(0, 0, 0, 0.23),
-		inset 0 -2px 5px 1px var(--metal-mid),
-		inset 0 -1px 1px 3px var(--metal-glint);
-}
-
-.new-session-button:active:not(:disabled) {
-	box-shadow:
-		0 3px 6px rgba(0, 0, 0, 0.16),
-		0 3px 6px var(--metal-cast),
-		inset 0 -2px 5px 1px var(--metal-mid),
-		inset 0 -1px 1px 3px var(--metal-glint);
-}
-
-/* On the new-session page the shine stays widened. */
+.new-session-button:focus-visible,
 .new-session-button.selected {
-	background: var(--metal-gradient) center / 150% 150%;
+	border-color: color-mix(in oklab, var(--text) 30%, transparent);
+	background: var(--bg-raised);
 }
 
 /* Grows open and shrinks shut (0fr ↔ 1fr) as agents start and finish. */

@@ -77,6 +77,18 @@ body.resizing-panel .side-panel {
 		visibility 0s linear var(--panel-duration);
 }
 
+/* The light theme sets the panel flush, behind a hairline, like the main panel (base.css). */
+:root[data-theme="light"] .side-panel[data-view="closed"] {
+	width: 0;
+}
+
+:root[data-theme="light"] .side-panel-window:not(.overlay) {
+	width: var(--panel-size);
+	margin: 0;
+	border-left: 1px solid var(--border);
+	border-radius: 0;
+}
+
 @keyframes side-panel-in {
 	from {
 		opacity: 0;

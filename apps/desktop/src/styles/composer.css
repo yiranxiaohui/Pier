@@ -131,7 +131,7 @@
 	padding: 10px 12px;
 	border-radius: var(--radius);
 	background: var(--bg-code);
-	color: #e6e8eb;
+	color: var(--code-text);
 	font-family: var(--mono);
 	font-size: 12.5px;
 	white-space: pre-wrap;

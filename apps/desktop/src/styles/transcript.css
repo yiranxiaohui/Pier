@@ -557,24 +557,24 @@ button.markdown-image {
 	align-items: center;
 	justify-content: space-between;
 	padding: 4px 6px 4px 14px;
-	background: rgba(255, 255, 255, 0.03);
-	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	background: var(--code-tint);
+	border-bottom: 1px solid var(--code-line);
 }
 
 .code-lang {
 	font-family: var(--mono);
 	font-size: 11.5px;
-	color: #8a8f9c;
+	color: var(--code-faint);
 	text-transform: lowercase;
 }
 
 .code-block .copy-button {
-	color: #8a8f9c;
+	color: var(--code-faint);
 }
 
 .code-block .copy-button:hover:not(:disabled) {
-	background: rgba(255, 255, 255, 0.07);
-	color: #e6e8eb;
+	background: var(--code-hover);
+	color: var(--code-text);
 }
 
 .code-block pre {
@@ -584,7 +584,7 @@ button.markdown-image {
 	font-family: var(--mono);
 	font-size: 12.5px;
 	line-height: 1.6;
-	color: #e6e8eb;
+	color: var(--code-text);
 	background: transparent;
 }
 
@@ -592,6 +592,84 @@ button.markdown-image {
 .tool-preview code.hljs {
 	background: transparent;
 	padding: 0;
+}
+
+/* main.tsx loads highlight.js's GitHub Dark colours; on the light theme's paper code surfaces the
+   tokens take GitHub's light palette (highlight.js styles/github.css) instead. */
+:root[data-theme="light"] .hljs,
+:root[data-theme="light"] .hljs-subst,
+:root[data-theme="light"] .hljs-emphasis,
+:root[data-theme="light"] .hljs-strong {
+	color: #24292e;
+}
+
+:root[data-theme="light"] .hljs-doctag,
+:root[data-theme="light"] .hljs-keyword,
+:root[data-theme="light"] .hljs-meta .hljs-keyword,
+:root[data-theme="light"] .hljs-template-tag,
+:root[data-theme="light"] .hljs-template-variable,
+:root[data-theme="light"] .hljs-type,
+:root[data-theme="light"] .hljs-variable.language_ {
+	color: #d73a49;
+}
+
+:root[data-theme="light"] .hljs-title,
+:root[data-theme="light"] .hljs-title.class_,
+:root[data-theme="light"] .hljs-title.class_.inherited__,
+:root[data-theme="light"] .hljs-title.function_ {
+	color: #6f42c1;
+}
+
+:root[data-theme="light"] .hljs-attr,
+:root[data-theme="light"] .hljs-attribute,
+:root[data-theme="light"] .hljs-literal,
+:root[data-theme="light"] .hljs-meta,
+:root[data-theme="light"] .hljs-number,
+:root[data-theme="light"] .hljs-operator,
+:root[data-theme="light"] .hljs-variable,
+:root[data-theme="light"] .hljs-selector-attr,
+:root[data-theme="light"] .hljs-selector-class,
+:root[data-theme="light"] .hljs-selector-id,
+:root[data-theme="light"] .hljs-section {
+	color: #005cc5;
+}
+
+:root[data-theme="light"] .hljs-regexp,
+:root[data-theme="light"] .hljs-string,
+:root[data-theme="light"] .hljs-meta .hljs-string {
+	color: #032f62;
+}
+
+:root[data-theme="light"] .hljs-built_in,
+:root[data-theme="light"] .hljs-symbol {
+	color: #e36209;
+}
+
+:root[data-theme="light"] .hljs-comment,
+:root[data-theme="light"] .hljs-code,
+:root[data-theme="light"] .hljs-formula {
+	color: #6a737d;
+}
+
+:root[data-theme="light"] .hljs-name,
+:root[data-theme="light"] .hljs-quote,
+:root[data-theme="light"] .hljs-selector-tag,
+:root[data-theme="light"] .hljs-selector-pseudo {
+	color: #22863a;
+}
+
+:root[data-theme="light"] .hljs-bullet {
+	color: #735c0f;
+}
+
+:root[data-theme="light"] .hljs-addition {
+	color: #22863a;
+	background-color: #f0fff4;
+}
+
+:root[data-theme="light"] .hljs-deletion {
+	color: #b31d28;
+	background-color: #ffeef0;
 }
 
 /* ---- empty session --------------------------------------------------------------- */

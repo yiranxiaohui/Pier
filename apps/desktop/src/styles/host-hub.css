@@ -74,6 +74,12 @@ button.host-choice.selected {
 	border-radius: var(--radius);
 	overflow: hidden;
 }
+/* Flush in the light theme, like the main panel (base.css). */
+:root[data-theme="light"] .host-detail {
+	margin: 0;
+	border: none;
+	border-radius: 0;
+}
 .host-heading {
 	padding: 19px 22px 10px;
 }

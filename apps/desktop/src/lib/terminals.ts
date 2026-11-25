@@ -141,9 +141,9 @@ function currentTheme(): ITheme {
 	return {
 		background: cssVar("--bg", light ? "#ffffff" : "#111217"),
 		foreground: cssVar("--text", light ? "#1c1d22" : "#ececf1"),
-		cursor: cssVar("--accent", "#2ab5aa"),
+		cursor: cssVar("--accent", light ? "#1c1b19" : "#ebe7df"),
 		cursorAccent: cssVar("--bg", light ? "#ffffff" : "#111217"),
-		selectionBackground: light ? "rgba(42, 181, 170, 0.28)" : "rgba(42, 181, 170, 0.32)",
+		selectionBackground: cssVar("--accent-ring", light ? "rgba(40, 32, 20, 0.25)" : "rgba(235, 231, 223, 0.32)"),
 		scrollbarSliderBackground: light ? "rgba(0, 0, 0, 0.14)" : "rgba(255, 255, 255, 0.12)",
 		scrollbarSliderHoverBackground: light ? "rgba(0, 0, 0, 0.24)" : "rgba(255, 255, 255, 0.2)",
 		scrollbarSliderActiveBackground: light ? "rgba(0, 0, 0, 0.3)" : "rgba(255, 255, 255, 0.26)",

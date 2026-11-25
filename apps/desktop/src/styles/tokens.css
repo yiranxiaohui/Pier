@@ -4,21 +4,20 @@
 :root {
 	color-scheme: dark;
 
-	/* surfaces: a near-neutral graphite with only a trace of cool, so the teal accent is the one
-	   colour on screen. The chrome (rail, sidebar, status bar) sits darkest and each layer above
-	   it steps up evenly: panel, then cards and inputs, then menus. */
-	--bg-app: #0c0d10;
-	--bg-nav: #0a0b0d;
-	--feature-bg: #15322e;
-	--hero-wash: rgba(58, 139, 125, 0.07);
-	--bg: #16171b;
-	--bg-elevated: #1e1f24;
-	--bg-raised: #26272d;
-	--bg-input: #1c1d22;
-	--bg-code: #0d0e11;
+	/* surfaces: a warm graphite, ink rather than steel, under ivory text. The chrome (rail,
+	   sidebar, status bar) sits darkest and each layer above it steps up evenly: panel, then cards
+	   and inputs, then menus. */
+	--bg-app: #0e0d0c;
+	--bg-nav: #0b0b0a;
+	--hero-wash: rgba(235, 231, 223, 0.03);
+	--bg: #181715;
+	--bg-elevated: #201f1c;
+	--bg-raised: #282724;
+	--bg-input: #1e1d1a;
+	--bg-code: #0f0e0d;
 	--bg-hover: rgba(255, 255, 255, 0.05);
 	--bg-active: rgba(255, 255, 255, 0.085);
-	--bubble: #26282e;
+	--bubble: #292825;
 
 	/* lines */
 	--border: rgba(255, 255, 255, 0.07);
@@ -27,21 +26,19 @@
 	--highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
 	/* text */
-	--text: #ececef;
-	--text-muted: #a5a8b0;
-	--text-faint: #8d919b;
+	--text: #edebe6;
+	--text-muted: #aaa69e;
+	--text-faint: #928e86;
 
-	/* brand & semantic */
-	/* The bright teal of this theme's accent, kept by the few surfaces that show it in both themes
-	   (the new-session button's metal); the light theme does not override it. */
-	--accent-bright: #42c8b4;
-	--accent: var(--accent-bright);
-	--accent-contrast: #102b26;
-	--accent-strong: #65d5c3;
-	--accent-text: #5fd6cb;
-	--accent-soft: rgba(42, 181, 170, 0.13);
-	--accent-ring: rgba(42, 181, 170, 0.45);
-	--brand-glow: rgba(42, 181, 170, 0.16);
+	/* brand & semantic: the accent is the ink itself, ivory here and near-black in the light
+	   theme, so the only colours on screen are the states (success, warning, danger). */
+	--accent: #ebe7df;
+	--accent-contrast: #1c1b19;
+	--accent-strong: #ffffff;
+	--accent-text: #ebe7df;
+	--accent-soft: rgba(235, 231, 223, 0.08);
+	--accent-ring: rgba(235, 231, 223, 0.32);
+	--brand-glow: rgba(235, 231, 223, 0.08);
 	/* Brand mark without its tile: a white P and a mint prompt, as on the app icon. */
 	--logo-ink-start: #ffffff;
 	--logo-ink-end: #dcf4f7;
@@ -58,6 +55,18 @@
 	--info: #6aa4f0;
 	--info-soft: rgba(106, 164, 240, 0.12);
 
+	/* code surfaces (--bg-code): tool output, diffs, code blocks, the file editor */
+	--code-text: #e6e8eb;
+	--code-muted: #b9bec8;
+	--code-faint: #8a8f9c;
+	--code-gutter: #5c6370;
+	--code-line: rgba(255, 255, 255, 0.06);
+	--code-tint: rgba(255, 255, 255, 0.03);
+	--code-hover: rgba(255, 255, 255, 0.07);
+	/* the file editor's status bar and the sticky file headers of a diff */
+	--code-bar: #1a1917;
+	--code-heading: #2a2825;
+
 	/* diff */
 	--add: rgba(63, 185, 80, 0.15);
 	--add-text: #7ee2a8;
@@ -65,10 +74,10 @@
 	--del-text: #ff9b94;
 
 	/* shape & depth */
-	--radius-sm: 7px;
-	--radius: 11px;
-	--radius-lg: 16px;
-	--radius-xl: 18px;
+	--radius-sm: 6px;
+	--radius: 8px;
+	--radius-lg: 10px;
+	--radius-xl: 12px;
 	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
 	--shadow-md: 0 10px 30px -6px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.28);
 	--shadow-composer: 0 12px 32px -14px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.2);
@@ -108,34 +117,35 @@
 	--mono: monospace;
 }
 
+/* Light is warm paper and ink: the white panels sit flush against the chrome behind hairlines
+   instead of floating on a shadow (base.css, side-panel.css), and code reads on paper too. */
 :root[data-theme="light"] {
 	color-scheme: light;
-	--bg-app: #f0f2f5;
-	--bg-nav: #e9edf1;
-	--feature-bg: #1d3835;
-	--hero-wash: rgba(87, 167, 146, 0.07);
-	--bg: #ffffff;
-	--bg-elevated: #f6f8fa;
+	--bg-app: #f4f3f0;
+	--bg-nav: #f0efeb;
+	--hero-wash: rgba(40, 32, 20, 0.03);
+	--bg: #fdfdfc;
+	--bg-elevated: #f7f6f3;
 	--bg-raised: #ffffff;
 	--bg-input: #ffffff;
-	--bg-code: #0f1116;
-	--bg-hover: rgba(15, 23, 42, 0.045);
-	--bg-active: rgba(15, 23, 42, 0.07);
-	--bubble: #eef2f6;
-	--border: rgba(15, 23, 42, 0.075);
-	--border-strong: rgba(15, 23, 42, 0.13);
+	--bg-code: #f7f6f3;
+	--bg-hover: rgba(40, 32, 20, 0.045);
+	--bg-active: rgba(40, 32, 20, 0.07);
+	--bubble: #f1f0ec;
+	--border: rgba(40, 32, 20, 0.1);
+	--border-strong: rgba(40, 32, 20, 0.16);
 	--highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-	--text: #0d0d0d;
-	--text-muted: #5e6a79;
-	--text-faint: #626f80;
-	--accent: #117d70;
-	--accent-contrast: #ffffff;
-	--accent-strong: #0b695f;
-	--accent-text: #0b7468;
-	--accent-soft: rgba(17, 150, 140, 0.1);
-	--accent-ring: rgba(17, 150, 140, 0.4);
-	--brand-glow: rgba(17, 125, 112, 0.12);
-	/* On light surfaces the P takes the app icon's navy tile color and the prompt the accent teal. */
+	--text: #1c1b19;
+	--text-muted: #57534c;
+	--text-faint: #6e6a63;
+	--accent: #1c1b19;
+	--accent-contrast: #fbfaf7;
+	--accent-strong: #3b3934;
+	--accent-text: #1c1b19;
+	--accent-soft: rgba(40, 32, 20, 0.06);
+	--accent-ring: rgba(40, 32, 20, 0.25);
+	--brand-glow: rgba(40, 32, 20, 0.06);
+	/* On light surfaces the P takes the app icon's navy tile color and the prompt its teal. */
 	--logo-ink-start: #294775;
 	--logo-ink-end: #183047;
 	--logo-signal-start: #1fa392;
@@ -150,11 +160,22 @@
 	--warning-line: rgba(214, 158, 46, 0.5);
 	--info: #2f6fc4;
 	--info-soft: rgba(47, 111, 196, 0.08);
-	--add-text: #7ee2a8;
-	--del-text: #ff9b94;
-	--shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-	--shadow-md: 0 10px 30px -8px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.05);
-	--shadow-composer: 0 10px 32px -12px rgba(29, 48, 63, 0.13), 0 2px 4px rgba(29, 48, 63, 0.04);
-	--shadow-lg: 0 28px 72px -12px rgba(15, 23, 42, 0.22), 0 4px 12px rgba(15, 23, 42, 0.07);
-	--panel-shadow: 0 0 0 1px var(--border), 0 12px 32px -24px rgba(29, 48, 63, 0.16);
+	--code-text: #1c1b19;
+	--code-muted: #57534c;
+	--code-faint: #6e6a63;
+	--code-gutter: #a29d94;
+	--code-line: rgba(40, 32, 20, 0.08);
+	--code-tint: rgba(40, 32, 20, 0.03);
+	--code-hover: rgba(40, 32, 20, 0.06);
+	--code-bar: #efeee9;
+	--code-heading: #eeede8;
+	--add: rgba(26, 127, 55, 0.08);
+	--add-text: #1a7f37;
+	--del: rgba(207, 34, 46, 0.07);
+	--del-text: #b42318;
+	--shadow-sm: 0 1px 2px rgba(40, 32, 20, 0.05);
+	--shadow-md: 0 10px 30px -8px rgba(40, 32, 20, 0.12), 0 2px 6px rgba(40, 32, 20, 0.04);
+	--shadow-composer: 0 1px 2px rgba(40, 32, 20, 0.04);
+	--shadow-lg: 0 28px 72px -12px rgba(40, 32, 20, 0.2), 0 4px 12px rgba(40, 32, 20, 0.06);
+	--panel-shadow: none;
 }
