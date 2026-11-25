@@ -195,6 +195,34 @@ describe("sessions end to end", () => {
 		expect(sessions[0]?.firstMessage).toBe("hi");
 	});
 
+	it("reports the token usage of stored sessions", async () => {
+		t.faux.setResponses([fauxAssistantMessage("Counted.")]);
+		const { session, rec } = await newSession();
+		const from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "count me" });
+		await rec.waitForType("agent_settled", from);
+
+		const stats = await client.request("usage.stats", { timeZone: "UTC" });
+		expect(stats.timeZone).toBe("UTC");
+		expect(stats.errors).toBeUndefined();
+		expect(stats.sessions).toEqual([
+			expect.objectContaining({ sessionId: session.id, workspaceId: workspace.id, runtime: "pi", title: "count me" }),
+		]);
+		const entry = stats.sessions[0]?.usage[0];
+		expect(entry).toMatchObject({
+			day: new Date().toISOString().slice(0, 10),
+			model: "faux-1",
+			provider: "faux",
+			requests: 1,
+		});
+		expect(entry?.output).toBeGreaterThan(0);
+		// The faux model has no prices.
+		expect(entry?.cost).toBeUndefined();
+
+		expect((await client.request("usage.stats", { since: "2999-01-01" })).sessions).toEqual([]);
+		await expectError(client.request("usage.stats", { timeZone: "Mars/Base" }), "BAD_REQUEST");
+	});
+
 	it.skipIf(!posixShell)("asks for approval and blocks denied tool calls with the reason", async () => {
 		let seenResult = "";
 		t.faux.setResponses([

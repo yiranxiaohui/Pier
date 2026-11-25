@@ -1,15 +1,19 @@
 import type { AgentRuntimeInfo, ModelInfo, ThinkingLevel, WorkspaceInfo } from "@pier/protocol";
 import { PierProtocolError } from "@pier/protocol";
 import type { ManagedSession, ManagedSessionOptions } from "../managed-session.ts";
-import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
+import type { AgentRuntime, ForkResult, StoredSession, UsageRecord } from "../runtimes/types.ts";
+import { FileUsageCache } from "../runtimes/usage-files.ts";
 import type { PiEnvironment } from "./environment.ts";
 import { PI_CAPABILITIES, PiManagedSession } from "./pi-session.ts";
+import { piSessionUsage } from "./usage.ts";
 
 /** pi, run in-process through the SDK of the user's pi installation (see `sdk.ts`). */
 export class PiRuntime implements AgentRuntime {
 	readonly id = "pi";
 	readonly name = "pi";
 	readonly capabilities = PI_CAPABILITIES;
+
+	private readonly usageFiles = new FileUsageCache();
 
 	constructor(readonly env: PiEnvironment) {}
 
@@ -55,6 +59,10 @@ export class PiRuntime implements AgentRuntime {
 			firstMessage: info.firstMessage,
 			...(info.parentSessionPath ? { parentSessionPath: info.parentSessionPath } : {}),
 		}));
+	}
+
+	usage(_workspace: WorkspaceInfo, stored: StoredSession): Promise<UsageRecord[]> {
+		return stored.path ? piSessionUsage(stored.path, this.usageFiles) : Promise.resolve([]);
 	}
 
 	private sessionOptions(options: ManagedSessionOptions) {

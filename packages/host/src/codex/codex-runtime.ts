@@ -11,11 +11,12 @@ import {
 import type { ManagedSession, ManagedSessionOptions } from "../managed-session.ts";
 import { findExecutable, probeVersion } from "../runtimes/executable.ts";
 import { AgentInstaller } from "../runtimes/installation.ts";
-import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
+import type { AgentRuntime, ForkResult, StoredSession, UsageRecord } from "../runtimes/types.ts";
 import { CodexAppServer } from "./app-server.ts";
 import { CODEX_CAPABILITIES, CodexSession, type CodexSessionHost, codexLimitConfig } from "./codex-session.ts";
 import { codexPolicy, convertTurns, storedSubagents, toModelInfo } from "./convert.ts";
 import { type CodexModelConfig, codexModelConfig, codexModelList, fetchProviderModels } from "./provider-models.ts";
+import { CodexUsageReader } from "./usage.ts";
 
 export interface CodexRuntimeOptions {
 	installationHome?: string;
@@ -82,6 +83,7 @@ export class CodexRuntime implements AgentRuntime {
 	private versionPromise: Promise<string | undefined> | undefined;
 	private versionFor: string | undefined;
 	private readonly counts = new Map<string, CountCacheEntry>();
+	private readonly usageReader = new CodexUsageReader();
 	private readonly log: (message: string) => void;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -246,6 +248,11 @@ export class CodexRuntime implements AgentRuntime {
 			cursor = page.nextCursor;
 		} while (cursor && sessions.length < 1000);
 		return sessions;
+	}
+
+	/** The thread's requests and its sub-agents' (1.68), from the rollout files Codex writes. */
+	usage(_workspace: WorkspaceInfo, stored: StoredSession): Promise<UsageRecord[]> {
+		return stored.path ? this.usageReader.usage(stored.path) : Promise.resolve([]);
 	}
 
 	async create(options: ManagedSessionOptions): Promise<ManagedSession> {

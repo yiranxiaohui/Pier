@@ -338,7 +338,7 @@ const t = await startTestHost({
 	...noPi,
 	...(accountSite ? { accountSite } : {}),
 	// `--agents`: also offer the Claude Code and Codex CLIs installed on this computer.
-	...(process.argv.includes("--agents") ? { agents: {} } : {}),
+	...(process.argv.includes("--agents") ? { agents: { claudeCode: {}, codex: {} } } : {}),
 	...(fakeCodexDir
 		? {
 				agents: {

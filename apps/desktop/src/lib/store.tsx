@@ -1,4 +1,11 @@
-import { ChatController, type ChatState, type ChatView, cacheableChatState } from "@pier/chat-state";
+import {
+	ChatController,
+	type ChatState,
+	type ChatView,
+	cacheableChatState,
+	localTimeZone,
+	usageSince,
+} from "@pier/chat-state";
 import { CLOSE_DEVICE_REVOKED, type ClientState, PierClient } from "@pier/client";
 import type {
 	AgentConfigChangeResult,
@@ -58,6 +65,7 @@ import type {
 	SshAddProgress,
 	SshAddResult,
 	ThinkingLevel,
+	UsageStats,
 	WorkspaceFileContent,
 	WorkspaceFilesResult,
 	WorkspaceFileWriteResult,
@@ -181,6 +189,11 @@ export function hostRunsAgents(info: HostInfo | undefined): boolean {
 /** Whether a host reports its resource usage (`host.stats`, 1.12). */
 export function hostReportsStats(info: HostInfo | undefined): boolean {
 	return hostSpeaks(info, 12);
+}
+
+/** Whether a host reports the token usage of its sessions (`usage.stats`, 1.68). */
+export function hostReportsUsage(info: HostInfo | undefined): boolean {
+	return hostSpeaks(info, 68);
 }
 
 /** Whether Pier on a computer can be updated from here (`update.*`, 1.13). */
@@ -349,11 +362,31 @@ export interface ExtensionProgressState {
 	message?: string;
 }
 
+/** Days the token usage page counts: today, the last 7 or 30 days, or everything. */
+export type UsageRange = "today" | "7d" | "30d" | "all";
+
+/** Days each bounded range covers, today included. */
+export const USAGE_RANGE_DAYS: Record<Exclude<UsageRange, "all">, number> = { today: 1, "7d": 7, "30d": 30 };
+
+/** Token usage of one computer for the usage page (`usage.stats`, 1.68). */
+export interface UsageNodeData {
+	state: "loading" | "ok" | "error" | "unsupported" | "offline";
+	range: UsageRange;
+	/** The latest statistics, kept while newer ones load. */
+	stats?: UsageStats;
+	error?: string;
+}
+
 export interface AppState {
 	hostHubOpen: boolean;
 	hostHubView?: { node: string; tab: "connection" | "shell" | "files" };
 	scheduledTasksOpen: boolean;
 	taskData: Record<string, { tasks: ScheduledTask[]; runs: ScheduledTaskRun[]; error?: string }>;
+	/** The token usage page is on screen (1.68). */
+	usageOpen: boolean;
+	usageRange: UsageRange;
+	/** Token usage of each computer, by node. */
+	usageData: Record<string, UsageNodeData>;
 	host: HostStatus;
 	/**
 	 * Every computer whose workspaces the sidebar lists: this one (`LOCAL_NODE`) and each paired
@@ -703,6 +736,7 @@ export class PierStore {
 	private readonly refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly workspaceLoadSeq = new Map<string, number>();
 	private readonly taskLoadSeq = new Map<string, number>();
+	private readonly usageLoadSeq = new Map<string, number>();
 	/** Sign-in events that arrived before `provider.login` answered with their flow id. */
 	private authBacklog: EventFrame[] = [];
 	private openedAuthUrls = new Set<string>();
@@ -785,6 +819,9 @@ export class PierStore {
 			hostHubOpen: false,
 			scheduledTasksOpen: false,
 			taskData: {},
+			usageOpen: false,
+			usageRange: "7d",
+			usageData: {},
 			host: { state: "starting", restarts: 0, generation: 0 },
 			nodes,
 			node,
@@ -1104,6 +1141,7 @@ export class PierStore {
 					: {}),
 				peerUpdates: Object.fromEntries(Object.entries(s.peerUpdates).filter(([id]) => id !== node)),
 				taskData: Object.fromEntries(Object.entries(s.taskData).filter(([id]) => id !== node)),
+				usageData: Object.fromEntries(Object.entries(s.usageData).filter(([id]) => id !== node)),
 			};
 		});
 		this.saveNodeCache();
@@ -3088,6 +3126,7 @@ export class PierStore {
 		this.set((s) => ({
 			hostHubOpen: false,
 			scheduledTasksOpen: false,
+			usageOpen: false,
 			selectedWorkspaceId: session.workspaceId,
 			selectedSessionId: session.id,
 			newChat: undefined,
@@ -3432,16 +3471,16 @@ export class PierStore {
 		if (section === "about" && this.state.settingsNode === LOCAL_NODE && this.state.update.version) {
 			this.announcedUpdate = this.state.update.version;
 		}
-		this.set({ settings: section, scheduledTasksOpen: false, hostHubOpen: false });
+		this.set({ settings: section, scheduledTasksOpen: false, hostHubOpen: false, usageOpen: false });
 		if (section === "models" || section === "account") void this.loadProviders();
 	}
 
 	closeSettings(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: false });
+		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: false, usageOpen: false });
 	}
 
 	openHostHub(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: true });
+		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: true, usageOpen: false });
 	}
 
 	selectHostView(node: string, tab: "connection" | "shell" | "files"): void {
@@ -3449,8 +3488,60 @@ export class PierStore {
 	}
 
 	openScheduledTasks(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: true, hostHubOpen: false });
+		this.set({ settings: undefined, scheduledTasksOpen: true, hostHubOpen: false, usageOpen: false });
 		for (const node of this.clients.keys()) void this.loadTasks(node);
+	}
+
+	// ---- token usage page (1.68) ----------------------------------------------------------
+
+	openUsage(): void {
+		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: false, usageOpen: true });
+		this.loadUsage();
+	}
+
+	setUsageRange(range: UsageRange): void {
+		if (range === this.state.usageRange) return;
+		this.set({ usageRange: range });
+		this.loadUsage();
+	}
+
+	/** Read the token usage of this computer and every paired one for the page's range. */
+	loadUsage(): void {
+		for (const node of [LOCAL_NODE, ...this.state.peers.map((p) => p.id)]) void this.loadUsageOf(node);
+	}
+
+	async loadUsageOf(node: string): Promise<void> {
+		const range = this.state.usageRange;
+		const previous = this.state.usageData[node];
+		const put = (data: Omit<UsageNodeData, "range">) => {
+			// Nothing new (the page asks again whenever computers change).
+			if (data.state === previous?.state && range === previous.range && !data.stats && !data.error) return;
+			// Statistics of another range stay out of this one's totals.
+			const stats = data.stats ?? (previous?.range === range ? previous.stats : undefined);
+			this.set((s) => ({ usageData: { ...s.usageData, [node]: { ...data, range, ...(stats ? { stats } : {}) } } }));
+		};
+		const client = this.openClient(node);
+		if (!client?.host) return put({ state: "offline" });
+		if (!hostReportsUsage(client.host)) return put({ state: "unsupported" });
+		const seq = (this.usageLoadSeq.get(node) ?? 0) + 1;
+		this.usageLoadSeq.set(node, seq);
+		put({ state: "loading" });
+		const current = () =>
+			this.clients.get(node) === client && this.usageLoadSeq.get(node) === seq && this.state.usageRange === range;
+		try {
+			const timeZone = localTimeZone();
+			const stats = await client.request(
+				"usage.stats",
+				{
+					...(range === "all" ? {} : { since: usageSince(USAGE_RANGE_DAYS[range]) }),
+					...(timeZone ? { timeZone } : {}),
+				},
+				{ timeoutMs: 180_000 },
+			);
+			if (current()) put({ state: "ok", stats });
+		} catch (error) {
+			if (current()) put({ state: "error", error: errorText(error) });
+		}
 	}
 
 	async loadTasks(node: string): Promise<void> {

@@ -1,4 +1,4 @@
-# Pier 协议 v1.67
+# Pier 协议 v1.68
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -549,6 +549,26 @@ Host 保存已配对的电脑于 `~/.pier/peers.json`（0600），每次经代�
 Host 每秒检查计划。恢复后只补执行一个错过的周期；任务正在执行时跳过重复周期，最多同时运行 4 个任务。每次在原工作区目录创建独立会话，沿用工作区审批策略；UI 请求显示为 `waiting`，由正常 `ui.respond` 回答。未结束的运行在重启后标记为 `interrupted`，不会重放。移除工作区会暂停相关任务。最多 100 个任务，每个任务保留最近 50 次运行，持久化到权限 0600 的 `scheduled-tasks.json`。
 
 任务、运行记录或已读状态变化时，Host 向所有客户端发送 `{ type: "task.changed" }`，客户端重新读取任务与记录；旧版 Host 不支持这些方法，客户端需检查协议 1.36。
+
+### 用量统计（1.68）
+
+| 方法 | 参数 | 结果 |
+|---|---|---|
+| `usage.stats` | `{ since?: "YYYY-MM-DD", timeZone? }` | `UsageStats`：这台电脑上所有工作区已保存会话的 token 用量，按会话、日期和模型汇总。对已配对设备开放 |
+
+`UsageStats = { timeZone, generatedAt, sessions: UsageSession[], errors?: UsageStatsError[] }`；`UsageSession = { sessionId, workspaceId, runtime, title?, archived?, modifiedAt, usage: UsageEntry[] }`，`title` 为会话名称，没有时取第一条提示词的开头；`UsageEntry = { day, model, provider?, input, output, cacheRead, cacheWrite, cost?, requests }`，按 `day` 和 `model` 升序。token 的口径与 pi 相同：`input` 不含从缓存读取（`cacheRead`）和写入缓存（`cacheWrite`）的提示词，一次请求的 token 为四者之和；Codex 的 `input_tokens` 包含缓存命中的部分，Host 会先减去。`requests` 为模型请求（回复）数。`cost` 为美元，只有这一项计入的每次请求都记录了费用时才返回；Agent 对没有价格的模型记为 0 的，视为未记录。
+
+`day` 按 `timeZone`（IANA 名称，省略时为 Host 所在电脑的时区；无法识别时 `BAD_REQUEST`）计算；`since` 省略更早的日期，这段时间里没有请求的会话不返回。只统计 Pier 工作区里列出的会话（与 `session.list` 相同，包括已归档的），已删除的会话和不在工作区里的会话不计入。Host 不打开会话，直接读取各 Agent 自己的记录：
+
+- **pi**：会话文件中带用量的回复、`usage` 条目（例如缓存预热）以及压缩和分支摘要的用量；所有分支都计入。`pi-subagents` 的子会话文件（会话文件同名目录下的 `*.jsonl`）一并计入。
+- **Claude Code**：会话记录中回复的 `message.usage`（同一条回复拆成的多行按 `message.id` 只算一次；`<synthetic>` 提示不算），以及 `<会话>/subagents/agent-*.jsonl` 中 Subagent 的记录。
+- **Codex**：rollout 文件中每次响应的 `token_usage_record`；较旧的 rollout 只有 `token_count` 事件，取其 `last_token_usage`，累计总量不变的重复事件（恢复线程时回放）跳过。线程派出的 sub-agent 的 rollout（按线程 ID 在同一个 `sessions` 目录中查找）一并计入，开头复制的父线程历史不算。
+- **OpenCode**：经 `opencode serve` 读取会话及其子会话（Subagent）的消息，取 `tokens` 与 `cost`；OpenCode 单独记录的推理 token 计入 `output`。
+- **Hermes**：ACP 不返回已保存会话的用量，Host 以只读方式打开 Hermes 的 `state.db`（`HERMES_HOME`，默认 `~/.hermes`，Windows 为 `%LOCALAPPDATA%\hermes`，以及其下各 profile），读取会话及其委派的子会话的合计（有 `session_model_usage` 时按模型）。Hermes 不记录每次请求的时间，整个会话的用量计在它最后活动的那天。
+
+分叉会把分叉点之前的回复复制到新会话：pi 的 `responseId`、Claude Code 的 `message.id`、Codex 的 `response_id`（OpenCode 按时间与用量）相同的请求在同一个 Agent 中只计一次，计入较早创建的会话。读取结果按文件大小和修改时间缓存（OpenCode 按会话的更新时间），没有变化的会话再次统计时不必重新读取；相同参数的并发请求共用一次统计。某个工作区或会话读取失败时其余结果照常返回，失败项列在 `errors` 中（`{ workspaceId?, runtime?, sessionId?, message }`）。
+
+客户端要汇总多台电脑时，分别向每台电脑请求后自行合并（`@pier/chat-state` 的 `summarizeUsage`）；旧版 Host 没有这个方法，客户端需检查协议 1.68。
 
 ## 4. 事件
 

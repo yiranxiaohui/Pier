@@ -1,4 +1,4 @@
-import { ChatController, type ChatView } from "@pier/chat-state";
+import { ChatController, type ChatView, localTimeZone, usageSince } from "@pier/chat-state";
 import {
 	CLOSE_DEVICE_REVOKED,
 	type ClientState,
@@ -28,6 +28,7 @@ import {
 	type ResourceMethod,
 	type SessionRunState,
 	type SessionSummary,
+	type UsageStats,
 	type WorkspaceFileContent,
 	type WorkspaceFilesResult,
 	type WorkspaceFileWriteResult,
@@ -101,6 +102,21 @@ export interface Toast {
 	message: string;
 }
 
+/** Days the usage screen counts: today, the last 7 or 30 days, or everything. */
+export type UsageRange = "today" | "7d" | "30d" | "all";
+
+/** Days each bounded range covers, today included. */
+export const USAGE_RANGE_DAYS: Record<Exclude<UsageRange, "all">, number> = { today: 1, "7d": 7, "30d": 30 };
+
+/** Token usage of one computer for the usage screen (`usage.stats`, 1.68). */
+export interface UsageHostData {
+	state: "connecting" | "loading" | "ok" | "error" | "unsupported" | "offline";
+	range: UsageRange;
+	/** The latest statistics, kept while newer ones load. */
+	stats?: UsageStats;
+	error?: string;
+}
+
 export interface MobileState {
 	ready: boolean;
 	hosts: PairedHost[];
@@ -115,6 +131,9 @@ export interface MobileState {
 	connections: Record<string, HostView>;
 	chatsVersion: number;
 	toast?: Toast;
+	usageRange: UsageRange;
+	/** Token usage of each paired computer, by host id. */
+	usage: Record<string, UsageHostData>;
 }
 
 const EMPTY_HOST: HostView = { connection: "none", revoked: false, sessions: {}, terminals: [] };
@@ -164,6 +183,8 @@ export class MobileStore {
 		host: EMPTY_HOST,
 		connections: {},
 		chatsVersion: 0,
+		usageRange: "7d",
+		usage: {},
 	};
 	private readonly listeners = new Set<() => void>();
 	private keyPair: KeyPair | undefined;
@@ -917,6 +938,67 @@ export class MobileStore {
 
 	async hostStats(): Promise<HostStats> {
 		return this.requireClient().request("host.stats", {});
+	}
+
+	// ---- token usage (1.68) ----------------------------------------------------------------
+
+	setUsageRange(range: UsageRange): void {
+		if (range === this.state.usageRange) return;
+		this.set({ usageRange: range });
+		this.loadUsage();
+	}
+
+	/**
+	 * Read the token usage of every paired computer. Computers that are not connected yet are
+	 * connected in the background; each one is read once it is (see {@link loadUsageOf}).
+	 */
+	loadUsage(): void {
+		for (const host of this.state.hosts) {
+			const conn = this.connections.get(host.hostId);
+			const view = this.state.connections[host.hostId];
+			if (conn && !view?.revoked && conn.client?.state === "closed" && !conn.retryTimer) {
+				this.closeConnection(host.hostId);
+			}
+			if (!this.connections.has(host.hostId) && this.keyPair) this.startConnection(host);
+			void this.loadUsageOf(host.hostId);
+		}
+	}
+
+	async loadUsageOf(hostId: string): Promise<void> {
+		const range = this.state.usageRange;
+		const previous = this.state.usage[hostId];
+		const put = (data: Omit<UsageHostData, "range">) => {
+			// Nothing new (the screen asks again whenever connections change).
+			if (data.state === previous?.state && range === previous.range && !data.stats && !data.error) return;
+			const stats = data.stats ?? (previous?.range === range ? previous.stats : undefined);
+			this.set((s) => ({ usage: { ...s.usage, [hostId]: { ...data, range, ...(stats ? { stats } : {}) } } }));
+		};
+		const conn = this.connections.get(hostId);
+		const client = conn?.client;
+		const view = this.state.connections[hostId];
+		if (!conn || !client || client.state !== "open" || !view?.info) {
+			// Still connecting (or the handshake has not finished): read again once it is open.
+			const trying = !!conn && !view?.revoked && view?.connection !== "closed" && view?.connection !== "none";
+			return put({ state: trying ? "connecting" : "offline" });
+		}
+		const version = parseProtocolVersion(view.info.protocolVersion);
+		if (!version || (version.major === 1 && version.minor < 68)) return put({ state: "unsupported" });
+		put({ state: "loading" });
+		try {
+			const timeZone = localTimeZone();
+			const stats = await client.request(
+				"usage.stats",
+				{
+					...(range === "all" ? {} : { since: usageSince(USAGE_RANGE_DAYS[range]) }),
+					...(timeZone ? { timeZone } : {}),
+				},
+				{ timeoutMs: 180_000 },
+			);
+			if (this.connections.get(hostId) === conn && this.state.usageRange === range) put({ state: "ok", stats });
+		} catch (error) {
+			if (this.connections.get(hostId) === conn && this.state.usageRange === range)
+				put({ state: "error", error: errorText(error) });
+		}
 	}
 
 	canManageProcesses(): boolean {

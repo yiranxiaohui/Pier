@@ -1,0 +1,491 @@
+/* Token usage page (UsagePage.tsx): totals, a daily chart split by agent, and breakdowns. */
+
+.usage-page {
+	--usage-pi: #338ced;
+	--usage-claude-code: #e76624;
+	--usage-codex: #00a888;
+	--usage-opencode: #d28e05;
+	--usage-hermes: #e24d8b;
+	--usage-other: #8a867f;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr) auto;
+	min-width: 0;
+	min-height: 0;
+	background: var(--bg);
+}
+
+/* Agent colours are stepped for each surface: the same hues, validated against each theme. */
+:root[data-theme="light"] .usage-page {
+	--usage-pi: #257de0;
+	--usage-claude-code: #f47230;
+	--usage-codex: #00b894;
+	--usage-opencode: #f2a600;
+	--usage-hermes: #ee7fac;
+	--usage-other: #9a958c;
+}
+
+.usage-page > .statusbar {
+	grid-column: 1;
+}
+
+.usage-scroll {
+	min-height: 0;
+	overflow: auto;
+}
+
+.usage-content {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	max-width: 1120px;
+	margin: 0 auto;
+	padding: 28px 32px 32px;
+}
+
+.usage-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 12px 20px;
+}
+
+.usage-heading h2 {
+	margin: 0;
+	font-size: 19px;
+	font-weight: 650;
+}
+
+.usage-heading p {
+	margin: 6px 0 0;
+	font-size: 12.5px;
+	color: var(--text-faint);
+}
+
+.usage-controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+
+.usage-controls .segmented,
+.usage-card-heading .segmented {
+	align-self: center;
+}
+
+.usage-controls .segmented button,
+.usage-card-heading .segmented button {
+	padding: 4px 12px;
+}
+
+.usage-notices {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px 14px;
+	border: 1px solid var(--warning-line);
+	border-radius: var(--radius);
+	background: var(--warning-soft);
+	font-size: 12.5px;
+	color: var(--text-muted);
+}
+
+.usage-notices p {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.usage-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	padding: 72px 0;
+	color: var(--text-faint);
+	font-size: 13px;
+}
+
+/* Six tiles in one row on wide windows, else two rows of three. */
+.usage-tiles {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+}
+
+@media (min-width: 1200px) {
+	.usage-tiles {
+		grid-template-columns: repeat(6, minmax(0, 1fr));
+	}
+}
+
+.usage-tile {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+	padding: 14px 16px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--bg-elevated);
+}
+
+.usage-tile-label {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.usage-tile-value {
+	font-size: 22px;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+	color: var(--text);
+}
+
+.usage-tile.hero .usage-tile-value {
+	font-size: 28px;
+}
+
+.usage-tile-note {
+	font-size: 11.5px;
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.usage-card {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px 18px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--bg-elevated);
+}
+
+.usage-card-heading {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+}
+
+.usage-card-heading h3 {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+}
+
+.usage-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 14px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.usage-legend li {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.usage-swatch {
+	display: inline-block;
+	flex: none;
+	width: 9px;
+	height: 9px;
+	border-radius: 3px;
+}
+
+/* Chart: a value axis, recessive gridlines and one stacked bar per day (or month). */
+.usage-chart {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 8px;
+	height: 200px;
+}
+
+.usage-chart-axis {
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	/* The labels line up with the gridlines; the bottom one with the baseline above the dates. */
+	padding-bottom: 20px;
+	margin-top: -6px;
+	font-size: 11px;
+	color: var(--text-faint);
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.usage-chart-axis span:last-child {
+	transform: translateY(6px);
+}
+
+.usage-chart-plot {
+	position: relative;
+	min-width: 0;
+}
+
+.usage-chart-grid {
+	position: absolute;
+	inset: 0 0 20px;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+	pointer-events: none;
+}
+
+.usage-chart-grid span {
+	border-top: 1px dashed var(--border);
+}
+
+.usage-chart-grid span:last-child {
+	border-top: 1px solid var(--border-strong);
+}
+
+.usage-chart-bars {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: stretch;
+}
+
+.usage-chart-column {
+	position: relative;
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	justify-content: flex-end;
+	min-width: 0;
+	padding: 0 1px 20px;
+}
+
+.usage-chart-column.hovered::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 20px;
+	border-radius: 4px;
+	background: var(--bg-hover);
+}
+
+.usage-chart-stack {
+	position: relative;
+	display: flex;
+	flex-direction: column-reverse;
+	gap: 2px;
+	width: min(70%, 28px);
+	margin: 0 auto;
+	min-height: 0;
+}
+
+.usage-chart-stack span {
+	flex-basis: 0;
+	min-height: 2px;
+}
+
+/* The data end of each bar is rounded; the baseline stays square. */
+.usage-chart-stack span:last-child {
+	border-radius: 4px 4px 0 0;
+}
+
+.usage-chart-label {
+	position: absolute;
+	left: 50%;
+	bottom: 0;
+	transform: translateX(-50%);
+	font-size: 10.5px;
+	line-height: 16px;
+	color: var(--text-faint);
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
+.usage-tooltip {
+	position: absolute;
+	bottom: calc(100% - 24px);
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 150px;
+	padding: 8px 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--bg-raised);
+	box-shadow: var(--shadow-md);
+	font-size: 12px;
+	color: var(--text-muted);
+	transform: translateX(-50%);
+	pointer-events: none;
+}
+
+.usage-tooltip[data-edge="start"] {
+	transform: translateX(-12px);
+}
+
+.usage-tooltip[data-edge="end"] {
+	transform: translateX(calc(-100% + 12px));
+}
+
+.usage-tooltip-title {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.usage-tooltip-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+}
+
+.usage-tooltip-row em {
+	margin-left: auto;
+	padding-left: 12px;
+	font-style: normal;
+	color: var(--text);
+	font-variant-numeric: tabular-nums;
+}
+
+.usage-tooltip-row.total {
+	margin-top: 2px;
+	padding-top: 4px;
+	border-top: 1px solid var(--border);
+}
+
+/* Breakdown and session tables. */
+.usage-table-wrap {
+	overflow-x: auto;
+}
+
+.usage-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 12.5px;
+}
+
+.usage-table th {
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--border);
+	font-weight: 500;
+	font-size: 11.5px;
+	color: var(--text-faint);
+	text-align: left;
+	white-space: nowrap;
+}
+
+.usage-table td {
+	padding: 8px 10px;
+	border-bottom: 1px solid var(--border);
+	color: var(--text);
+	white-space: nowrap;
+}
+
+.usage-table tbody tr:last-child td {
+	border-bottom: 0;
+}
+
+.usage-table tbody tr:hover td {
+	background: var(--bg-hover);
+}
+
+.usage-table .num {
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.usage-table td.num {
+	color: var(--text-muted);
+}
+
+.usage-table td.num:nth-child(2) {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.usage-table.sessions td.num:nth-child(3) {
+	color: var(--text);
+	font-weight: 600;
+}
+
+.usage-table .share {
+	width: 22%;
+	min-width: 130px;
+}
+
+.usage-name {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+	max-width: 340px;
+}
+
+.usage-name-text {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.usage-name-detail {
+	flex: none;
+	margin-left: 6px;
+	font-size: 11.5px;
+	color: var(--text-faint);
+}
+
+.usage-share {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11.5px;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.usage-share-bar {
+	flex: 1;
+	height: 5px;
+	border-radius: 999px;
+	background: var(--bg-active);
+	overflow: hidden;
+}
+
+.usage-share-bar span {
+	display: block;
+	height: 100%;
+	border-radius: 999px;
+	background: var(--text-muted);
+}
+
+.usage-session {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	max-width: 420px;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--text);
+	font-size: inherit;
+	text-align: left;
+}
+
+.usage-session:hover .usage-name-text {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+.usage-table.sessions td:nth-child(2) .usage-name-text {
+	display: inline-block;
+	max-width: 260px;
+	vertical-align: bottom;
+}

@@ -99,6 +99,7 @@ import type { AppShell, AppUpdater, ShellMethod, TerminalProvider } from "./shel
 import { SpeechService } from "./speech.ts";
 import { standaloneExecutable } from "./standalone/self.ts";
 import { HostTerminals } from "./terminals.ts";
+import { UsageStatsCollector } from "./usage-stats.ts";
 import {
 	authorizeWorkspaceFilePreview,
 	createWorkspaceDirectory,
@@ -627,6 +628,7 @@ export class PierHost implements RequestHandler {
 	private readonly localToken: string;
 	private readonly handlers: Handlers;
 	private readonly stats = new HostStatsSampler();
+	private readonly usage: UsageStatsCollector;
 	private readonly shell: AppShell | undefined;
 	private readonly updater: AppUpdater | undefined;
 	private readonly terminals: HostTerminals;
@@ -705,6 +707,12 @@ export class PierHost implements RequestHandler {
 				for (const connection of this.connections) connection.subscriptions.delete(session);
 				this.broadcast({ type: "session.listChanged", workspaceId: session.workspaceId });
 			},
+		});
+		this.usage = new UsageStatsCollector({
+			workspaces: () => this.config.listWorkspaces(),
+			storedSessions: (workspace) => this.pool.storedSessions(workspace),
+			isArchived: (sessionId) => this.pool.isArchived(sessionId),
+			log,
 		});
 		this.tasks = new ScheduledTasks({
 			file: join(this.pierDir, "scheduled-tasks.json"),
@@ -1425,6 +1433,11 @@ export class PierHost implements RequestHandler {
 				return { ...result, sourcePath: source.local(result.sourcePath), path: destination.local(result.path) };
 			},
 			"host.stats": () => this.stats.sample(),
+			"usage.stats": (_ctx, params) =>
+				this.usage.stats({
+					...(params?.since ? { since: params.since } : {}),
+					...(params?.timeZone ? { timeZone: params.timeZone } : {}),
+				}),
 			"host.packageManagers": async () => ({ managers: await detectPackageManagers() }),
 
 			"update.status": () => this.updateStatus(),

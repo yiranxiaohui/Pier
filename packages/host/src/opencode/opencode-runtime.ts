@@ -4,10 +4,11 @@ import type { Session } from "@opencode-ai/sdk/v2/client";
 import { type AgentRuntimeInfo, type ModelInfo, PierProtocolError, type WorkspaceInfo } from "@pier/protocol";
 import type { ManagedSessionOptions } from "../managed-session.ts";
 import { findExecutable, probeVersion } from "../runtimes/executable.ts";
-import type { AgentRuntime, StoredSession } from "../runtimes/types.ts";
+import type { AgentRuntime, StoredSession, UsageRecord } from "../runtimes/types.ts";
 import { opencodePaths } from "./installer.ts";
 import { OPENCODE_CAPABILITIES, OpenCodeSession } from "./opencode-session.ts";
 import { OpenCodeServer } from "./server.ts";
+import { opencodeSessionUsage } from "./usage.ts";
 
 export interface OpenCodeRuntimeOptions {
 	executable?: string;
@@ -33,6 +34,8 @@ export class OpenCodeRuntime implements AgentRuntime {
 	/** Turns running on the shared server; a configuration change waits for them to end. */
 	private turns = 0;
 	private reloadPending = false;
+	/** Usage of stored sessions (1.68), kept while a session's update time stays the same. */
+	private readonly usageCache = new Map<string, { modified: number; records: UsageRecord[] }>();
 
 	constructor(private readonly options: OpenCodeRuntimeOptions = {}) {
 		this.server = new OpenCodeServer(() => this.executable(), options.env);
@@ -81,6 +84,17 @@ export class OpenCodeRuntime implements AgentRuntime {
 				messageCount: 0,
 				firstMessage: "",
 			}));
+	}
+
+	/** The session's replies and its subagents' (1.68), from OpenCode's server. */
+	async usage(workspace: WorkspaceInfo, stored: StoredSession): Promise<UsageRecord[]> {
+		if (!this.executable()) return [];
+		const modified = stored.modified.getTime();
+		const cached = this.usageCache.get(stored.id);
+		if (cached?.modified === modified) return cached.records;
+		const records = await opencodeSessionUsage(await this.server.client(), workspace.path, stored.id);
+		this.usageCache.set(stored.id, { modified, records });
+		return records;
 	}
 
 	async listModels(directory = homedir()): Promise<ModelInfo[]> {

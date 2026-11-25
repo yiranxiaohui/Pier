@@ -18,3 +18,4 @@ export * from "./remote/store.ts";
 export * from "./session-lock.ts";
 export * from "./session-pool.ts";
 export * from "./ui-bridge.ts";
+export * from "./usage-stats.ts";

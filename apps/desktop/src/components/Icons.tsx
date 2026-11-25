@@ -568,6 +568,15 @@ export const IconWallet = make(
 		<path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />
 	</>,
 );
+// chart-column
+export const IconChartColumn = make(
+	<>
+		<path d="M3 3v16a2 2 0 0 0 2 2h16" />
+		<path d="M18 17V9" />
+		<path d="M13 17V5" />
+		<path d="M8 17v-3" />
+	</>,
+);
 // server
 export const IconServer = make(
 	<>

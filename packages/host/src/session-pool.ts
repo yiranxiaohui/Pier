@@ -53,7 +53,7 @@ export interface SessionPoolOptions {
 	log?: (message: string) => void;
 }
 
-interface StoredEntry {
+export interface StoredEntry {
 	runtime: AgentRuntime;
 	stored: StoredSession;
 }
@@ -127,6 +127,15 @@ export class SessionPool {
 		const entries = lists.flat();
 		this.storedLists.set(workspace.id, { at: Date.now(), entries });
 		return entries;
+	}
+
+	isArchived(sessionId: string): boolean {
+		return this.options.archive.has(sessionId);
+	}
+
+	/** Every session the runtimes stored for the workspace, with the runtime of each (`usage.stats`, 1.68). */
+	storedSessions(workspace: WorkspaceInfo): Promise<StoredEntry[]> {
+		return this.listStored(workspace);
 	}
 
 	/** The session `target` from the workspace's recent listing, when it is there and its file still exists. */

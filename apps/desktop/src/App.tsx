@@ -18,6 +18,7 @@ import { SidePanel } from "./components/SidePanel.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
 import { TerminalPanel } from "./components/TerminalPanel.tsx";
 import { TitleBar } from "./components/TitleBar.tsx";
+import { UsagePage } from "./components/UsagePage.tsx";
 import { useCanOpenTerminal } from "./lib/remote-terminals.ts";
 import { LOCAL_NODE, NEW_CHAT_DRAFT, useAppState, useStore } from "./lib/store.tsx";
 import { terminals, useTerminals } from "./lib/terminals.ts";
@@ -100,6 +101,7 @@ export function App() {
 	const settings = useAppState((s) => s.settings);
 	const scheduled = useAppState((s) => s.scheduledTasksOpen);
 	const hosts = useAppState((s) => s.hostHubOpen);
+	const usage = useAppState((s) => s.usageOpen);
 	const sidebar = useAppState((s) => s.sidebar);
 	const sidebarWidth = useAppState((s) => s.sidebarWidth);
 	// Terminals run on the computer of the workspace they were opened for; the panel shows them all.
@@ -119,7 +121,7 @@ export function App() {
 	// Ctrl/⌘+Shift+E and Ctrl/⌘+Shift+G open (or hide) the file and source control views, as in editors; Ctrl/⌘+B the sidebar;
 	// Ctrl+` the terminal (Ctrl on macOS too, as in editors: ⌘+` cycles windows there).
 	useEffect(() => {
-		if (settings || scheduled || hosts) return;
+		if (settings || scheduled || hosts || usage) return;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === "`") {
 				if (!hasTerminals && !canOpenTerminal) return;
@@ -142,7 +144,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [store, settings, scheduled, hosts, screenWorkspace, hasTerminals, canOpenTerminal]);
+	}, [store, settings, scheduled, hosts, usage, screenWorkspace, hasTerminals, canOpenTerminal]);
 
 	return (
 		<div className="window">
@@ -153,6 +155,8 @@ export function App() {
 					<HostHub footer={<StatusBar />} />
 				) : scheduled ? (
 					<ScheduledTasksPage footer={<StatusBar />} />
+				) : usage ? (
+					<UsagePage footer={<StatusBar />} />
 				) : settings ? (
 					<SettingsPage section={settings} footer={<StatusBar />} />
 				) : (
@@ -174,7 +178,7 @@ export function App() {
 						<StatusBar />
 					</div>
 				)}
-				<SidePanel hidden={!!settings || scheduled || hosts} {...screen} />
+				<SidePanel hidden={!!settings || scheduled || hosts || usage} {...screen} />
 			</div>
 			<Toasts />
 			<AuthDialog />

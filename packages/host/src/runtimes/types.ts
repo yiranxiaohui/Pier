@@ -22,6 +22,29 @@ export interface StoredSession {
 	parentSessionPath?: string;
 }
 
+/** One model request of a stored session, for `usage.stats` (1.68). Token counts follow pi's `Usage`. */
+export interface UsageRecord {
+	/** When the reply arrived (epoch milliseconds). */
+	at: number;
+	/** Model id; `""` when unknown. */
+	model: string;
+	provider?: string;
+	/** Prompt tokens not read from or written to the cache. */
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	/** Cost in US dollars, when the agent recorded it. */
+	cost?: number;
+	/** Model requests the record sums, for agents that keep totals only (default 1). */
+	requests?: number;
+	/**
+	 * Identifies the request across the runtime's sessions, when a fork copies it into another
+	 * session's file. Requests with a key seen in an older session are not counted again.
+	 */
+	key?: string;
+}
+
 export interface ForkResult {
 	session: ManagedSession;
 	selectedText?: string;
@@ -54,6 +77,11 @@ export interface AgentRuntime {
 	 * the pool moves the session file to Pier's trash.
 	 */
 	deleteStored?(workspace: WorkspaceInfo, stored: StoredSession): Promise<boolean>;
+	/**
+	 * Every model request of a stored session (1.68), including its subagents' where the runtime
+	 * stores them. Runtimes that cannot read usage leave it out.
+	 */
+	usage?(workspace: WorkspaceInfo, stored: StoredSession): Promise<UsageRecord[]>;
 	/** Models new sessions can use. */
 	listModels(cwd?: string): Promise<ModelInfo[]>;
 	/** The model and thinking level a new session in `cwd` starts with. */

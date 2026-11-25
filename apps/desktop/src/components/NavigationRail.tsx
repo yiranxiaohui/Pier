@@ -4,6 +4,7 @@ import { LOCAL_NODE, type SettingsSection, useAppState, useStore } from "../lib/
 import { useHostStatus } from "./HostPanels.tsx";
 import {
 	IconBot,
+	IconChartColumn,
 	IconClock,
 	IconDownload,
 	IconHome,
@@ -32,7 +33,8 @@ export function NavigationRail() {
 	const settings = useAppState((s) => s.settings);
 	const scheduled = useAppState((s) => s.scheduledTasksOpen);
 	const hosts = useAppState((s) => s.hostHubOpen);
-	const workspacePage = !settings && !scheduled && !hosts;
+	const usage = useAppState((s) => s.usageOpen);
+	const workspacePage = !settings && !scheduled && !hosts && !usage;
 	const unread = useAppState((s) => Object.values(s.taskData).some((data) => data.runs.some((run) => !run.read)));
 	const sidebar = useAppState((s) => s.sidebar);
 	const noModels = useAppState((s) => s.localProviders?.availableCount === 0);
@@ -51,7 +53,7 @@ export function NavigationRail() {
 
 	// Navigating away or completing an update dismisses the update card.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: every navigation change closes the card.
-	useEffect(() => setUpdateOpen(false), [settings, scheduled, hosts, pending]);
+	useEffect(() => setUpdateOpen(false), [settings, scheduled, hosts, usage, pending]);
 
 	const utilities = (
 		<div className="navigation-utilities">
@@ -138,6 +140,16 @@ export function NavigationRail() {
 					onClick={() => store.openHostHub()}
 				>
 					<IconServer size={20} />
+				</button>
+				<button
+					type="button"
+					className={`navigation-button${usage ? " selected" : ""}`}
+					aria-label="用量统计"
+					aria-current={usage ? "page" : undefined}
+					title="用量统计"
+					onClick={() => store.openUsage()}
+				>
+					<IconChartColumn size={20} />
 				</button>
 				<div className="navigation-divider" />
 				{SHORTCUTS.map((item) => {

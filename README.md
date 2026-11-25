@@ -17,6 +17,7 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 
 - **一个界面，五种 Agent**：电脑上的 pi、Claude Code、Codex、OpenCode 和 Hermes Agent，都使用你自己安装、自己管理更新的版本；pi、Claude Code、Codex、OpenCode 可以在 Pier 中一键安装和更新，可选国内镜像或 GitHub 加速线路。原生 CLI 与 Pier 共用会话，可以用 `claude --resume`、`codex resume`、`opencode --session <ID>` 或 `hermes --resume <ID>` 在终端继续。
 - **长任务更省心**：每个会话都可以设一个比模型窗口更小的上下文上限，Agent 接近上限前自动压缩对话，更省 token、请求更快；Agent 派出的 Subagent 显示为卡片，可以查看各自的对话并单独停止。
+- **用量一目了然**：「用量统计」汇总所有电脑上 pi、Claude Code、Codex、OpenCode、Hermes（含 Subagent）的 token 用量，按天、Agent、模型、工作区和电脑查看输入、输出、缓存命中与费用，找出最耗 token 的会话；手机上也能看。
 - **多台电脑统一管理**：每台电脑都是一个节点。粘贴配对链接，或通过 SSH 登录 Linux 电脑自动安装 Pier 并配对，那台电脑的工作区和会话与本机的一起列在侧边栏中。
 - **手机随时跟进**：原生 App（Expo / React Native）扫码配对后查看进度、发送指令、审批操作，断线自动重连补发。
 - **完整的工作台**：文件浏览、预览与编辑（VS Code 同款 Monaco 编辑器），Git（含工作树）、内置终端（右键复制粘贴）、远程主机的 Shell 与文件管理、面板内的浏览器（可选取网页元素、标注截图发给 Agent）、端口映射、进程管理、定时任务、Skills 与 MCP 管理、语音输入，浅色 / 深色「暖墨」主题。

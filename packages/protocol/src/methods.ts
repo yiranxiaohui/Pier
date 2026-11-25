@@ -102,9 +102,9 @@ import {
 	type SkillInfo,
 } from "./resources.ts";
 import { type ScheduledTask, ScheduledTaskInputSchema, type ScheduledTaskRun } from "./scheduled-tasks.ts";
-
 import { SpeechMethodSchemas, type SpeechStatus } from "./speech.ts";
 import { SshAddParamsSchema, type SshAddResult } from "./ssh.ts";
+import type { UsageStats } from "./usage.ts";
 
 const Id = z.string().min(1).max(256);
 /** Repository-relative paths for `git.*` (1.28). */
@@ -282,6 +282,20 @@ export const MethodParamsSchemas = {
 	"host.stats": z.object({}).optional(),
 	/** npm, pnpm and bun on the host's computer, for pi's `npmCommand` setting (1.17). */
 	"host.packageManagers": z.object({}).optional(),
+	/**
+	 * Token usage of the stored sessions of every workspace (1.68), per session, day and model.
+	 * `since` (`YYYY-MM-DD`) leaves out earlier days; days are in `timeZone` (IANA, default: the
+	 * host's).
+	 */
+	"usage.stats": z
+		.object({
+			since: z
+				.string()
+				.regex(/^\d{4}-\d{2}-\d{2}$/)
+				.optional(),
+			timeZone: z.string().min(1).max(64).optional(),
+		})
+		.optional(),
 
 	/**
 	 * The desktop app's updater on the host's computer (1.13), so a paired computer or phone can
@@ -1088,6 +1102,7 @@ export interface MethodResults {
 	"host.transferPath": WorkspacePathTransferResult;
 	"host.stats": HostStats;
 	"host.packageManagers": PackageManagerDetection;
+	"usage.stats": UsageStats;
 	"update.status": AppUpdateStatus;
 	"update.check": AppUpdateStatus;
 	"update.setMirror": AppUpdateStatus;

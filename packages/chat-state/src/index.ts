@@ -18,4 +18,5 @@ export * from "./session-title.ts";
 export * from "./slash.ts";
 export * from "./thinking.ts";
 export * from "./transcript.ts";
+export * from "./usage-stats.ts";
 export * from "./voice-input.ts";

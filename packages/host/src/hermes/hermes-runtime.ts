@@ -4,10 +4,11 @@ import { resolve } from "node:path";
 import { type AgentRuntimeInfo, type ModelInfo, PierProtocolError, type WorkspaceInfo } from "@pier/protocol";
 import type { ManagedSessionOptions } from "../managed-session.ts";
 import { findExecutable, probeVersion } from "../runtimes/executable.ts";
-import type { AgentRuntime, StoredSession } from "../runtimes/types.ts";
+import type { AgentRuntime, StoredSession, UsageRecord } from "../runtimes/types.ts";
 import { AcpConnection, type Json } from "./acp.ts";
 import { HERMES_CAPABILITIES, HermesSession } from "./hermes-session.ts";
 import { type HermesModelState, modelKey, modelState } from "./models.ts";
+import { hermesDatabases, hermesHome, readHermesUsage } from "./usage.ts";
 
 export interface HermesRuntimeOptions {
 	/** `hermes` executable. Defaults to `PIER_HERMES_PATH`, then `hermes` on `PATH`. */
@@ -245,6 +246,19 @@ export class HermesRuntime implements AgentRuntime {
 		const session = new HermesSession(options, this, connection, { ...start, persisted: false });
 		this.sessions.add(session);
 		return session;
+	}
+
+	/**
+	 * The session's usage and its delegated sessions' (1.68). ACP does not report the usage of
+	 * stored sessions, so it is read (read-only) from Hermes' `state.db`.
+	 */
+	async usage(_workspace: WorkspaceInfo, stored: StoredSession): Promise<UsageRecord[]> {
+		const home = hermesHome({ ...process.env, ...this.options.env });
+		for (const database of await hermesDatabases(home)) {
+			const records = await readHermesUsage(database, stored.id);
+			if (records) return records;
+		}
+		return [];
 	}
 
 	async open(options: ManagedSessionOptions, stored: StoredSession): Promise<HermesSession> {

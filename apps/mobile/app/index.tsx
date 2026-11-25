@@ -182,7 +182,10 @@ export default function Home() {
 			<Stack.Screen
 				options={{
 					headerRight: () => (
-						<HeaderAction label="设置" icon="settings-outline" onPress={() => router.push("/settings")} />
+						<View style={styles.headerActions}>
+							<HeaderAction label="用量统计" icon="bar-chart-outline" onPress={() => router.push("/usage")} />
+							<HeaderAction label="设置" icon="settings-outline" onPress={() => router.push("/settings")} />
+						</View>
 					),
 				}}
 			/>
@@ -246,6 +249,7 @@ export default function Home() {
 
 const styles = StyleSheet.create({
 	flex: { flex: 1 },
+	headerActions: { flexDirection: "row", gap: 8 },
 	loading: { marginTop: 48 },
 	list: { ...PAGE, paddingHorizontal: 16, paddingBottom: 40, gap: 12, flexGrow: 1 },
 	header: { gap: 14, marginBottom: 2 },

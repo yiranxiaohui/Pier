@@ -17,7 +17,8 @@ import { InputQueue } from "../runtimes/input-queue.ts";
 import { AgentInstaller } from "../runtimes/installation.ts";
 import type { UserMessage } from "../runtimes/live-transcript.ts";
 import { userContentText } from "../runtimes/live-transcript.ts";
-import type { AgentRuntime, ForkResult, StoredSession } from "../runtimes/types.ts";
+import type { AgentRuntime, ForkResult, StoredSession, UsageRecord } from "../runtimes/types.ts";
+import { FileUsageCache } from "../runtimes/usage-files.ts";
 import {
 	CLAUDE_CAPABILITIES,
 	CLAUDE_THINKING_LEVELS,
@@ -26,6 +27,7 @@ import {
 	type ClaudeSessionHost,
 } from "./claude-session.ts";
 import { CLAUDE_PROVIDER, convertTranscript } from "./convert.ts";
+import { claudeSessionUsage } from "./usage.ts";
 
 export interface ClaudeCodeRuntimeOptions {
 	installationHome?: string;
@@ -114,6 +116,7 @@ export class ClaudeCodeRuntime implements AgentRuntime {
 	private catalog: { models: ModelInfo[]; commands: SessionCommandInfo[]; at: number } | undefined;
 	private catalogPromise: Promise<void> | undefined;
 	private readonly counts = new Map<string, CountCacheEntry>();
+	private readonly usageFiles = new FileUsageCache();
 	private readonly log: (message: string) => void;
 
 	constructor(private readonly options: ClaudeCodeRuntimeOptions = {}) {
@@ -275,6 +278,11 @@ export class ClaudeCodeRuntime implements AgentRuntime {
 			});
 		}
 		return sessions;
+	}
+
+	/** The session's replies and its subagents' (1.68), from Claude Code's transcripts. */
+	usage(_workspace: WorkspaceInfo, stored: StoredSession): Promise<UsageRecord[]> {
+		return stored.path ? claudeSessionUsage(stored.path, this.usageFiles) : Promise.resolve([]);
 	}
 
 	async create(options: ManagedSessionOptions): Promise<ManagedSession> {
