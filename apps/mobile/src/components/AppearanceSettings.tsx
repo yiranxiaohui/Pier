@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useStore } from "../store.ts";
-import { RADIUS, usePalette } from "../theme.ts";
+import { PALETTES, RADIUS, usePalette } from "../theme.ts";
 import { setThemePreference, type ThemePreference, useThemePreference } from "../theme-preference.ts";
 import { Card, CardHeader, Icon, type IconName, Muted } from "./ui.tsx";
 
@@ -20,7 +20,8 @@ export function AppearanceSettings() {
 			<View accessibilityRole="radiogroup" accessibilityLabel="界面主题" style={styles.options}>
 				{OPTIONS.map((option) => {
 					const selected = preference === option.value;
-					const previewDark = option.value === "dark" || (option.value === "system" && p.dark);
+					const preview =
+						option.value === "dark" || (option.value === "system" && p.dark) ? PALETTES.dark : PALETTES.light;
 					return (
 						<Pressable
 							key={option.value}
@@ -41,14 +42,14 @@ export function AppearanceSettings() {
 								pressed && { opacity: 0.7 },
 							]}
 						>
-							<View style={[styles.preview, { backgroundColor: previewDark ? "#08090c" : "#eef0f4" }]}>
-								<View style={[styles.previewSidebar, { backgroundColor: previewDark ? "#15161b" : "#ffffff" }]}>
-									<View style={[styles.previewDot, { backgroundColor: previewDark ? "#2ab5aa" : "#11968c" }]} />
+							<View style={[styles.preview, { backgroundColor: preview.bg }]}>
+								<View style={[styles.previewSidebar, { backgroundColor: preview.elevated }]}>
+									<View style={[styles.previewDot, { backgroundColor: preview.accent }]} />
 								</View>
 								<View style={styles.previewContent}>
-									<View style={[styles.previewLine, { backgroundColor: previewDark ? "#9a9ca8" : "#5a6170" }]} />
-									<View style={[styles.previewBubble, { backgroundColor: previewDark ? "#1d2027" : "#ffffff" }]} />
-									<View style={[styles.previewButton, { backgroundColor: previewDark ? "#2ab5aa" : "#11968c" }]} />
+									<View style={[styles.previewLine, { backgroundColor: preview.muted }]} />
+									<View style={[styles.previewBubble, { backgroundColor: preview.card }]} />
+									<View style={[styles.previewButton, { backgroundColor: preview.accent }]} />
 								</View>
 							</View>
 							<View style={styles.optionLabel}>
@@ -62,7 +63,7 @@ export function AppearanceSettings() {
 			<View style={[styles.brand, { borderColor: p.border }]}>
 				<View style={[styles.swatch, { backgroundColor: p.accent }]} />
 				<View style={styles.brandText}>
-					<Text style={[styles.brandTitle, { color: p.text }]}>Pier 青绿</Text>
+					<Text style={[styles.brandTitle, { color: p.text }]}>Pier 暖墨</Text>
 					<Muted>与桌面端一致的主题色</Muted>
 				</View>
 				<Icon name="checkmark-circle" size={22} color={p.accentText} />

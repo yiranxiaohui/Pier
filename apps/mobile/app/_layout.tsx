@@ -8,6 +8,7 @@ import { AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ToastHost } from "../src/components/ui.tsx";
 import { MobileStore, StoreContext } from "../src/store.ts";
+import { TERMINAL_COLORS } from "../src/terminal-colors.ts";
 import { usePalette } from "../src/theme.ts";
 import { initThemePreference } from "../src/theme-preference.ts";
 import { updater } from "../src/updater.ts";
@@ -22,7 +23,7 @@ export default function RootLayout() {
 		void initThemePreference().then(() => setThemeReady(true));
 	}, []);
 	useEffect(() => {
-		if (themeReady) void SystemUI.setBackgroundColorAsync(terminal ? "#0d1014" : p.bg).catch(() => {});
+		if (themeReady) void SystemUI.setBackgroundColorAsync(terminal ? TERMINAL_COLORS.background : p.bg).catch(() => {});
 	}, [p.bg, terminal, themeReady]);
 	useEffect(() => {
 		void store.init();
@@ -82,10 +83,10 @@ export default function RootLayout() {
 						name="host/[hostId]/terminal"
 						options={{
 							title: "终端",
-							headerStyle: { backgroundColor: "#0d1014" },
-							headerTintColor: "#eef0f3",
-							headerTitleStyle: { color: "#eef0f3", fontWeight: "700", fontSize: 17 },
-							contentStyle: { backgroundColor: "#0d1014" },
+							headerStyle: { backgroundColor: TERMINAL_COLORS.background },
+							headerTintColor: TERMINAL_COLORS.text,
+							headerTitleStyle: { color: TERMINAL_COLORS.text, fontWeight: "700", fontSize: 17 },
+							contentStyle: { backgroundColor: TERMINAL_COLORS.background },
 						}}
 					/>
 					<Stack.Screen name="host/[hostId]/extensions" options={{ title: "pi 扩展" }} />

@@ -31,61 +31,67 @@ export interface Palette {
 	scrim: string;
 }
 
+/** Warm ink, as on the desktop: graphite and ivory here, paper and near-black in `light`. The
+ *  accent is the ink itself, so the only colours on screen are the states. */
 const dark: Palette = {
 	dark: true,
-	bg: "#08090c",
-	card: "#0f1014",
-	elevated: "#15161b",
+	bg: "#0b0b0a",
+	card: "#131210",
+	elevated: "#1b1a17",
 	border: "rgba(255,255,255,0.11)",
-	text: "#ededf0",
-	muted: "#9a9ca8",
-	faint: "#62646f",
-	accent: "#2ab5aa",
-	accentText: "#5fd6cb",
-	accentSoft: "rgba(42,181,170,0.13)",
-	accentRing: "rgba(42,181,170,0.45)",
-	onAccent: "#071f1c",
+	text: "#edebe6",
+	muted: "#a29e96",
+	faint: "#6d6961",
+	accent: "#ebe7df",
+	accentText: "#ebe7df",
+	accentSoft: "rgba(235,231,223,0.08)",
+	accentRing: "rgba(235,231,223,0.32)",
+	onAccent: "#1c1b19",
 	danger: "#f06464",
 	dangerSoft: "rgba(240,100,100,0.12)",
 	warning: "#e9b44c",
 	warningSoft: "rgba(233,180,76,0.12)",
 	ok: "#3fb96f",
 	okSoft: "rgba(63,185,111,0.13)",
-	code: "#0a0b0e",
-	codeText: "#d9dce3",
-	userBubble: "#1d2027",
+	code: "#0e0d0c",
+	codeText: "#dedbd4",
+	userBubble: "#23221f",
 	add: "#7ee2a8",
 	del: "#ff9b94",
 	scrim: "rgba(0,0,0,0.6)",
 };
 
+/** Code reads on paper too, like the desktop's light theme. */
 const light: Palette = {
 	dark: false,
-	bg: "#eef0f4",
-	card: "#ffffff",
-	elevated: "#f7f8fa",
-	border: "rgba(15,23,42,0.13)",
-	text: "#13161c",
-	muted: "#5a6170",
-	faint: "#9aa0ac",
-	accent: "#11968c",
-	accentText: "#0d7f77",
-	accentSoft: "rgba(17,150,140,0.10)",
-	accentRing: "rgba(17,150,140,0.4)",
-	onAccent: "#ffffff",
+	bg: "#f4f3f0",
+	card: "#fdfdfc",
+	elevated: "#f7f6f3",
+	border: "rgba(40,32,20,0.12)",
+	text: "#1c1b19",
+	muted: "#57534c",
+	faint: "#8f8a81",
+	accent: "#1c1b19",
+	accentText: "#1c1b19",
+	accentSoft: "rgba(40,32,20,0.06)",
+	accentRing: "rgba(40,32,20,0.25)",
+	onAccent: "#fbfaf7",
 	danger: "#d93b3b",
 	dangerSoft: "rgba(217,59,59,0.08)",
 	warning: "#b7791f",
 	warningSoft: "rgba(214,158,46,0.12)",
 	ok: "#1f9d55",
 	okSoft: "rgba(31,157,85,0.10)",
-	code: "#0f1116",
-	codeText: "#d9dce3",
-	userBubble: "#f0f2f6",
-	add: "#7ee2a8",
-	del: "#ff9b94",
-	scrim: "rgba(10,14,20,0.42)",
+	code: "#f7f6f3",
+	codeText: "#1c1b19",
+	userBubble: "#efeee9",
+	add: "#1a7f37",
+	del: "#b42318",
+	scrim: "rgba(28,24,18,0.42)",
 };
+
+/** Both palettes, for previews that show the other appearance. */
+export const PALETTES = { dark, light } as const;
 
 export function usePalette(): Palette {
 	const preference = useThemePreference();
@@ -95,7 +101,7 @@ export function usePalette(): Palette {
 
 export const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
-export const RADIUS = { sm: 7, md: 11, lg: 16, xl: 22, pill: 999 } as const;
+export const RADIUS = { sm: 6, md: 8, lg: 12, xl: 16, pill: 999 } as const;
 
 /** Keep list and settings content readable on tablets and the web preview. */
 export const PAGE = { width: "100%", maxWidth: 800, alignSelf: "center" } as const;
@@ -104,10 +110,10 @@ export const PAGE = { width: "100%", maxWidth: 800, alignSelf: "center" } as con
 export const THINKING_COLOR = "#8b5cf6";
 
 /** Soft, layered card elevation (React Native's `boxShadow` works on every platform). */
-export const SHADOW: object = { boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 6px 20px rgba(16,24,40,0.06)" };
+export const SHADOW: object = { boxShadow: "0 1px 2px rgba(40,32,20,0.04), 0 6px 20px rgba(40,32,20,0.05)" };
 
 /** Stronger elevation for floating surfaces such as the composer and toasts. */
-export const FLOAT_SHADOW: object = { boxShadow: "0 2px 6px rgba(16,24,40,0.06), 0 12px 32px rgba(16,24,40,0.12)" };
+export const FLOAT_SHADOW: object = { boxShadow: "0 2px 6px rgba(40,32,20,0.06), 0 12px 32px rgba(40,32,20,0.1)" };
 
 /** Hues for name-derived tiles (hosts, workspaces, agents). */
 const HUES = [172, 212, 256, 28, 332, 142, 196, 290];

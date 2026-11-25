@@ -17,12 +17,13 @@ import { HeaderAction, Icon, IconButton, Muted, Screen } from "../../../src/comp
 import { shortPath } from "../../../src/format.ts";
 import { useMobileState, useStore } from "../../../src/store.ts";
 import { controlKey, type RemoteTerminal, type SpecialKey, type TerminalLine } from "../../../src/terminal.ts";
+import { TERMINAL_COLORS } from "../../../src/terminal-colors.ts";
 import { MONO, RADIUS } from "../../../src/theme.ts";
 
 const FONT_SIZE = 12;
 const LINE_HEIGHT = 16;
-const BACKGROUND = "#0d1014";
-const FOREGROUND = "#cdd3db";
+const BACKGROUND = TERMINAL_COLORS.background;
+const FOREGROUND = TERMINAL_COLORS.foreground;
 const PADDING = 8;
 /** Browsers collapse runs of spaces (and the blank cursor cell) unless told not to. */
 const PRESERVE_SPACES = (Platform.OS === "web" ? { whiteSpace: "pre" } : null) as TextStyle | null;
@@ -252,7 +253,7 @@ export default function TerminalScreen() {
 							submitBehavior="submit"
 							editable={terminal?.status === "running"}
 							placeholder={terminal?.status === "running" ? "输入命令，回车发送" : "终端已结束"}
-							placeholderTextColor="#626a77"
+							placeholderTextColor={TERMINAL_COLORS.faint}
 							autoCapitalize="none"
 							autoCorrect={false}
 							spellCheck={false}
@@ -350,8 +351,12 @@ const styles = StyleSheet.create({
 		backgroundColor: "rgba(234,181,79,0.14)",
 	},
 	exitText: { color: "#eab54f", fontSize: 12.5, flex: 1 },
-	cwd: { color: "#626a77", fontSize: 11, fontFamily: MONO, marginTop: 8 },
-	keys: { backgroundColor: "#14171c", borderTopWidth: StyleSheet.hairlineWidth, borderColor: "#262b33" },
+	cwd: { color: TERMINAL_COLORS.faint, fontSize: 11, fontFamily: MONO, marginTop: 8 },
+	keys: {
+		backgroundColor: TERMINAL_COLORS.bar,
+		borderTopWidth: StyleSheet.hairlineWidth,
+		borderColor: TERMINAL_COLORS.line,
+	},
 	key: {
 		minWidth: 42,
 		height: 34,
@@ -361,12 +366,12 @@ const styles = StyleSheet.create({
 		borderRadius: 8,
 		alignItems: "center",
 		justifyContent: "center",
-		backgroundColor: "#1d2127",
+		backgroundColor: TERMINAL_COLORS.key,
 	},
-	keyActive: { backgroundColor: "#3ccfc0" },
+	keyActive: { backgroundColor: TERMINAL_COLORS.cursor },
 	keyPressed: { opacity: 0.6 },
-	keyText: { color: "#eef0f3", fontSize: 13, fontWeight: "600", fontFamily: MONO },
-	keyTextActive: { color: "#04201d" },
+	keyText: { color: TERMINAL_COLORS.text, fontSize: 13, fontWeight: "600", fontFamily: MONO },
+	keyTextActive: { color: TERMINAL_COLORS.onCursor },
 	inputRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingTop: 8 },
 	input: {
 		flex: 1,
@@ -375,9 +380,9 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 14,
 		fontFamily: MONO,
 		fontSize: 14,
-		color: "#eef0f3",
-		backgroundColor: "#0a0c0f",
+		color: TERMINAL_COLORS.text,
+		backgroundColor: TERMINAL_COLORS.input,
 		borderWidth: 1,
-		borderColor: "#262b33",
+		borderColor: TERMINAL_COLORS.line,
 	},
 });

@@ -10,6 +10,7 @@ import type { PierClient } from "@pier/client";
 // The package's `module` field names a missing file; use its CommonJS build (see xterm-headless.d.ts).
 import { Terminal } from "@xterm/headless/lib-headless/xterm-headless.js";
 import { base64ToBytes } from "./bytes.ts";
+import { TERMINAL_COLORS } from "./terminal-colors.ts";
 
 /** Keep each `terminal.write` well under the protocol's 1 MB limit. */
 const WRITE_CHUNK = 64 * 1024;
@@ -302,11 +303,11 @@ export class RemoteTerminal {
 							? hex(cell.getBgColor())
 							: paletteColor(cell.getBgColor());
 					if (cell.isInverse()) {
-						[fg, bg] = [bg ?? "#0d1014", fg ?? "#cdd3db"];
+						[fg, bg] = [bg ?? TERMINAL_COLORS.background, fg ?? TERMINAL_COLORS.foreground];
 					}
 					if (x === buffer.cursorX && y === cursorLine) {
-						fg = "#0d1014";
-						bg = "#3ccfc0";
+						fg = TERMINAL_COLORS.onCursor;
+						bg = TERMINAL_COLORS.cursor;
 					}
 					const span: TerminalSpan = { text: chars };
 					if (fg) span.fg = fg;

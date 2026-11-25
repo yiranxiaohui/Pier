@@ -724,7 +724,7 @@ export function ToastHost() {
 	const insets = useSafeAreaInsets();
 	if (!toast) return null;
 	const error = toast.level === "error";
-	const bg = error ? p.danger : p.dark ? p.elevated : "#1b2027";
+	const bg = error ? p.danger : p.dark ? p.elevated : "#1c1b19";
 	return (
 		<Pressable
 			onPress={() => store.dismissToast()}
