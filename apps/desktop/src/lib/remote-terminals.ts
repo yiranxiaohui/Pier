@@ -1,24 +1,31 @@
 /**
  * Terminals on other computers: the store decides where a new terminal runs — this computer's
- * pseudo-terminals, or a paired computer's Pier Host when it can run terminals.
+ * pseudo-terminals, or a paired computer's Pier Host when it can run terminals — and shows
+ * them in the right-hand panel's terminal tab.
  */
 
 import type { PierClient } from "@pier/client";
 import type { WorkspaceInfo } from "@pier/protocol";
 import type { TerminalBridge } from "./bridge.ts";
 import { remoteTerminalBridge } from "./remote-terminal-bridge.ts";
-import { hostRunsTerminals, LOCAL_NODE, type PierStore, useAppState } from "./store.tsx";
+import { hostRunsTerminals, isRightPanelViewShown, LOCAL_NODE, type PierStore, useAppState } from "./store.tsx";
 import { type TerminalTarget, terminals } from "./terminals.ts";
 
 const bridges = new WeakMap<PierClient, TerminalBridge>();
 
 /**
  * Open terminals on the computer of the workspace: this one through the desktop app, a paired
- * one through its host when it can run terminals.
+ * one through its host when it can run terminals. They show in the right-hand panel's tab.
  */
 export function installTerminalResolver(store: PierStore): void {
 	terminals.setLinkOpener((url, tab) => {
 		void store.openWorkspaceUrl(url, tab?.workspaceId, tab?.node);
+	});
+	terminals.setPanel({
+		shown: () => isRightPanelViewShown(store.getState(), "terminal"),
+		show: () => store.showRightPanel("terminal"),
+		hide: () => store.toggleFilesPanel(false),
+		closed: () => store.closeRightPanelTab("terminal"),
 	});
 	terminals.setResolver((workspace: WorkspaceInfo | undefined, hostNode?: string): TerminalTarget | undefined => {
 		const node = hostNode ?? (workspace ? store.nodeOf(workspace.id) : LOCAL_NODE);

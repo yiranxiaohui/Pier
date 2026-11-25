@@ -2,8 +2,9 @@
  * Integrated terminals: tab state plus the xterm.js instances behind them.
  *
  * The xterm instances live outside React so terminals keep their scrollback and keep
- * running while the panel is hidden, the settings page is open, or the user switches
- * sessions. React components only attach an instance's element to the visible container.
+ * running while their tab of the right-hand panel is closed, the settings page is open, or the
+ * user switches sessions. React components only attach an instance's element to the visible
+ * container. The app tells the manager how to show that tab (`setPanel`).
  *
  * A terminal runs on the computer of the workspace it was opened for: this one through the
  * desktop app's pseudo-terminals, a paired one through its Pier Host (`terminal.*`). The
@@ -38,11 +39,23 @@ export interface TerminalTab {
 }
 
 export interface TerminalState {
-	/** The panel is shown. */
-	open: boolean;
-	height: number;
 	tabs: TerminalTab[];
 	active?: string;
+}
+
+/**
+ * Where the workspace terminals show: the right-hand panel's terminal tab. Terminals opened on
+ * the remote hosts page (`node`) show there instead and leave the panel alone.
+ */
+export interface TerminalPanelHost {
+	/** The terminal tab is on screen. */
+	shown(): boolean;
+	/** Open the terminal tab, or bring it to the front. */
+	show(): void;
+	/** Hide the right-hand panel; the terminals keep running. */
+	hide(): void;
+	/** The last terminal closed: close the terminal tab. */
+	closed(): void;
 }
 
 export interface OpenTerminalOptions {
@@ -75,9 +88,6 @@ interface Instance {
 	pending: Array<{ data: string; binary: boolean }>;
 }
 
-const PANEL_KEY = "pier.terminal";
-export const TERMINAL_DEFAULT_HEIGHT = 280;
-export const TERMINAL_MIN_HEIGHT = 120;
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const isWindows = !isMac && typeof navigator !== "undefined" && /Win/.test(navigator.platform || navigator.userAgent);
 
@@ -87,11 +97,6 @@ export const TERMINAL_SHORTCUTS: { copy: string; paste: string; clear?: string }
 	: isWindows
 		? { copy: "Ctrl+C", paste: "Ctrl+V" }
 		: { copy: "Ctrl+Shift+C", paste: "Ctrl+Shift+V" };
-
-export function clampTerminalHeight(height: number, available = window.innerHeight): number {
-	const max = Math.max(TERMINAL_MIN_HEIGHT, available - 220);
-	return Math.round(Math.min(Math.max(height, TERMINAL_MIN_HEIGHT), max));
-}
 
 const DARK_ANSI = {
 	black: "#1c1e25",
@@ -167,24 +172,14 @@ export class TerminalManager {
 		this.linkOpener = opener;
 	}
 	private resolver: TerminalResolver = () => (this.backend ? { backend: this.backend, node: "local" } : undefined);
+	private panel: TerminalPanelHost | undefined;
 
 	constructor(
 		private readonly backend: TerminalBridge | undefined,
 		private readonly openExternal: Bridge["openExternal"],
 		private readonly readClipboard: Bridge["readClipboardText"],
 	) {
-		const saved = (() => {
-			try {
-				return JSON.parse(localStorage.getItem(PANEL_KEY) ?? "{}") as { height?: number };
-			} catch {
-				return {};
-			}
-		})();
-		this.state = {
-			open: false,
-			height: clampTerminalHeight(saved.height ?? TERMINAL_DEFAULT_HEIGHT),
-			tabs: [],
-		};
+		this.state = { tabs: [] };
 		onThemeChange(() => {
 			const theme = currentTheme();
 			for (const instance of this.instances.values()) instance.term.options.theme = theme;
@@ -205,6 +200,10 @@ export class TerminalManager {
 		this.resolver = resolver;
 	}
 
+	setPanel(panel: TerminalPanelHost): void {
+		this.panel = panel;
+	}
+
 	getState = (): TerminalState => this.state;
 
 	subscribe = (listener: () => void): (() => void) => {
@@ -214,7 +213,6 @@ export class TerminalManager {
 
 	private set(next: Partial<TerminalState>): void {
 		this.state = { ...this.state, ...next };
-		if ("height" in next) localStorage.setItem(PANEL_KEY, JSON.stringify({ height: this.state.height }));
 		for (const listener of this.listeners) listener();
 	}
 
@@ -223,20 +221,18 @@ export class TerminalManager {
 		this.set({ tabs: this.state.tabs.map((t) => (t.key === key ? { ...t, ...patch } : t)) });
 	}
 
-	/** Show or hide the panel; showing an empty panel opens a terminal in `workspace`. */
-	toggle(options: OpenTerminalOptions = {}, open = !this.state.open): void {
-		if (open === this.state.open) return;
-		if (open && !this.state.tabs.length) {
+	/** Show or hide the terminal tab; showing it with no terminal opens one in `workspace`. */
+	toggle(options: OpenTerminalOptions = {}, open = !this.panel?.shown()): void {
+		if (!open) {
+			if (this.panel?.shown()) this.panel.hide();
+			return;
+		}
+		if (!this.state.tabs.length) {
 			this.create(options);
 			return;
 		}
-		this.set({ open });
-		if (open) this.focusActive();
-	}
-
-	setHeight(height: number): void {
-		const clamped = clampTerminalHeight(height);
-		if (clamped !== this.state.height) this.set({ height: clamped });
+		this.panel?.show();
+		this.focusActive();
 	}
 
 	select(key: string): void {
@@ -244,7 +240,10 @@ export class TerminalManager {
 		this.focusActive();
 	}
 
-	/** Open a new terminal tab and show the panel. The shell starts once the tab is laid out. */
+	/**
+	 * Open a new terminal and show it: in the terminal tab of the right-hand panel, or with `node`
+	 * on the remote hosts page. The shell starts once the terminal is laid out.
+	 */
 	create({ workspace, cwd, node }: OpenTerminalOptions = {}): string {
 		const key = `t${++this.nextKey}`;
 		const target = this.resolver(workspace, node);
@@ -257,11 +256,12 @@ export class TerminalManager {
 			...(target?.hostName ? { hostName: target.hostName } : {}),
 		};
 		this.instances.set(key, this.createInstance(key, target?.backend));
-		this.set({ tabs: [...this.state.tabs, tab], active: key, ...(node ? {} : { open: true }) });
+		this.set({ tabs: [...this.state.tabs, tab], active: key });
+		if (!node) this.panel?.show();
 		return key;
 	}
 
-	/** Close a tab and hang up its shell. Closing the last tab hides the panel. */
+	/** Close a terminal and hang up its shell. Closing the last one closes the terminal tab. */
 	close(key: string): void {
 		const instance = this.instances.get(key);
 		if (instance) {
@@ -275,8 +275,9 @@ export class TerminalManager {
 		const tabs = this.state.tabs.filter((t) => t.key !== key);
 		const active =
 			this.state.active === key ? (tabs[Math.min(index, tabs.length - 1)]?.key ?? undefined) : this.state.active;
-		this.set({ tabs, active, open: tabs.length ? this.state.open : false });
+		this.set({ tabs, active });
 		if (tabs.length) this.focusActive();
+		else this.panel?.closed();
 	}
 
 	/** Hang up every shell, e.g. before quitting. */

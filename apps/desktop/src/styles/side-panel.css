@@ -1,7 +1,7 @@
 /*
  * The right-hand panel (SidePanel.tsx): browser-like tabs for the views opened from its launcher
- * (files, source control, a subagent), then one tab per opened file and `+` for the launcher,
- * all in the window body's last column. The views and the file tabs keep separate widths
+ * (files, source control, the browser, the terminals, a subagent), then one tab per opened file
+ * and `+` for the launcher, all in the window body's last column. The views and the file tabs keep separate widths
  * (`data-size`). In `modal` mode the panel's window becomes a dialog filling the window while
  * files are shown (`.overlay`). Each file tab's content is a `.file-viewer` (files.css).
  */

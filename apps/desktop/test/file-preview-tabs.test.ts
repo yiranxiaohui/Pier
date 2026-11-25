@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../src/lib/bridge.ts";
-import { FILE_PREVIEW_MAX_WIDTH, FILE_PREVIEW_MIN_WIDTH, isRightPanelOpen, PierStore } from "../src/lib/store.tsx";
+import {
+	FILE_PREVIEW_MAX_WIDTH,
+	FILE_PREVIEW_MIN_WIDTH,
+	isRightPanelOpen,
+	isRightPanelViewShown,
+	PierStore,
+} from "../src/lib/store.tsx";
 
 let storage: Map<string, string>;
 
@@ -281,6 +287,33 @@ describe("views opened from the right-hand panel's launcher", () => {
 		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["files", "browser"], rightPanelTab: "browser" });
 		store.closeRightPanelTab("browser");
 		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["files"], rightPanelTab: "files" });
+	});
+
+	it("does not bring the terminals' tab back after a restart: their shells end", () => {
+		const store = withWorkspace();
+		store.showRightPanel("git");
+		store.showRightPanel("terminal");
+		expect(isRightPanelViewShown(store.getState(), "terminal")).toBe(true);
+		expect(panel(newStore())).toEqual({
+			rightPanelTabs: ["git"],
+			rightPanelTab: "git",
+			filesPanel: true,
+			filePreviewShown: false,
+		});
+		store.closeRightPanelTab("git");
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: [], rightPanelTab: "launcher" });
+	});
+
+	it("tells whether a view is on screen, not under a file tab or in a hidden panel", () => {
+		const store = withWorkspace();
+		store.showRightPanel("terminal");
+		store.openFilePreview("w", "a.ts");
+		expect(isRightPanelViewShown(store.getState(), "terminal")).toBe(false);
+		store.showRightPanel("terminal");
+		expect(isRightPanelViewShown(store.getState(), "terminal")).toBe(true);
+		store.toggleFilesPanel(false);
+		expect(isRightPanelViewShown(store.getState(), "terminal")).toBe(false);
+		expect(store.getState().rightPanelTabs).toEqual(["terminal"]);
 	});
 
 	it("keeps the view of a panel saved before views were opened on demand", () => {

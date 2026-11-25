@@ -1,57 +1,11 @@
 import "@xterm/xterm/css/xterm.css";
 import type { WorkspaceInfo } from "@pier/protocol";
-import { type PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useCanOpenTerminal } from "../lib/remote-terminals.ts";
-import {
-	TERMINAL_DEFAULT_HEIGHT,
-	TERMINAL_SHORTCUTS,
-	type TerminalTab,
-	terminalLabel,
-	terminals,
-	useTerminals,
-} from "../lib/terminals.ts";
+import { isRightPanelViewShown, useAppState } from "../lib/store.tsx";
+import { TERMINAL_SHORTCUTS, type TerminalTab, terminalLabel, terminals, useTerminals } from "../lib/terminals.ts";
 import { ContextMenu, type ContextMenuItem, type ContextMenuPosition, contextMenuPosition } from "./ContextMenu.tsx";
-import {
-	IconChevronDown,
-	IconCopy,
-	IconPaste,
-	IconPlus,
-	IconSelectAll,
-	IconTerminal,
-	IconTrash,
-	IconX,
-} from "./Icons.tsx";
-
-function ResizeHandle() {
-	const height = useTerminals((s) => s.height);
-	const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-		e.preventDefault();
-		const startY = e.clientY;
-		const startHeight = height;
-		const target = e.currentTarget;
-		target.setPointerCapture(e.pointerId);
-		document.body.classList.add("resizing-terminal");
-		const move = (ev: PointerEvent) => terminals.setHeight(startHeight + (startY - ev.clientY));
-		const up = () => {
-			target.removeEventListener("pointermove", move);
-			target.removeEventListener("pointerup", up);
-			target.removeEventListener("pointercancel", up);
-			document.body.classList.remove("resizing-terminal");
-		};
-		target.addEventListener("pointermove", move);
-		target.addEventListener("pointerup", up);
-		target.addEventListener("pointercancel", up);
-	};
-	return (
-		// biome-ignore lint/a11y/noStaticElementInteractions: pointer-only resize affordance; height also persists.
-		<div
-			className="terminal-resize"
-			title="拖动调整高度，双击恢复默认"
-			onPointerDown={onPointerDown}
-			onDoubleClick={() => terminals.setHeight(TERMINAL_DEFAULT_HEIGHT)}
-		/>
-	);
-}
+import { IconCopy, IconPaste, IconPlus, IconSelectAll, IconTerminal, IconTrash, IconX } from "./Icons.tsx";
 
 function tabTitle(tab: TerminalTab): string {
 	const parts = [tab.title, tab.hostName ? `${tab.hostName}：${tab.cwd ?? "~"}` : tab.cwd].filter(Boolean);
@@ -90,8 +44,9 @@ function terminalMenu(tab: TerminalTab, selection: boolean): ContextMenuItem[] {
 }
 
 /**
- * Bottom panel with the integrated terminals. `workspace` is where new terminals start
- * (the workspace on screen).
+ * The integrated terminals: the right-hand panel's terminal tab (all of them), or with `node`
+ * the shells of one computer on the remote hosts page. `workspace` is where new terminals
+ * start (the workspace on screen).
  */
 export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; node?: string }) {
 	const state = useTerminals((s) => s);
@@ -124,8 +79,7 @@ export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; 
 
 	const newTerminal = () => terminals.create(node ? { node } : workspace ? { workspace } : {});
 	return (
-		<section className="terminal-panel" style={node ? undefined : { height: state.height }} aria-label="终端">
-			{node ? null : <ResizeHandle />}
+		<section className="terminal-panel" aria-label="终端">
 			<header className="terminal-header">
 				<div className="terminal-tabs" role="tablist">
 					{tabs.map((tab) => (
@@ -188,16 +142,6 @@ export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; 
 					>
 						<IconTrash size={14} />
 					</button>
-					{!node && (
-						<button
-							type="button"
-							className="ghost icon"
-							title="隐藏终端面板（Ctrl+`），终端继续运行"
-							onClick={() => terminals.toggle({}, false)}
-						>
-							<IconChevronDown size={14} />
-						</button>
-					)}
 				</div>
 			</header>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: the terminal (xterm's focused textarea) takes the keyboard; this only opens its context menu. */}
@@ -223,15 +167,19 @@ export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; 
 					onClose={() => setMenu(undefined)}
 				/>
 			) : null}
-			{node && !tabs.length && (
-				<div className="host-shell-empty">
+			{!tabs.length && (
+				<div className="terminal-empty">
 					<IconTerminal size={26} />
 					{canOpen ? (
 						<button type="button" className="primary" onClick={newTerminal}>
-							新建 Shell 终端
+							{node ? "新建 Shell 终端" : "新建终端"}
 						</button>
 					) : (
-						<p>此主机暂时无法启动终端，请检查连接和 Host 的终端支持。</p>
+						<p>
+							{node
+								? "此主机暂时无法启动终端，请检查连接和 Host 的终端支持。"
+								: "这个工作区所在的电脑暂时不能打开终端。"}
+						</p>
 					)}
 				</div>
 			)}
@@ -239,9 +187,9 @@ export function TerminalPanel({ workspace, node }: { workspace?: WorkspaceInfo; 
 	);
 }
 
-/** Header button that shows or hides the terminal panel. */
+/** Header button that shows or hides the right-hand panel's terminal tab. */
 export function TerminalToggle({ workspace }: { workspace?: WorkspaceInfo | undefined }) {
-	const open = useTerminals((s) => s.open);
+	const open = useAppState((s) => isRightPanelViewShown(s, "terminal"));
 	const hasTabs = useTerminals((s) => s.tabs.length > 0);
 	const canOpen = useCanOpenTerminal(workspace);
 	if (!canOpen && !hasTabs) return null;
@@ -249,7 +197,7 @@ export function TerminalToggle({ workspace }: { workspace?: WorkspaceInfo | unde
 		<button
 			type="button"
 			className={`chip icon-chip${open ? " active" : ""}`}
-			title={open ? "隐藏终端（Ctrl+`）" : "打开终端（Ctrl+`）"}
+			title={open ? "隐藏终端（Ctrl+`），终端继续运行" : "打开终端（Ctrl+`）"}
 			aria-pressed={open}
 			onClick={() => terminals.toggle(workspace ? { workspace } : {})}
 		>

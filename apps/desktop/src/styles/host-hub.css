@@ -109,21 +109,6 @@ button.host-choice.selected {
 	color: var(--accent-text);
 	border-bottom-color: var(--accent);
 }
-.host-detail .terminal-panel {
-	flex: 1;
-	border-top: 0;
-}
-.host-shell-empty {
-	position: absolute;
-	inset: 36px 0 0;
-	display: grid;
-	place-content: center;
-	justify-items: center;
-	gap: 16px;
-	color: var(--text-muted);
-	text-align: center;
-	padding: 16px;
-}
 .host-connections {
 	overflow: auto;
 	padding: 18px clamp(14px, 3vw, 42px);

@@ -10,7 +10,7 @@ import { useGitChangeCount } from "./PanelChrome.tsx";
 const EDITING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), .xterm, .monaco-editor';
 
 interface LauncherItem {
-	id: string;
+	id: RightPanelTab;
 	label: string;
 	/** Pressed on its own (no modifier) while the launcher is on screen. */
 	shortcut: string;
@@ -18,17 +18,14 @@ interface LauncherItem {
 	Icon: ComponentType<{ size?: number }>;
 	disabled?: boolean;
 	badge?: number | undefined;
-	/** Shown as a tab of the panel (true), or opened elsewhere: then the launcher steps aside. */
-	inPanel: boolean;
 	run(): void;
 }
 
 /**
  * The right-hand panel's launcher (`+` after its tabs, and the panel with no tab open): what
- * can be opened for the workspace on screen. Files, source control and the browser open as tabs
- * of the panel; the terminal opens the bottom panel, and then the launcher gives way to the
- * panel's last view, or hides an empty panel. Each item has a one-letter shortcut while the
- * launcher is on screen (`active`), unless the letter is being typed.
+ * can be opened for the workspace on screen, each as a tab of the panel (files, source control,
+ * the browser, the terminals). Each item has a one-letter shortcut while the launcher is on
+ * screen (`active`), unless the letter is being typed.
  */
 export function PanelLauncher({
 	workspace,
@@ -43,20 +40,9 @@ export function PanelLauncher({
 	const store = useStore();
 	const gitCount = useGitChangeCount(workspace.id);
 	const canOpenTerminal = useCanOpenTerminal(workspace);
-	const hasTerminals = useTerminals((s) => s.tabs.length > 0);
-	const terminalOpen = useTerminals((s) => s.open);
+	const terminalCount = useTerminals((s) => s.tabs.length);
 	const openTabs = useAppState((s) => s.rightPanelTabs);
 	const root = useRef<HTMLDivElement>(null);
-
-	/** After opening something outside the panel: back to its last view, or hide it when empty. */
-	const stepAside = () => {
-		const state = store.getState();
-		const last = state.rightPanelTabs[state.rightPanelTabs.length - 1];
-		const file = state.filePreviewMode === "panel" ? state.activeFilePreview : undefined;
-		if (last) store.showRightPanel(last);
-		else if (file) store.selectFilePreview(file);
-		else store.toggleFilesPanel(false);
-	};
 
 	const items: LauncherItem[] = [
 		{
@@ -65,7 +51,6 @@ export function PanelLauncher({
 			shortcut: "F",
 			hint: "工作区文件（Ctrl/⌘+Shift+E）",
 			Icon: IconFolder,
-			inPanel: true,
 			run: () => store.showRightPanel("files"),
 		},
 		{
@@ -75,7 +60,6 @@ export function PanelLauncher({
 			hint: "Git 更改、提交与分支（Ctrl/⌘+Shift+G）",
 			Icon: IconGitBranch,
 			badge: gitCount,
-			inPanel: true,
 			run: () => store.showRightPanel("git"),
 		},
 		{
@@ -84,28 +68,24 @@ export function PanelLauncher({
 			shortcut: "B",
 			hint: "工作区所在电脑的浏览器：打开网页，选取元素或标注截图发给 Agent",
 			Icon: IconBrowser,
-			inPanel: true,
 			run: () => store.showRightPanel("browser"),
 		},
 		{
 			id: "terminal",
 			label: "终端",
 			shortcut: "T",
-			hint: canOpenTerminal ? "在底部面板打开终端（Ctrl+`）" : "这台电脑上无法打开终端",
+			hint: canOpenTerminal ? "工作区所在电脑的终端（Ctrl+`）" : "这台电脑上无法打开终端",
 			Icon: IconTerminal,
-			disabled: !canOpenTerminal && !hasTerminals,
-			inPanel: false,
-			run: () => {
-				if (!terminalOpen) terminals.toggle({ workspace }, true);
-				else if (canOpenTerminal) terminals.create({ workspace });
-			},
+			// Running terminals, also while their tab is closed.
+			badge: terminalCount,
+			disabled: !canOpenTerminal && !terminalCount,
+			// Shows the open terminals, or opens one when there is none.
+			run: () => terminals.toggle({ workspace }, true),
 		},
 	];
 
 	const launch = (item: LauncherItem) => {
-		if (item.disabled) return;
-		item.run();
-		if (!item.inPanel) stepAside();
+		if (!item.disabled) item.run();
 	};
 
 	const buttons = () => [...(root.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
@@ -159,7 +139,7 @@ export function PanelLauncher({
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the buttons inside. */}
 				<div className="panel-launcher-items" onKeyDown={onKeyDown}>
 					{items.map((item) => {
-						const opened = item.inPanel && openTabs.includes(item.id as RightPanelTab);
+						const opened = openTabs.includes(item.id);
 						return (
 							<button
 								key={item.id}

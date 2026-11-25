@@ -16,11 +16,10 @@ import { Sidebar, SidebarToggle } from "./components/Sidebar.tsx";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle.tsx";
 import { SidePanel } from "./components/SidePanel.tsx";
 import { StatusBar } from "./components/StatusBar.tsx";
-import { TerminalPanel } from "./components/TerminalPanel.tsx";
 import { TitleBar } from "./components/TitleBar.tsx";
 import { UsagePage } from "./components/UsagePage.tsx";
 import { useCanOpenTerminal } from "./lib/remote-terminals.ts";
-import { LOCAL_NODE, NEW_CHAT_DRAFT, useAppState, useStore } from "./lib/store.tsx";
+import { isRightPanelViewShown, LOCAL_NODE, NEW_CHAT_DRAFT, useAppState, useStore } from "./lib/store.tsx";
 import { terminals, useTerminals } from "./lib/terminals.ts";
 
 function Toasts() {
@@ -104,8 +103,8 @@ export function App() {
 	const usage = useAppState((s) => s.usageOpen);
 	const sidebar = useAppState((s) => s.sidebar);
 	const sidebarWidth = useAppState((s) => s.sidebarWidth);
-	// Terminals run on the computer of the workspace they were opened for; the panel shows them all.
-	const terminalOpen = useTerminals((s) => s.open);
+	// Terminals run on the computer of the workspace they were opened for; the right-hand
+	// panel's terminal tab shows them all.
 	const hasTerminals = useTerminals((s) => s.tabs.length > 0);
 	const screen = useScreenWorkspace();
 	const screenWorkspace = screen.workspace;
@@ -119,14 +118,15 @@ export function App() {
 	const columns = ["auto", "minmax(0, 1fr)"];
 
 	// Ctrl/⌘+Shift+E and Ctrl/⌘+Shift+G open (or hide) the file and source control views, as in editors; Ctrl/⌘+B the sidebar;
-	// Ctrl+` the terminal (Ctrl on macOS too, as in editors: ⌘+` cycles windows there).
+	// Ctrl+` the terminal tab (Ctrl on macOS too, as in editors: ⌘+` cycles windows there).
 	useEffect(() => {
 		if (settings || scheduled || hosts || usage) return;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === "`") {
-				if (!hasTerminals && !canOpenTerminal) return;
+				// The right-hand panel, and so its terminal tab, belongs to a workspace on screen.
+				if (!screenWorkspace || (!hasTerminals && !canOpenTerminal)) return;
 				e.preventDefault();
-				terminals.toggle(screenWorkspace ? { workspace: screenWorkspace } : {});
+				terminals.toggle({ workspace: screenWorkspace });
 				return;
 			}
 			if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
@@ -134,8 +134,7 @@ export function App() {
 			if (e.shiftKey && (key === "e" || key === "g")) {
 				e.preventDefault();
 				const tab = key === "g" ? "git" : "files";
-				const { filesPanel, rightPanelTab, filePreviewShown } = store.getState();
-				if (filesPanel && rightPanelTab === tab && !filePreviewShown) store.toggleFilesPanel(false);
+				if (isRightPanelViewShown(store.getState(), tab)) store.toggleFilesPanel(false);
 				else store.showRightPanel(tab);
 			} else if (!e.shiftKey && key === "b") {
 				e.preventDefault();
@@ -173,7 +172,6 @@ export function App() {
 							<div className="main-body">
 								<Main />
 							</div>
-							{terminalOpen ? <TerminalPanel {...(screenWorkspace ? { workspace: screenWorkspace } : {})} /> : null}
 						</main>
 						<StatusBar />
 					</div>

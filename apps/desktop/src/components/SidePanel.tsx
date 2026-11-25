@@ -36,11 +36,13 @@ import {
 	IconMaximize,
 	IconPanelRight,
 	IconPlus,
+	IconTerminal,
 	IconX,
 } from "./Icons.tsx";
 import { useGitChangeCount } from "./PanelChrome.tsx";
 import { PanelLauncher } from "./PanelLauncher.tsx";
 import { SubagentPanel } from "./SubagentPanel.tsx";
+import { TerminalPanel } from "./TerminalPanel.tsx";
 
 /** Matches the panel's width transition in side-panel.css, plus a little slack. */
 const CLOSE_MS = 320;
@@ -54,8 +56,9 @@ const COLLAPSED_SIDEBAR_WIDTH = 8;
 const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|svg|avif)$/i;
 
 /**
- * What the panel shows: nothing, its files / source control / subagent view or launcher, the
- * active file tab, or (`modal` mode) the file tabs in a dialog filling the window.
+ * What the panel shows: nothing, its files / source control / browser / terminal / subagent
+ * view or launcher, the active file tab, or (`modal` mode) the file tabs in a dialog filling
+ * the window.
  */
 type View = "closed" | "tool" | "file" | "overlay";
 
@@ -64,6 +67,7 @@ const TOOLS: Record<RightPanelTab, { label: string; hint: string; Icon: Componen
 	files: { label: "文件", hint: "工作区文件（Ctrl/⌘+Shift+E）", Icon: IconFolder },
 	git: { label: "源代码管理", hint: "Git 源代码管理（Ctrl/⌘+Shift+G）", Icon: IconGitBranch },
 	browser: { label: "浏览器", hint: "工作区所在电脑的浏览器", Icon: IconBrowser },
+	terminal: { label: "终端", hint: "终端（Ctrl+`）", Icon: IconTerminal },
 	subagent: { label: "Subagent", hint: "Subagent 的对话", Icon: IconBot },
 };
 
@@ -175,19 +179,22 @@ function PanelResizeHandle({
 }
 
 /**
- * The panel's files, source control or subagent view of the workspace on screen, or its launcher.
- * The browser has its own page (it stays mounted while other views are on top).
+ * The panel's files, source control, terminal or subagent view of the workspace on screen, or its
+ * launcher. The browser has its own page (it stays mounted while other views are on top).
  */
 function ToolView({
 	workspace,
 	composerKey,
 	active,
+	hidden,
 	focusRequest,
 }: {
 	workspace: WorkspaceInfo;
 	composerKey?: string | undefined;
 	/** The view is on screen. */
 	active: boolean;
+	/** The panel is hidden (another page replaces the main screen). */
+	hidden: boolean;
 	focusRequest: number;
 }) {
 	const tab = useAppState((s) => s.rightPanelTab);
@@ -202,17 +209,21 @@ function ToolView({
 		return <FilesPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
 	}
 	if (tab === "browser") return null;
+	// While the panel is hidden the remote hosts page may show the terminals instead; they are
+	// attached here again when the panel shows.
+	if (tab === "terminal") return hidden ? null : <TerminalPanel workspace={workspace} />;
 	return <PanelLauncher workspace={workspace} active={active} focusRequest={focusRequest} />;
 }
 
 /**
  * The right-hand panel, laid out like a browser: a tab per view opened from its launcher (the
- * workspace's files, source control, a subagent's conversation), then one tab per opened file,
- * so one column holds them all; `+` after the tabs shows the launcher again, as does a panel with
- * nothing open. The views and the file tabs keep separate widths. In `modal` mode the
- * file tabs show in a dialog filling the window instead. Open files (with their unsaved edits)
- * stay mounted across tab and mode switches, and while `hidden` (the settings or scheduled tasks
- * replace the main screen). `workspace` / `composerKey` are the workspace and composer on screen.
+ * workspace's files, source control, the browser, the terminals, a subagent's conversation),
+ * then one tab per opened file, so one column holds them all; `+` after the tabs shows the
+ * launcher again, as does a panel with nothing open. The views and the file tabs keep separate
+ * widths. In `modal` mode the file tabs show in a dialog filling the window instead. Open files
+ * (with their unsaved edits) stay mounted across tab and mode switches, and while `hidden` (the
+ * settings or scheduled tasks replace the main screen). `workspace` / `composerKey` are the
+ * workspace and composer on screen.
  */
 export function SidePanel({
 	hidden = false,
@@ -253,9 +264,9 @@ export function SidePanel({
 	/** The panel's own column: under a dialog it keeps its files / source control view, if open. */
 	const sideView: View = view === "overlay" ? (toolOpen ? "tool" : "closed") : view;
 
-	// The browser takes the room of a file tab rather than that of the files view.
+	// The browser and the terminals take the room of a file tab rather than that of the files view.
 	const sizeOf = (shown: "tool" | "file"): "tool" | "file" =>
-		shown === "tool" && toolTab === "browser" ? "file" : shown;
+		shown === "tool" && (toolTab === "browser" || toolTab === "terminal") ? "file" : shown;
 	// Closing slides the panel away at its last size, with its last content.
 	const lastOpen = useRef<"tool" | "file">(sideView === "file" ? "file" : "tool");
 	const lastSize = useRef<"tool" | "file">(lastOpen.current);
@@ -452,7 +463,7 @@ export function SidePanel({
 									<button
 										type="button"
 										className="file-preview-tab-close"
-										title="关闭"
+										title={id === "terminal" ? "关闭，终端继续运行" : "关闭"}
 										aria-label={`关闭 ${label}`}
 										tabIndex={selected ? 0 : -1}
 										onClick={() => store.closeRightPanelTab(id)}
@@ -562,6 +573,7 @@ export function SidePanel({
 								workspace={workspace}
 								composerKey={composerKey}
 								active={content === "tool" && view !== "closed" && !hidden}
+								hidden={hidden}
 								focusRequest={launcherFocus}
 							/>
 						) : null}

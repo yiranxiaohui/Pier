@@ -569,10 +569,10 @@ const SELECTION_KEY = "pier.selection";
 export const NEW_CHAT_DRAFT = "#new-chat";
 const FILES_PANEL_KEY = "pier.filesPanel";
 /** The views of the right-hand panel that open as tabs. */
-export type RightPanelTab = "files" | "git" | "browser" | "subagent";
+export type RightPanelTab = "files" | "git" | "browser" | "terminal" | "subagent";
 /** What the right-hand panel shows: a view's tab, or the launcher listing what can be opened. */
 export type RightPanelView = RightPanelTab | "launcher";
-/** The tabs remembered across restarts (a subagent's conversation is not). */
+/** The tabs remembered across restarts (not the terminals, whose shells end, or a subagent's conversation). */
 const SAVED_PANEL_TABS: readonly RightPanelTab[] = ["files", "git", "browser"];
 
 /**
@@ -626,6 +626,11 @@ export function isRightPanelOpen(state: AppState): boolean {
 		(state.filesPanel && state.workspaces.length > 0) ||
 		(state.filePreviewMode === "panel" && state.filePreviewShown && state.filePreviews.length > 0)
 	);
+}
+
+/** Whether the right-hand panel shows `view`, with no file tab on top of it. */
+export function isRightPanelViewShown(state: AppState, view: RightPanelView): boolean {
+	return state.filesPanel && state.rightPanelTab === view && !state.filePreviewShown;
 }
 const SIDEBAR_KEY = "pier.sidebar";
 const WORKSPACE_ORDER_KEY = "pier.workspaceOrder";
@@ -915,15 +920,16 @@ export class PierStore {
 			localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(state.workspaceOrder));
 		}
 		if ("filesPanel" in next || "filesPanelWidth" in next || "rightPanelTab" in next || "rightPanelTabs" in next) {
-			// A subagent's conversation is not restored after a restart.
+			// The terminals and a subagent's conversation are not restored after a restart.
 			const tabs = this.state.rightPanelTabs.filter((tab) => SAVED_PANEL_TABS.includes(tab));
 			const tab = this.state.rightPanelTab;
+			const saved = tab === "launcher" || SAVED_PANEL_TABS.includes(tab);
 			localStorage.setItem(
 				FILES_PANEL_KEY,
 				JSON.stringify({
 					open: this.state.filesPanel,
 					width: this.state.filesPanelWidth,
-					tab: tab === "subagent" ? (tabs[tabs.length - 1] ?? "launcher") : tab,
+					tab: saved ? tab : (tabs[tabs.length - 1] ?? "launcher"),
 					tabs,
 				}),
 			);
@@ -2484,8 +2490,9 @@ export class PierStore {
 	}
 
 	/**
-	 * Show the right-hand panel on `tab` (files, source control or a subagent) rather than a file
-	 * tab, opening the view's tab (after the others) when it is not open yet.
+	 * Show the right-hand panel on `tab` (files, source control, the browser, the terminals or a
+	 * subagent) rather than a file tab, opening the view's tab (after the others) when it is not
+	 * open yet.
 	 */
 	showRightPanel(tab: RightPanelTab): void {
 		if (tab === "subagent" && !this.state.subagentView) return;
