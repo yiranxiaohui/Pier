@@ -1,9 +1,9 @@
 /*
- * The right-hand panel (SidePanel.tsx): browser-like tabs for the workspace's files, source
- * control and a subagent, then one tab per opened file, all in the window body's last column.
- * The files / source control views and the file tabs keep separate widths (`data-size`). In
- * `modal` mode the panel's window becomes a dialog filling the window while files are shown
- * (`.overlay`). Each file tab's content is a `.file-viewer` (files.css).
+ * The right-hand panel (SidePanel.tsx): browser-like tabs for the views opened from its launcher
+ * (files, source control, a subagent), then one tab per opened file and `+` for the launcher,
+ * all in the window body's last column. The views and the file tabs keep separate widths
+ * (`data-size`). In `modal` mode the panel's window becomes a dialog filling the window while
+ * files are shown (`.overlay`). Each file tab's content is a `.file-viewer` (files.css).
  */
 
 /*
@@ -200,7 +200,7 @@ body.resizing-panel iframe {
 
 .side-panel-tabs {
 	display: flex;
-	flex: 1;
+	flex: 0 1 auto;
 	align-items: center;
 	gap: 2px;
 	min-width: 0;
@@ -210,49 +210,31 @@ body.resizing-panel iframe {
 	scrollbar-width: none;
 }
 
+.side-panel-tabs:empty {
+	display: none;
+}
+
 .side-panel-tabs::-webkit-scrollbar {
 	display: none;
 }
 
-/* Files, source control, subagent: labelled, or just icons (pinned) beside file tabs. */
-button.side-panel-tool-tab {
-	position: relative;
+/* `+`: the launcher, right after the last tab as in a browser; pressed while it is on screen. */
+button.side-panel-new {
 	flex: none;
-	gap: 6px;
-	height: 30px;
-	padding: 0 10px;
-	border: none;
+	width: 28px;
+	height: 28px;
+	padding: 0;
 	border-radius: 8px;
-	background: transparent;
-	font-size: 13px;
-	font-weight: 500;
 	color: var(--text-faint);
 }
 
-button.side-panel-tool-tab:hover:not(:disabled) {
-	background: var(--bg-hover);
-	color: var(--text-muted);
+.side-panel-tabs:not(:empty) + button.side-panel-new {
+	margin-left: -4px;
 }
 
-button.side-panel-tool-tab.active {
+button.side-panel-new.active {
 	background: var(--bg-active);
 	color: var(--text);
-	font-weight: 600;
-}
-
-button.side-panel-tool-tab.compact {
-	width: 32px;
-	padding: 0;
-}
-
-.side-panel-tool-tab.compact .panel-tab-badge {
-	position: absolute;
-	top: 1px;
-	right: -3px;
-	min-width: 15px;
-	padding: 0 4px;
-	font-size: 9.5px;
-	line-height: 14px;
 }
 
 .side-panel-divider {
@@ -378,11 +360,134 @@ button.file-preview-tab-close {
 	display: block;
 }
 
+/* Files, source control, subagent: shaped like file tabs; just icons (pinned) beside file tabs. */
+.file-preview-tab.side-panel-tool-tab {
+	position: relative;
+	flex: none;
+	min-width: 0;
+	max-width: none;
+}
+
+.side-panel-tool-tab button.file-preview-tab-label {
+	gap: 6px;
+	padding: 0 2px 0 10px;
+	font-size: 13px;
+}
+
+.side-panel-tool-tab.compact button.file-preview-tab-label {
+	padding: 0 0 0 9px;
+}
+
+.side-panel-tool-tab .panel-tab-badge {
+	margin-left: 2px;
+}
+
+.side-panel-tool-tab.compact .panel-tab-badge {
+	position: absolute;
+	top: 1px;
+	left: 18px;
+	min-width: 15px;
+	margin: 0;
+	padding: 0 4px;
+	font-size: 9.5px;
+	line-height: 14px;
+}
+
 .side-panel-actions {
 	display: flex;
 	flex: none;
 	align-items: center;
 	gap: 2px;
+	margin-left: auto;
+}
+
+/* ---- launcher -------------------------------------------------------------------- */
+
+/* What can be opened, centred in the panel: a short list with one-letter shortcuts. */
+.panel-launcher {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+	padding: 24px 16px;
+	overflow-y: auto;
+}
+
+.panel-launcher-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	width: min(100%, 300px);
+	/* Slightly above the middle, where the eye lands. */
+	margin-bottom: 6vh;
+}
+
+.panel-launcher-title {
+	margin: 0 0 2px;
+	font-size: 13px;
+	font-weight: 600;
+	text-align: center;
+	color: var(--text);
+}
+
+.panel-launcher-items {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+button.panel-launcher-item {
+	justify-content: flex-start;
+	gap: 10px;
+	height: 34px;
+	padding: 0 8px 0 10px;
+	border-color: transparent;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+button.panel-launcher-item:hover:not(:disabled),
+button.panel-launcher-item:focus-visible {
+	background: var(--bg-hover);
+	color: var(--text);
+}
+
+button.panel-launcher-item:focus-visible {
+	outline: none;
+	box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.panel-launcher-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	text-align: left;
+}
+
+.panel-launcher-opened {
+	flex: none;
+	font-size: 11px;
+	color: var(--text-faint);
+}
+
+.panel-launcher-item kbd {
+	display: inline-grid;
+	flex: none;
+	place-items: center;
+	min-width: 20px;
+	height: 20px;
+	padding: 0 5px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: var(--bg-elevated);
+	font-family: var(--sans);
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--text-faint);
 }
 
 /* ---- views ----------------------------------------------------------------------- */
@@ -394,7 +499,7 @@ button.file-preview-tab-close {
 	min-height: 0;
 }
 
-/* The files / source control view and every open file stay mounted; only one shows. */
+/* The files / source control view (or launcher) and every open file stay mounted; only one shows. */
 .side-panel-view,
 .file-preview-page {
 	display: flex;

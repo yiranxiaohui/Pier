@@ -1,29 +1,53 @@
 import type { BrowserPreparation, BrowserTransport, LocalBrowserInfo, WorkspaceInfo } from "@pier/protocol";
 import { BrowserPreparationSchema } from "@pier/protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
 import { BrowserPreparationStatus } from "./BrowserPreparationStatus.tsx";
 import { IconBrowser, IconExternal, IconLoader, IconTrash } from "./Icons.tsx";
 import { Modal } from "./Modal.tsx";
 import { Select } from "./Select.tsx";
 
+/** The workspace whose browser dialog is open (one at a time, opened from any button or the panel launcher). */
+let dialogWorkspace: string | undefined;
+const dialogListeners = new Set<() => void>();
+
+function setDialogWorkspace(workspaceId: string | undefined): void {
+	if (dialogWorkspace === workspaceId) return;
+	dialogWorkspace = workspaceId;
+	for (const listener of dialogListeners) listener();
+}
+
+/** Open the browser dialog of a workspace's computer. */
+export function openBrowserDialog(workspaceId: string): void {
+	setDialogWorkspace(workspaceId);
+}
+
+/** The browser dialog, mounted once by the window. */
+export function BrowserDialog() {
+	const workspaceId = useSyncExternalStore(
+		(listener) => {
+			dialogListeners.add(listener);
+			return () => dialogListeners.delete(listener);
+		},
+		() => dialogWorkspace,
+	);
+	const workspace = useAppState((s) => (workspaceId ? s.workspaces.find((w) => w.id === workspaceId) : undefined));
+	return workspace ? (
+		<BrowserPanel key={workspace.id} workspace={workspace} onClose={() => setDialogWorkspace(undefined)} />
+	) : null;
+}
+
 export function BrowserButton({ workspace }: { workspace?: WorkspaceInfo }) {
-	const [open, setOpen] = useState(false);
 	return (
-		<>
-			<button
-				type="button"
-				className="ghost icon"
-				title="打开工作区主机的浏览器"
-				disabled={!workspace}
-				onClick={() => setOpen(true)}
-			>
-				<IconBrowser size={15} />
-			</button>
-			{open && workspace ? (
-				<BrowserPanel key={workspace.id} workspace={workspace} onClose={() => setOpen(false)} />
-			) : null}
-		</>
+		<button
+			type="button"
+			className="ghost icon"
+			title="打开工作区主机的浏览器"
+			disabled={!workspace}
+			onClick={() => workspace && openBrowserDialog(workspace.id)}
+		>
+			<IconBrowser size={15} />
+		</button>
 	);
 }
 

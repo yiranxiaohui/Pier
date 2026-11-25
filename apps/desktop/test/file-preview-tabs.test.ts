@@ -166,3 +166,122 @@ describe("file tabs in the right-hand panel", () => {
 		expect(isRightPanelOpen(store.getState())).toBe(false);
 	});
 });
+
+describe("views opened from the right-hand panel's launcher", () => {
+	const withWorkspace = () => {
+		const store = newStore();
+		(store as unknown as { set(patch: object): void }).set({
+			workspaces: [{ id: "w", name: "w", path: "/w", policy: "smart" }],
+		});
+		return store;
+	};
+	const panel = (store: PierStore) => {
+		const { rightPanelTabs, rightPanelTab, filesPanel, filePreviewShown } = store.getState();
+		return { rightPanelTabs, rightPanelTab, filesPanel, filePreviewShown };
+	};
+
+	it("starts with no view open: the panel shows its launcher", () => {
+		const store = withWorkspace();
+		expect(panel(store)).toEqual({
+			rightPanelTabs: [],
+			rightPanelTab: "launcher",
+			filesPanel: false,
+			filePreviewShown: false,
+		});
+		store.toggleFilesPanel();
+		expect(panel(store)).toMatchObject({ rightPanelTab: "launcher", filesPanel: true });
+		expect(isRightPanelOpen(store.getState())).toBe(true);
+	});
+
+	it("opens each view once, in the order they were opened", () => {
+		const store = withWorkspace();
+		store.showRightPanel("git");
+		store.showRightPanel("files");
+		store.showRightPanel("git");
+		expect(panel(store)).toEqual({
+			rightPanelTabs: ["git", "files"],
+			rightPanelTab: "git",
+			filesPanel: true,
+			filePreviewShown: false,
+		});
+		store.openFilePreview("w", "a.ts");
+		store.showRightPanelLauncher();
+		expect(panel(store)).toMatchObject({ rightPanelTabs: ["git", "files"], rightPanelTab: "launcher" });
+		expect(store.getState().filePreviewShown).toBe(false);
+	});
+
+	it("hands over to the right-hand neighbour when the view on screen closes", () => {
+		const store = withWorkspace();
+		store.showRightPanel("files");
+		store.showRightPanel("git");
+		store.openSubagent("session", "agent");
+		store.showRightPanel("git");
+		store.closeRightPanelTab("git");
+		expect(panel(store)).toMatchObject({ rightPanelTabs: ["files", "subagent"], rightPanelTab: "subagent" });
+		store.closeRightPanelTab("subagent");
+		expect(store.getState().subagentView).toBeUndefined();
+		expect(panel(store)).toMatchObject({ rightPanelTabs: ["files"], rightPanelTab: "files", filesPanel: true });
+		// The last view closing leaves the panel open on its launcher.
+		store.closeRightPanelTab("files");
+		expect(panel(store)).toEqual({
+			rightPanelTabs: [],
+			rightPanelTab: "launcher",
+			filesPanel: true,
+			filePreviewShown: false,
+		});
+	});
+
+	it("shows the first file tab after the last view, and closes views off screen quietly", () => {
+		const store = withWorkspace();
+		store.showRightPanel("files");
+		store.showRightPanel("git");
+		store.openFilePreview("w", "a.ts");
+		store.openFilePreview("w", "b.ts");
+		store.closeRightPanelTab("files");
+		expect(panel(store)).toMatchObject({ rightPanelTabs: ["git"], filePreviewShown: true });
+		expect(activePath(store)).toBe("b.ts");
+		store.showRightPanel("git");
+		store.closeRightPanelTab("git");
+		expect(panel(store)).toMatchObject({ rightPanelTabs: [], rightPanelTab: "launcher", filePreviewShown: true });
+		expect(activePath(store)).toBe("a.ts");
+		store.closeFilePreview();
+		expect(panel(store)).toMatchObject({ rightPanelTab: "launcher", filesPanel: true, filePreviewShown: false });
+	});
+
+	it("drops the subagent's tab when its session is left", () => {
+		const store = withWorkspace();
+		store.openSubagent("session", "agent");
+		expect(panel(store)).toMatchObject({ rightPanelTabs: ["subagent"], rightPanelTab: "subagent" });
+		store.closeSubagent();
+		expect(store.getState().subagentView).toBeUndefined();
+		expect(panel(store)).toMatchObject({ rightPanelTabs: [], rightPanelTab: "launcher", filesPanel: true });
+		store.showRightPanel("subagent");
+		expect(store.getState().rightPanelTabs).toEqual([]);
+	});
+
+	it("remembers the open views on this device, without a subagent", () => {
+		const store = withWorkspace();
+		store.showRightPanel("git");
+		store.showRightPanel("files");
+		store.openSubagent("session", "agent");
+		expect(panel(newStore())).toEqual({
+			rightPanelTabs: ["git", "files"],
+			rightPanelTab: "files",
+			filesPanel: true,
+			filePreviewShown: false,
+		});
+		store.showRightPanelLauncher();
+		expect(newStore().getState().rightPanelTab).toBe("launcher");
+	});
+
+	it("keeps the view of a panel saved before views were opened on demand", () => {
+		storage.set("pier.filesPanel", JSON.stringify({ open: true, width: 300, tab: "git" }));
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["git"], rightPanelTab: "git", filesPanel: true });
+		storage.set("pier.filesPanel", JSON.stringify({ open: false, tab: "git" }));
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: [], rightPanelTab: "launcher" });
+		storage.set("pier.filesPanel", JSON.stringify({ open: true, tabs: ["files", "subagent", "x", "files"], tab: "x" }));
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["files"], rightPanelTab: "files" });
+		storage.set("pier.filesPanel", "null");
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: [], rightPanelTab: "launcher", filesPanel: false });
+	});
+});

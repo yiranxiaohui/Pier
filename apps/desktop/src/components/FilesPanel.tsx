@@ -1546,7 +1546,7 @@ export function FilesPanel({ workspace, composerKey }: { workspace: WorkspaceInf
 	);
 }
 
-/** Header button that shows or hides the file panel. */
+/** Header button that shows or hides the right-hand panel (its launcher when no view is open). */
 export function FilesPanelToggle() {
 	const store = useStore();
 	const open = useAppState(isRightPanelOpen);
@@ -1557,7 +1557,7 @@ export function FilesPanelToggle() {
 			title={
 				open
 					? "隐藏右侧面板（Ctrl/⌘+Shift+E 文件，Ctrl/⌘+Shift+G 源代码管理）"
-					: "显示工作区文件与源代码管理（Ctrl/⌘+Shift+E / G）"
+					: "显示右侧面板，打开文件、源代码管理等（Ctrl/⌘+Shift+E / G）"
 			}
 			aria-pressed={open}
 			onClick={() => store.toggleFilesPanel()}

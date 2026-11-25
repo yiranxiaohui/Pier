@@ -1,5 +1,6 @@
 import type { WorkspaceInfo } from "@pier/protocol";
 import { type CSSProperties, useEffect } from "react";
+import { BrowserDialog } from "./components/BrowserPanel.tsx";
 import { DirectoryPicker } from "./components/DirectoryPicker.tsx";
 import { Welcome, WorkspaceHome } from "./components/Home.tsx";
 import { HostHub } from "./components/HostHub.tsx";
@@ -111,12 +112,12 @@ export function App() {
 	// A subagent's conversation belongs to its session: leave it when another one is shown.
 	const subagentSession = useAppState((s) => s.subagentView?.sessionId);
 	useEffect(() => {
-		if (subagentSession && subagentSession !== screen.composerKey) store.closeSubagent(true);
+		if (subagentSession && subagentSession !== screen.composerKey) store.closeSubagent();
 	}, [store, subagentSession, screen.composerKey]);
 	// The right-hand panel (SidePanel) is the window body's last column, outside this screen.
 	const columns = ["auto", "minmax(0, 1fr)"];
 
-	// Ctrl/⌘+Shift+E and Ctrl/⌘+Shift+G show (or hide) the file and source control views, as in editors; Ctrl/⌘+B the sidebar;
+	// Ctrl/⌘+Shift+E and Ctrl/⌘+Shift+G open (or hide) the file and source control views, as in editors; Ctrl/⌘+B the sidebar;
 	// Ctrl+` the terminal (Ctrl on macOS too, as in editors: ⌘+` cycles windows there).
 	useEffect(() => {
 		if (settings || scheduled || hosts) return;
@@ -181,6 +182,7 @@ export function App() {
 			<PairingRequestDialog />
 			<AddPeerDialog />
 			<DirectoryPicker />
+			<BrowserDialog />
 		</div>
 	);
 }

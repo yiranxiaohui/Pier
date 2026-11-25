@@ -33,9 +33,11 @@ import {
 	IconImage,
 	IconMaximize,
 	IconPanelRight,
+	IconPlus,
 	IconX,
 } from "./Icons.tsx";
 import { useGitChangeCount } from "./PanelChrome.tsx";
+import { PanelLauncher } from "./PanelLauncher.tsx";
 import { SubagentPanel } from "./SubagentPanel.tsx";
 
 /** Matches the panel's width transition in side-panel.css, plus a little slack. */
@@ -50,16 +52,17 @@ const COLLAPSED_SIDEBAR_WIDTH = 8;
 const IMAGE = /\.(png|jpe?g|gif|webp|bmp|ico|svg|avif)$/i;
 
 /**
- * What the panel shows: nothing, its files / source control / subagent view, the active file
- * tab, or (`modal` mode) the file tabs in a dialog filling the window.
+ * What the panel shows: nothing, its files / source control / subagent view or launcher, the
+ * active file tab, or (`modal` mode) the file tabs in a dialog filling the window.
  */
 type View = "closed" | "tool" | "file" | "overlay";
 
-const TOOLS: Array<{ id: RightPanelTab; label: string; hint: string; Icon: ComponentType<{ size?: number }> }> = [
-	{ id: "files", label: "文件", hint: "工作区文件（Ctrl/⌘+Shift+E）", Icon: IconFolder },
-	{ id: "git", label: "源代码管理", hint: "Git 源代码管理（Ctrl/⌘+Shift+G）", Icon: IconGitBranch },
-];
-const SUBAGENT_TOOL = { id: "subagent" as const, label: "Subagent", hint: "Subagent 的对话", Icon: IconBot };
+/** The views that open as tabs from the launcher (or a subagent card). */
+const TOOLS: Record<RightPanelTab, { label: string; hint: string; Icon: ComponentType<{ size?: number }> }> = {
+	files: { label: "文件", hint: "工作区文件（Ctrl/⌘+Shift+E）", Icon: IconFolder },
+	git: { label: "源代码管理", hint: "Git 源代码管理（Ctrl/⌘+Shift+G）", Icon: IconGitBranch },
+	subagent: { label: "Subagent", hint: "Subagent 的对话", Icon: IconBot },
+};
 
 function splitPath(path: string): string[] {
 	return path.split(/[\\/]/).filter(Boolean);
@@ -168,8 +171,19 @@ function PanelResizeHandle({
 	);
 }
 
-/** The panel's files, source control or subagent view of the workspace on screen. */
-function ToolView({ workspace, composerKey }: { workspace: WorkspaceInfo; composerKey?: string | undefined }) {
+/** The panel's files, source control or subagent view of the workspace on screen, or its launcher. */
+function ToolView({
+	workspace,
+	composerKey,
+	active,
+	focusRequest,
+}: {
+	workspace: WorkspaceInfo;
+	composerKey?: string | undefined;
+	/** The view is on screen. */
+	active: boolean;
+	focusRequest: number;
+}) {
 	const tab = useAppState((s) => s.rightPanelTab);
 	const subagent = useAppState((s) => s.subagentView);
 	if (tab === "subagent" && subagent && subagent.sessionId === composerKey) {
@@ -178,13 +192,17 @@ function ToolView({ workspace, composerKey }: { workspace: WorkspaceInfo; compos
 	if (tab === "git") {
 		return <GitPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
 	}
-	return <FilesPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
+	if (tab === "files") {
+		return <FilesPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
+	}
+	return <PanelLauncher workspace={workspace} active={active} focusRequest={focusRequest} />;
 }
 
 /**
- * The right-hand panel, laid out like a browser: tabs for the workspace's files, source control
- * (and a subagent's conversation), then one tab per opened file, so one column holds them all.
- * The files / source control views and the file tabs keep separate widths. In `modal` mode the
+ * The right-hand panel, laid out like a browser: a tab per view opened from its launcher (the
+ * workspace's files, source control, a subagent's conversation), then one tab per opened file,
+ * so one column holds them all; `+` after the tabs shows the launcher again, as does a panel with
+ * nothing open. The views and the file tabs keep separate widths. In `modal` mode the
  * file tabs show in a dialog filling the window instead. Open files (with their unsaved edits)
  * stay mounted across tab and mode switches, and while `hidden` (the settings or scheduled tasks
  * replace the main screen). `workspace` / `composerKey` are the workspace and composer on screen.
@@ -204,6 +222,7 @@ export function SidePanel({
 	const filesWidth = useAppState((s) => s.filesPanelWidth);
 	const filesPanel = useAppState((s) => s.filesPanel);
 	const toolTab = useAppState((s) => s.rightPanelTab);
+	const openTools = useAppState((s) => s.rightPanelTabs);
 	const hasSubagent = useAppState((s) => s.subagentView !== undefined);
 	const previewShown = useAppState((s) => s.filePreviewShown);
 	const allTabs = useAppState((s) => s.filePreviews);
@@ -215,6 +234,8 @@ export function SidePanel({
 	const shell = useRef<HTMLDivElement>(null);
 	const strip = useRef<HTMLDivElement>(null);
 	const ids = useId();
+	/** Bumped when `+` shows the launcher, which then takes the focus. */
+	const [launcherFocus, setLauncherFocus] = useState(0);
 
 	const modal = mode === "modal";
 	const tabs = allTabs.filter((tab) => workspaces.some((w) => w.id === tab.workspaceId));
@@ -331,7 +352,8 @@ export function SidePanel({
 	};
 
 	const overlay = view === "overlay";
-	const tools = !overlay && workspace ? (hasSubagent ? [...TOOLS, SUBAGENT_TOOL] : TOOLS) : [];
+	const tools = !overlay && workspace ? openTools.filter((id) => id !== "subagent" || hasSubagent) : [];
+	const launcherShown = content === "tool" && toolTab === "launcher";
 	// In `modal` mode file tabs live in the dialog only.
 	const stripTabs = modal && !overlay ? [] : shownTabs;
 	// Same names in different folders show their folder too.
@@ -375,30 +397,53 @@ export function SidePanel({
 							if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) e.currentTarget.scrollLeft += e.deltaY;
 						}}
 					>
-						{tools.map(({ id, label, hint, Icon }) => {
+						{tools.map((id) => {
+							const { label, hint, Icon } = TOOLS[id];
 							const selected = content === "tool" && toolTab === id;
 							const compact = stripTabs.length > 0;
 							return (
-								<button
+								<div
 									key={id}
-									type="button"
-									role="tab"
-									id={`${ids}-tool-${id}`}
-									aria-selected={selected}
-									aria-controls={`${ids}-tool`}
-									aria-label={label}
-									tabIndex={selected ? 0 : -1}
-									className={`side-panel-tool-tab${selected ? " active" : ""}${compact ? " compact" : ""}`}
-									title={hint}
-									onClick={() => store.showRightPanel(id)}
-									onKeyDown={onTabKeyDown}
+									className={`file-preview-tab side-panel-tool-tab${selected ? " active" : ""}${compact ? " compact" : ""}`}
 								>
-									<Icon size={15} />
-									{compact ? null : <span>{label}</span>}
-									{id === "git" && gitCount ? (
-										<span className="panel-tab-badge">{gitCount > 999 ? "999+" : gitCount}</span>
-									) : null}
-								</button>
+									<button
+										type="button"
+										role="tab"
+										id={`${ids}-tool-${id}`}
+										aria-selected={selected}
+										aria-controls={`${ids}-tool`}
+										aria-label={label}
+										tabIndex={selected ? 0 : -1}
+										className="file-preview-tab-label"
+										title={hint}
+										onClick={() => store.showRightPanel(id)}
+										onKeyDown={onTabKeyDown}
+										onMouseDown={(e) => {
+											if (e.button === 1) e.preventDefault();
+										}}
+										onAuxClick={(e) => {
+											if (e.button !== 1) return;
+											e.preventDefault();
+											store.closeRightPanelTab(id);
+										}}
+									>
+										<Icon size={14} />
+										{compact ? null : <span className="file-preview-tab-name">{label}</span>}
+										{id === "git" && gitCount ? (
+											<span className="panel-tab-badge">{gitCount > 999 ? "999+" : gitCount}</span>
+										) : null}
+									</button>
+									<button
+										type="button"
+										className="file-preview-tab-close"
+										title="关闭"
+										aria-label={`关闭 ${label}`}
+										tabIndex={selected ? 0 : -1}
+										onClick={() => store.closeRightPanelTab(id)}
+									>
+										<IconX size={12} />
+									</button>
+								</div>
 							);
 						})}
 						{tools.length && stripTabs.length ? <span className="side-panel-divider" aria-hidden="true" /> : null}
@@ -451,6 +496,22 @@ export function SidePanel({
 							);
 						})}
 					</div>
+					{!overlay && workspace ? (
+						<button
+							type="button"
+							id={`${ids}-launcher`}
+							className={`ghost icon side-panel-new${launcherShown ? " active" : ""}`}
+							title="打开面板"
+							aria-label="打开面板"
+							aria-pressed={launcherShown}
+							onClick={() => {
+								store.showRightPanelLauncher();
+								setLauncherFocus((n) => n + 1);
+							}}
+						>
+							<IconPlus size={15} />
+						</button>
+					) : null}
 					<div className="side-panel-actions">
 						{view === "file" || overlay ? (
 							<button
@@ -477,11 +538,16 @@ export function SidePanel({
 						className="side-panel-view"
 						id={`${ids}-tool`}
 						role="tabpanel"
-						aria-labelledby={`${ids}-tool-${toolTab}`}
+						aria-labelledby={`${ids}-${toolTab === "launcher" ? "launcher" : `tool-${toolTab}`}`}
 						hidden={content !== "tool"}
 					>
 						{(toolLive || toolMounted) && workspace ? (
-							<ToolView workspace={workspace} composerKey={composerKey} />
+							<ToolView
+								workspace={workspace}
+								composerKey={composerKey}
+								active={content === "tool" && view !== "closed" && !hidden}
+								focusRequest={launcherFocus}
+							/>
 						) : null}
 					</div>
 					{shownTabs.map((tab, index) => {

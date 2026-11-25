@@ -406,8 +406,16 @@ export interface AppState {
 	filesPanel: boolean;
 	/** Width of the file panel in pixels. */
 	filesPanelWidth: number;
-	/** What the right-hand panel shows: workspace files, Git source control or a subagent. */
-	rightPanelTab: RightPanelTab;
+	/**
+	 * The views open as tabs in the right-hand panel, in tab order: workspace files, Git source
+	 * control, a subagent. They are opened on demand from the panel's launcher (`+`).
+	 */
+	rightPanelTabs: RightPanelTab[];
+	/**
+	 * What the right-hand panel shows when no file tab is on top: one of `rightPanelTabs`, or the
+	 * launcher that opens the other views (`launcher`).
+	 */
+	rightPanelTab: RightPanelView;
 	/** The subagent whose conversation the right-hand panel shows (tab `subagent`). */
 	subagentView?: { sessionId: string; subagentId: string } | undefined;
 	/** Bumped per workspace when its files may have changed (an agent run finished). */
@@ -486,8 +494,38 @@ const SELECTION_KEY = "pier.selection";
 /** Draft key of the new-chat composer (session ids are UUIDs, so no clash). */
 export const NEW_CHAT_DRAFT = "#new-chat";
 const FILES_PANEL_KEY = "pier.filesPanel";
-/** The views of the right-hand panel. */
+/** The views of the right-hand panel that open as tabs. */
 export type RightPanelTab = "files" | "git" | "subagent";
+/** What the right-hand panel shows: a view's tab, or the launcher listing what can be opened. */
+export type RightPanelView = RightPanelTab | "launcher";
+/** The tabs remembered across restarts (a subagent's conversation is not). */
+const SAVED_PANEL_TABS: readonly RightPanelTab[] = ["files", "git"];
+
+/**
+ * The tabs of the right-hand panel from `localStorage[FILES_PANEL_KEY]`. Before tabs were
+ * opened on demand only `tab` was saved, and both views were always there: an open panel
+ * keeps the view it showed.
+ */
+function savedPanelTabs(panel: { open?: unknown; tab?: unknown; tabs?: unknown }): {
+	tabs: RightPanelTab[];
+	tab: RightPanelView;
+} {
+	const known = (tab: unknown): tab is RightPanelTab => SAVED_PANEL_TABS.includes(tab as RightPanelTab);
+	const tabs = Array.isArray(panel.tabs)
+		? [...new Set(panel.tabs.filter(known))]
+		: panel.open === true
+			? [panel.tab === "git" ? ("git" as const) : ("files" as const)]
+			: [];
+	return {
+		tabs,
+		tab:
+			panel.tab === "launcher"
+				? "launcher"
+				: known(panel.tab) && tabs.includes(panel.tab)
+					? panel.tab
+					: (tabs[0] ?? "launcher"),
+	};
+}
 const FILE_PREVIEW_KEY = "pier.filePreview";
 /** `panel`: tabs in a resizable panel on the window's right; `modal`: a dialog filling the window. */
 export type FilePreviewMode = "panel" | "modal";
@@ -665,10 +703,11 @@ export class PierStore {
 		}
 		const panel = (() => {
 			try {
-				return JSON.parse(localStorage.getItem(FILES_PANEL_KEY) ?? "{}") as {
+				return (JSON.parse(localStorage.getItem(FILES_PANEL_KEY) ?? "{}") ?? {}) as {
 					open?: boolean;
 					width?: number;
-					tab?: string;
+					tab?: unknown;
+					tabs?: unknown;
 				};
 			} catch {
 				return {};
@@ -692,6 +731,7 @@ export class PierStore {
 			}
 		})();
 		const previewWidth = clampPreviewWidth(preview.width);
+		const panelTabs = savedPanelTabs(panel);
 		const workspaceOrder = (() => {
 			try {
 				const saved: unknown = JSON.parse(localStorage.getItem(WORKSPACE_ORDER_KEY) ?? "[]");
@@ -732,7 +772,8 @@ export class PierStore {
 			sidebarWidth: clampSidebarWidth(sidebar.width ?? SIDEBAR_DEFAULT_WIDTH),
 			filesPanel: panel.open === true,
 			filesPanelWidth: clampPanelWidth(panel.width ?? FILES_PANEL_DEFAULT_WIDTH),
-			rightPanelTab: panel.tab === "git" ? "git" : "files",
+			rightPanelTabs: panelTabs.tabs,
+			rightPanelTab: panelTabs.tab,
 			filePreviews: [],
 			filePreviewShown: false,
 			filePreviewMode: preview.mode === "modal" ? "modal" : "panel",
@@ -795,14 +836,17 @@ export class PierStore {
 		if ("workspaceOrder" in next) {
 			localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(state.workspaceOrder));
 		}
-		if ("filesPanel" in next || "filesPanelWidth" in next || "rightPanelTab" in next) {
+		if ("filesPanel" in next || "filesPanelWidth" in next || "rightPanelTab" in next || "rightPanelTabs" in next) {
+			// A subagent's conversation is not restored after a restart.
+			const tabs = this.state.rightPanelTabs.filter((tab) => SAVED_PANEL_TABS.includes(tab));
+			const tab = this.state.rightPanelTab;
 			localStorage.setItem(
 				FILES_PANEL_KEY,
 				JSON.stringify({
 					open: this.state.filesPanel,
 					width: this.state.filesPanelWidth,
-					// A subagent's conversation is not restored after a restart.
-					tab: this.state.rightPanelTab === "git" ? "git" : "files",
+					tab: tab === "subagent" ? (tabs[tabs.length - 1] ?? "launcher") : tab,
+					tabs,
 				}),
 			);
 		}
@@ -2346,7 +2390,8 @@ export class PierStore {
 
 	/**
 	 * Show (`open`) or hide the right-hand panel; by default toggle what `isRightPanelOpen`
-	 * reports. Hiding keeps the open file tabs for the next time.
+	 * reports. Hiding keeps the open tabs for the next time; with no view open, the panel shows
+	 * its launcher.
 	 */
 	toggleFilesPanel(open = !isRightPanelOpen(this.state)): void {
 		if (open) {
@@ -2359,18 +2404,66 @@ export class PierStore {
 		}
 	}
 
-	/** Show the right-hand panel on `tab` (files, source control or a subagent) rather than a file tab. */
+	/**
+	 * Show the right-hand panel on `tab` (files, source control or a subagent) rather than a file
+	 * tab, opening the view's tab (after the others) when it is not open yet.
+	 */
 	showRightPanel(tab: RightPanelTab): void {
 		if (tab === "subagent" && !this.state.subagentView) return;
-		if (tab !== this.state.rightPanelTab || !this.state.filesPanel || this.state.filePreviewShown) {
-			this.set({ rightPanelTab: tab, filesPanel: true, filePreviewShown: false });
+		const tabs = this.state.rightPanelTabs;
+		const opened = tabs.includes(tab);
+		if (!opened || tab !== this.state.rightPanelTab || !this.state.filesPanel || this.state.filePreviewShown) {
+			this.set({
+				...(opened ? {} : { rightPanelTabs: [...tabs, tab] }),
+				rightPanelTab: tab,
+				filesPanel: true,
+				filePreviewShown: false,
+			});
 		}
 	}
 
-	/** Show a subagent's conversation in the right-hand panel. */
+	/** Show the right-hand panel's launcher, which opens its views (the `+` after its tabs). */
+	showRightPanelLauncher(): void {
+		if (this.state.rightPanelTab !== "launcher" || !this.state.filesPanel || this.state.filePreviewShown) {
+			this.set({ rightPanelTab: "launcher", filesPanel: true, filePreviewShown: false });
+		}
+	}
+
+	/**
+	 * Close a view's tab; closing the subagent's also forgets the subagent. When the view was on
+	 * screen its right-hand neighbour takes over, as in a browser: the next view, else the first
+	 * file tab (`panel` mode), else the previous view, else the launcher. The panel stays open.
+	 */
+	closeRightPanelTab(tab: RightPanelTab): void {
+		const tabs = this.state.rightPanelTabs;
+		const index = tabs.indexOf(tab);
+		const forget = tab === "subagent" && this.state.subagentView ? { subagentView: undefined } : {};
+		if (index < 0) {
+			if ("subagentView" in forget) this.set(forget);
+			return;
+		}
+		const rightPanelTabs = tabs.filter((t) => t !== tab);
+		if (this.state.rightPanelTab !== tab) {
+			this.set({ rightPanelTabs, ...forget });
+			return;
+		}
+		const next = rightPanelTabs[index];
+		const firstFile = this.state.filePreviewMode === "panel" ? this.state.filePreviews[0] : undefined;
+		const onScreen = this.state.filesPanel && !this.state.filePreviewShown;
+		this.set({
+			rightPanelTabs,
+			...forget,
+			rightPanelTab: next ?? rightPanelTabs[index - 1] ?? "launcher",
+			...(!next && firstFile && onScreen ? { activeFilePreview: firstFile.id, filePreviewShown: true } : {}),
+		});
+	}
+
+	/** Show a subagent's conversation in the right-hand panel, in its own tab. */
 	openSubagent(sessionId: string, subagentId: string): void {
+		const tabs = this.state.rightPanelTabs;
 		this.set({
 			subagentView: { sessionId, subagentId },
+			...(tabs.includes("subagent") ? {} : { rightPanelTabs: [...tabs, "subagent" as const] }),
 			rightPanelTab: "subagent",
 			filesPanel: true,
 			filePreviewShown: false,
@@ -2379,14 +2472,9 @@ export class PierStore {
 		});
 	}
 
-	/** Stop showing a subagent; `keepPanel` switches the panel back to the files instead of closing it. */
-	closeSubagent(keepPanel = false): void {
-		if (!this.state.subagentView && this.state.rightPanelTab !== "subagent") return;
-		const onSubagent = this.state.rightPanelTab === "subagent";
-		this.set({
-			subagentView: undefined,
-			...(onSubagent ? { rightPanelTab: "files" as const, ...(keepPanel ? {} : { filesPanel: false }) } : {}),
-		});
+	/** Stop showing a subagent: close its tab (see `closeRightPanelTab`). */
+	closeSubagent(): void {
+		this.closeRightPanelTab("subagent");
 	}
 
 	/**

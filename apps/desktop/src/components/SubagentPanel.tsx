@@ -10,7 +10,7 @@ import type { SubagentInfo, WorkspaceInfo } from "@pier/protocol";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDuration, formatTokens } from "../lib/format.ts";
 import { useAppState, useChatView, useStore } from "../lib/store.tsx";
-import { IconBot, IconChevronRight, IconInfo, IconLoader, IconStop, IconX } from "./Icons.tsx";
+import { IconBot, IconChevronRight, IconInfo, IconLoader, IconStop } from "./Icons.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PanelHeading } from "./PanelChrome.tsx";
 import {
@@ -200,9 +200,6 @@ export function SubagentPanel({
 							停止
 						</button>
 					) : null}
-					<button type="button" className="ghost icon" title="关闭" onClick={() => store.closeSubagent()}>
-						<IconX size={14} />
-					</button>
 				</div>
 			</header>
 			{subagent && chat ? (
