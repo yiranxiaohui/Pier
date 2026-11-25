@@ -2870,7 +2870,7 @@ dependencies = [
 
 [[package]]
 name = "pier-desktop"
-version = "0.3.10"
+version = "0.3.11"
 dependencies = [
  "base64 0.22.1",
  "cc",
