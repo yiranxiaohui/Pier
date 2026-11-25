@@ -693,3 +693,137 @@ describe("Claude Code runtime", () => {
 		expect(stored.messages).toMatchObject(conversation);
 	});
 });
+
+describe("Claude Code background tasks", () => {
+	/** How long an idle session keeps Claude Code here (10 minutes in Pier). */
+	const IDLE_MS = 80;
+	const BASH = { task_id: "bash_1", task_type: "local_bash", description: "wait for CI" };
+	const RESULT = { type: "result", subtype: "success", is_error: false, result: "", modelUsage: {} };
+	const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+	let t: TestHost;
+	let client: PierClient;
+	let workspace: WorkspaceInfo;
+	let fake: FakeClaude;
+	let configDir: string;
+
+	beforeEach(async () => {
+		configDir = mkdtempSync(join(tmpdir(), "pier-claude-"));
+		fake = new FakeClaude(configDir);
+		t = await startTestHost({
+			agents: {
+				codex: false,
+				claudeCode: {
+					executable: "/usr/bin/false",
+					configDir,
+					sdk: fake.sdk,
+					catalog: { models: MODELS, commands: [] },
+					processIdleMs: IDLE_MS,
+				},
+			},
+		});
+		client = await t.connect();
+		workspace = (await client.request("workspace.add", { path: t.workspaceDir })).workspace;
+	});
+	afterEach(async () => {
+		await t.close();
+		rmSync(configDir, { recursive: true, force: true });
+	});
+
+	async function start(text: string) {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const rec = new Recorder();
+		await client.subscribe(session.id, rec.handler, { workspaceId: workspace.id });
+		await rec.waitForType("session.snapshot");
+		await client.request("session.prompt", { sessionId: session.id, text });
+		await rec.waitForType("agent_settled");
+		return { session, rec };
+	}
+
+	async function transcript(sessionId: string): Promise<string> {
+		return JSON.stringify((await client.request("session.snapshot", { sessionId })).messages);
+	}
+
+	it("keeps Claude Code and the session while a background task runs, until it reports back", async () => {
+		fake.responder = async function* (ctx) {
+			yield* streamText(`msg_${ctx.text}`, `waiting on ${ctx.text}`);
+			yield { type: "system", subtype: "task_started", task_id: "bash_1", task_type: "local_bash", tool_use_id: "t1" };
+			// Watchers are ambient: they do not hold the process.
+			yield {
+				type: "system",
+				subtype: "background_tasks_changed",
+				tasks: [BASH, { task_id: "watch_1", task_type: "monitor", description: "watch", ambient: true }],
+			};
+		};
+		const { session } = await start("CI");
+
+		// Long past the idle timeout the process stays, and the pool keeps the session.
+		await sleep(IDLE_MS * 4);
+		expect(fake.closes).toBe(0);
+		await client.request("session.unsubscribe", { sessionId: session.id });
+		expect(await t.host.pool.sweep(Date.now() + 60 * 60 * 1000)).toEqual([]);
+
+		// The task ends and Claude Code reports it in a turn of its own.
+		fake.emit(
+			{ type: "system", subtype: "background_tasks_changed", tasks: [] },
+			{ type: "system", subtype: "task_notification", task_id: "bash_1", tool_use_id: "t1", status: "completed" },
+			...streamText("msg_report", "CI passed"),
+			RESULT,
+		);
+		await expect.poll(() => transcript(session.id)).toContain("CI passed");
+		// Now idle: the process stops, and the session can be unloaded.
+		await expect.poll(() => fake.closes).toBe(1);
+		expect(await t.host.pool.sweep(Date.now() + 60 * 60 * 1000)).toEqual([session.id]);
+	});
+
+	it("applies a context limit set during a background task only after the task reported back", async () => {
+		fake.responder = async function* (ctx) {
+			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
+			if (ctx.text === "watch CI") yield { type: "system", subtype: "background_tasks_changed", tasks: [BASH] };
+		};
+		const { session, rec } = await start("watch CI");
+		await client.request("contextLimit.set", { sessionId: session.id, limit: 200_000 });
+		await sleep(IDLE_MS * 4);
+		expect(fake.closes).toBe(0);
+
+		let from = rec.mark();
+		fake.emit(
+			{ type: "system", subtype: "background_tasks_changed", tasks: [] },
+			...streamText("msg_report", "CI passed"),
+			RESULT,
+		);
+		await rec.waitForType("agent_settled", from);
+		await expect.poll(() => fake.closes).toBe(1);
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "next" });
+		await rec.waitForType("agent_settled", from);
+		expect(fake.options[1]).toMatchObject({ resume: session.id, settings: { autoCompactWindow: 200_000 } });
+	});
+
+	it("follows task starts and ends from Claude Code without background_tasks_changed", async () => {
+		fake.responder = async function* (ctx) {
+			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
+			yield { type: "system", subtype: "task_started", task_id: "bash_1", task_type: "local_bash", tool_use_id: "t1" };
+			// Kept out of the transcript: not work to wait for, and it never reports an end.
+			yield {
+				type: "system",
+				subtype: "task_started",
+				task_id: "hidden_1",
+				task_type: "local_bash",
+				skip_transcript: true,
+			};
+		};
+		await start("watch CI");
+		await sleep(IDLE_MS * 4);
+		expect(fake.closes).toBe(0);
+
+		fake.emit({
+			type: "system",
+			subtype: "task_notification",
+			task_id: "bash_1",
+			tool_use_id: "t1",
+			status: "completed",
+		});
+		await expect.poll(() => fake.closes).toBe(1);
+	});
+});

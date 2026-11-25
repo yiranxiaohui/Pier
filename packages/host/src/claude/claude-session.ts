@@ -93,6 +93,8 @@ export interface ClaudeSessionHost {
 	model(id: string): ModelInfo | undefined;
 	commands(): SessionCommandInfo[];
 	defaultThinkingLevel(): ThinkingLevel;
+	/** How long an idle session keeps its Claude Code process; defaults to `PROCESS_IDLE_MS`. */
+	processIdleMs?: number;
 	log(message: string): void;
 }
 
@@ -152,6 +154,11 @@ function sdkUserMessage(text: string, images: ImageInput[] | undefined, uuid: st
 	} as unknown as SDKUserMessage;
 }
 
+function isBackgroundTasksMessage(message: SDKMessage): boolean {
+	const m = message as unknown as Json;
+	return m.type === "system" && m.subtype === "background_tasks_changed";
+}
+
 /** A Claude Code session driven through the Claude Agent SDK (which runs the `claude` CLI). */
 export class ClaudeCodeSession extends ManagedSession {
 	readonly runtimeId = "claude-code";
@@ -183,6 +190,18 @@ export class ClaudeCodeSession extends ManagedSession {
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
 	/** The context limit changed while Claude Code was busy: restart it once the run ends. */
 	private restartForLimit = false;
+	/**
+	 * Claude Code's live background tasks (background shell commands, backgrounded subagents, MCP
+	 * tasks), without the ambient ones. They run inside its process and report back to the
+	 * conversation when they finish, so the process must outlive them: while any runs, the session
+	 * is busy and its process is not stopped for idleness.
+	 */
+	private readonly backgroundTasks = new Set<string>();
+	/**
+	 * Whether the process reports its background tasks as a whole set (`background_tasks_changed`);
+	 * for older ones the set follows the task start and end messages.
+	 */
+	private backgroundLevel = false;
 	/** Claude Code task id of each subagent (keyed by its `Agent` tool call id), for `stopTask`. */
 	private readonly agentTasks = new Map<string, string>();
 	/** Subagent (`Agent` tool call id) of each Claude Code task id. */
@@ -242,6 +261,11 @@ export class ClaudeCodeSession extends ManagedSession {
 		return this.transcript.isRunning;
 	}
 
+	/** Background tasks keep the session loaded too: unloading it would stop Claude Code. */
+	override get busy(): boolean {
+		return super.busy || this.backgroundTasks.size > 0;
+	}
+
 	// ---------------------------------------------------------------- Claude Code process
 
 	private async ensureQuery(): Promise<{ query: Query; input: InputQueue<SDKUserMessage> }> {
@@ -283,6 +307,7 @@ export class ClaudeCodeSession extends ManagedSession {
 		const query = sdk.query({ prompt: input, options });
 		this.query = query;
 		this.input = input;
+		this.resetBackgroundTasks();
 		void this.consume(query);
 		return { query, input };
 	}
@@ -292,6 +317,8 @@ export class ClaudeCodeSession extends ManagedSession {
 		try {
 			for await (const message of query) {
 				if (this.disposed) break;
+				// The task set of a process stopped for a restart is not its successor's.
+				if (query !== this.query && isBackgroundTasksMessage(message)) continue;
 				this.handle(message);
 			}
 		} catch (error) {
@@ -305,6 +332,7 @@ export class ClaudeCodeSession extends ManagedSession {
 			// A process stopped for a restart can end after its successor started: leave the new
 			// process's run, queue and subagents alone.
 			if (this.query === undefined) {
+				this.resetBackgroundTasks();
 				if (!this.disposed && this.running) {
 					this.finishRun(failure ?? "Claude Code exited before the reply finished.");
 				}
@@ -628,8 +656,14 @@ export class ClaudeCodeSession extends ManagedSession {
 		else this.scheduleProcessStop();
 	}
 
+	/** Nothing to do and nothing running in the background: the process may stop. */
 	private get idle(): boolean {
-		return !this.running && this.queued.length === 0 && this.bridge.pendingRequests.length === 0;
+		return (
+			!this.running &&
+			this.queued.length === 0 &&
+			this.bridge.pendingRequests.length === 0 &&
+			this.backgroundTasks.size === 0
+		);
 	}
 
 	/**
@@ -655,15 +689,63 @@ export class ClaudeCodeSession extends ManagedSession {
 		this.restartIfIdle();
 	}
 
-	/** Stop the idle Claude Code process to free memory; the next prompt resumes the session. */
+	/**
+	 * Stop the idle Claude Code process to free memory; the next prompt resumes the session. Not
+	 * while a background task runs: it would die with the process. The countdown starts again when
+	 * the last one ends.
+	 */
 	private scheduleProcessStop(): void {
 		if (this.idleTimer) clearTimeout(this.idleTimer);
 		this.idleTimer = setTimeout(() => {
 			this.idleTimer = undefined;
-			if (this.running || this.queued.length > 0 || this.bridge.pendingRequests.length > 0) return;
-			this.stopProcess();
-		}, PROCESS_IDLE_MS);
+			if (this.idle) this.stopProcess();
+		}, this.host.processIdleMs ?? PROCESS_IDLE_MS);
 		this.idleTimer.unref?.();
+	}
+
+	// ---------------------------------------------------------------- background tasks
+
+	/** A new or exited process has no background tasks yet. */
+	private resetBackgroundTasks(): void {
+		this.backgroundTasks.clear();
+		this.backgroundLevel = false;
+	}
+
+	/** `background_tasks_changed`: the whole set of live tasks, which replaces ours. */
+	private onBackgroundTasks(m: Json): void {
+		const had = this.backgroundTasks.size > 0;
+		this.backgroundLevel = true;
+		this.backgroundTasks.clear();
+		for (const task of Array.isArray(m.tasks) ? (m.tasks as Json[]) : []) {
+			// Ambient tasks (watchers, tasks kept out of the transcript) are not work to wait for.
+			if (typeof task.task_id === "string" && task.ambient !== true) this.backgroundTasks.add(task.task_id);
+		}
+		if (had) this.backgroundTasksEnded();
+	}
+
+	/**
+	 * Claude Code without `background_tasks_changed`: a task counts from its start to its end
+	 * (`task_notification`, or `task_updated` to a final status).
+	 */
+	private trackTask(m: Json): void {
+		if (this.backgroundLevel || typeof m.task_id !== "string") return;
+		if (m.subtype === "task_started") {
+			if (m.skip_transcript !== true) this.backgroundTasks.add(m.task_id);
+			return;
+		}
+		const status = ((m.patch ?? {}) as Json).status;
+		const ended =
+			m.subtype === "task_notification" || status === "completed" || status === "failed" || status === "killed";
+		if (ended && this.backgroundTasks.delete(m.task_id)) this.backgroundTasksEnded();
+	}
+
+	/**
+	 * A task ended. With the last one gone the idle countdown starts over. A context limit restart
+	 * waits for the next prompt or the end of the run that reports the tasks' results, so the
+	 * results are not lost with the process.
+	 */
+	private backgroundTasksEnded(): void {
+		if (this.backgroundTasks.size === 0 && this.query && this.idle) this.scheduleProcessStop();
 	}
 
 	private stopProcess(): void {
@@ -714,16 +796,22 @@ export class ClaudeCodeSession extends ManagedSession {
 				this.endCompaction();
 				return;
 			}
+			case "background_tasks_changed":
+				this.onBackgroundTasks(m);
+				return;
 			case "task_started":
+				this.trackTask(m);
 				this.onTaskStarted(m);
 				return;
 			case "task_progress":
 				this.onTaskProgress(m);
 				return;
 			case "task_updated":
+				this.trackTask(m);
 				this.onTaskUpdated(m);
 				return;
 			case "task_notification":
+				this.trackTask(m);
 				this.onTaskNotification(m);
 				return;
 			case "api_retry": {

@@ -38,6 +38,8 @@ export interface ClaudeCodeRuntimeOptions {
 	sdk?: ClaudeSdk;
 	/** Models and slash commands, instead of asking the CLI (tests). */
 	catalog?: { models: ModelInfo[]; commands: SessionCommandInfo[] };
+	/** How long an idle session keeps its Claude Code process (tests). Defaults to 10 minutes. */
+	processIdleMs?: number;
 	log?: (message: string) => void;
 }
 
@@ -206,6 +208,7 @@ export class ClaudeCodeRuntime implements AgentRuntime {
 			model: (id) => this.catalog?.models.find((m) => m.id === id),
 			commands: () => this.catalog?.commands ?? [],
 			defaultThinkingLevel: () => this.defaultThinkingLevel(),
+			...(this.options.processIdleMs !== undefined ? { processIdleMs: this.options.processIdleMs } : {}),
 			log: this.log,
 		};
 	}

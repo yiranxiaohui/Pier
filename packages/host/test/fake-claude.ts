@@ -49,6 +49,10 @@ export class FakeClaude {
 	readonly stoppedTasks: string[] = [];
 	/** `modelUsage` of each successful result. */
 	modelUsage: Record<string, Json> = {};
+	/** How many times the runtime stopped a Claude Code process (`close()`). */
+	closes = 0;
+	/** Messages of the latest process, pushed outside a turn by `emit`. */
+	private live: { id: string; output: InputQueue<Json> } | undefined;
 	/**
 	 * When set, a closed `query()` ends its messages only once this settles, like the real SDK
 	 * whose iteration ends after the Claude Code process exits.
@@ -125,6 +129,7 @@ export class FakeClaude {
 		const output = new InputQueue<Json>();
 		const cwd = String(options.cwd);
 		const id = String(options.resume ?? options.sessionId ?? crypto.randomUUID());
+		this.live = { id, output };
 		const canUseTool = options.canUseTool as (n: string, i: Json, o: Json) => Promise<{ behavior: string }>;
 		let abort = new AbortController();
 		const run = async () => {
@@ -224,10 +229,22 @@ export class FakeClaude {
 			supportedCommands: async () => [{ name: "review", description: "Review code", argumentHint: "" }],
 			initializationResult: async () => ({ commands: [], models: [], agents: [] }),
 			close: () => {
+				this.closes++;
 				if (this.closeDelay) void this.closeDelay.then(() => output.close());
 				else output.close();
 			},
 		};
+	}
+	/**
+	 * Send messages from the running process between turns, as Claude Code does when a background
+	 * task changes or reports back in a turn of its own.
+	 */
+	emit(...messages: Json[]): void {
+		const live = this.live;
+		if (!live) throw new Error("Claude Code is not running");
+		for (const message of messages) {
+			live.output.push({ parent_tool_use_id: null, ...message, session_id: live.id, uuid: crypto.randomUUID() });
+		}
 	}
 }
 
