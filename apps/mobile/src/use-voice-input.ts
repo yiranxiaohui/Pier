@@ -12,6 +12,7 @@ import { File } from "expo-file-system";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
+import { speechProvider, startSystemRecognition, systemSpeech, useSpeechSettings } from "./system-speech.ts";
 
 function useStartRecording(): StartRecording {
 	const failure = useRef<(error: Error) => void>(() => {});
@@ -105,6 +106,7 @@ export function useVoiceInput(
 	onError: (message: string) => void,
 ) {
 	const record = useStartRecording();
+	const provider = speechProvider(useSpeechSettings());
 	const [phase, setPhase] = useState<VoicePhase>("idle");
 	const callbacks = useRef({ onText, onError });
 	callbacks.current = { onText, onError };
@@ -121,7 +123,8 @@ export function useVoiceInput(
 	useEffect(() => {
 		const voice = new VoiceInput({
 			client,
-			record,
+			deviceSpeech: provider === "system" ? systemSpeech : undefined,
+			record: provider === "system" ? startSystemRecognition : record,
 			onPhase: setPhase,
 			onText: (text) => callbacks.current.onText(text),
 			onError: (message) => callbacks.current.onError(message),
@@ -132,14 +135,14 @@ export function useVoiceInput(
 			if (state === "background") void voice.cancel();
 		});
 		const off = client?.onState((state) => {
-			if (state !== "open") void voice.cancel();
+			if (provider === "service" && state !== "open") void voice.cancel();
 		});
 		return () => {
 			voice.dispose();
 			listener.remove();
 			off?.();
 		};
-	}, [client, scope, record]);
+	}, [client, scope, record, provider]);
 	return {
 		phase,
 		busy: phase !== "idle",

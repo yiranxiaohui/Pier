@@ -1,5 +1,5 @@
 import { MAX_SPEECH_BYTES } from "@pier/protocol";
-import type { StartRecording } from "./voice-input.ts";
+import type { AudioClip, StartRecording } from "./voice-input.ts";
 
 const SAMPLE_RATE = 16_000;
 
@@ -40,7 +40,7 @@ export function encodeSpeechWav(samples: Float32Array, sampleRate: number): Uint
 }
 
 /** Capture PCM without depending on a WebView's MediaRecorder codec support. */
-export const startPcmRecording: StartRecording = async (signal, onError) => {
+export const startPcmRecording: StartRecording<AudioClip> = async (signal, onError) => {
 	if (!globalThis.navigator?.mediaDevices?.getUserMedia || typeof AudioContext === "undefined") {
 		throw new Error("当前环境无法录音，请更新系统或使用自定义语音服务");
 	}

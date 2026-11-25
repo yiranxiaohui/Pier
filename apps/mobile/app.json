@@ -54,7 +54,7 @@
 				{
 					"photosPermission": "Pier 需要访问相册，以便把图片发送给 Agent，或把照片和视频上传到电脑上的工作区。",
 					"cameraPermission": "Pier 需要使用相机拍照发送给 Agent。",
-					"microphonePermission": false
+					"microphonePermission": "Pier 需要使用麦克风，将你的语音转换为可编辑的消息文字。"
 				}
 			],
 			[
@@ -84,6 +84,13 @@
 					"microphonePermission": "Pier 需要使用麦克风，将你的语音转换为可编辑的消息文字。",
 					"enableBackgroundRecording": false,
 					"enableBackgroundPlayback": false
+				}
+			],
+			[
+				"expo-speech-recognition",
+				{
+					"microphonePermission": "Pier 需要使用麦克风，将你的语音转换为可编辑的消息文字。",
+					"speechRecognitionPermission": "Pier 使用系统语音识别，把你说的话转换为可编辑的消息文字。"
 				}
 			]
 		],

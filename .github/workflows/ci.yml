@@ -243,4 +243,5 @@ jobs:
         if: matrix.platform == 'android'
         working-directory: apps/mobile/android
         # K2 lint crashes while analyzing react-native-worklets' Kotlin Gradle script with AGP 8.12.
-        run: ./gradlew :pier-update-notification:compileDebugKotlin :pier-update-notification:lintDebug -PreactNativeArchitectures=arm64-v8a -Pandroid.lint.useK2Uast=false
+        # Also compile the third-party speech recognition module against this Expo SDK.
+        run: ./gradlew :pier-update-notification:compileDebugKotlin :pier-update-notification:lintDebug :expo-speech-recognition:compileDebugKotlin -PreactNativeArchitectures=arm64-v8a -Pandroid.lint.useK2Uast=false

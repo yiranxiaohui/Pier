@@ -68,7 +68,7 @@ function nativeOptions() {
 	};
 }
 
-export const systemSpeech: DeviceSpeech = {
+export const systemSpeech = {
 	// Apple's online recognition limits a request to one minute.
 	get maxSeconds() {
 		return systemSpeechPlatform() === "macos" ? 60 : 120;
@@ -108,4 +108,4 @@ export const systemSpeech: DeviceSpeech = {
 			void started.catch((error: unknown) => finish("", String(error)));
 		});
 	},
-};
+} satisfies DeviceSpeech;

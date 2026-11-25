@@ -3,15 +3,24 @@ import { MAX_SPEECH_SECONDS, parseProtocolVersion, type SpeechAudio } from "@pie
 
 export type VoicePhase = "idle" | "preparing" | "recording" | "transcribing" | "cancelling";
 export type AudioClip = Omit<SpeechAudio, "id">;
-export interface VoiceRecording {
-	stop(): Promise<AudioClip>;
+/** Text from a recognizer that listens live, so there is no audio left to transcribe. */
+export interface RecognizedText {
+	text: string;
+}
+export type RecordingResult = AudioClip | RecognizedText;
+export interface VoiceRecording<Result extends RecordingResult = RecordingResult> {
+	stop(): Promise<Result>;
 	cancel(): Promise<void>;
 }
-export type StartRecording = (signal: AbortSignal, onError: (error: Error) => void) => Promise<VoiceRecording>;
+export type StartRecording<Result extends RecordingResult = RecordingResult> = (
+	signal: AbortSignal,
+	onError: (error: Error) => void,
+) => Promise<VoiceRecording<Result>>;
 /** Recognition on the device running the UI, independent of the connected Host. */
 export interface DeviceSpeech {
 	prepare(signal: AbortSignal): Promise<void>;
-	transcribe(clip: AudioClip, signal: AbortSignal): Promise<string>;
+	/** Omitted when the recording itself returns recognized text. */
+	transcribe?(clip: AudioClip, signal: AbortSignal): Promise<string>;
 	maxSeconds?: number;
 }
 export const VOICE_LABELS: Record<VoicePhase, string> = {
@@ -113,7 +122,10 @@ export class VoiceInput {
 			if (operation.signal.aborted) return;
 			this.recording = undefined;
 			let text: string;
-			if (this.options.deviceSpeech) {
+			if ("text" in clip) {
+				text = clip.text;
+			} else if (this.options.deviceSpeech) {
+				if (!this.options.deviceSpeech.transcribe) throw new Error("语音识别失败");
 				text = await this.options.deviceSpeech.transcribe(clip, operation.signal);
 			} else {
 				const client = requireSpeechClient(this.options.client);

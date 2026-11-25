@@ -198,4 +198,25 @@ describe("device speech", () => {
 		expect(t.recording.stop).toHaveBeenCalledOnce();
 		expect(t.onText).toHaveBeenCalledOnce();
 	});
+
+	it("uses text from a live recognizer without transcribing audio", async () => {
+		const live = { prepare: vi.fn(async (_signal: AbortSignal) => {}) };
+		const t = setup(live);
+		vi.mocked(t.recording.stop).mockResolvedValueOnce({ text: "边说边识别" });
+		await t.voice.start();
+		await t.voice.stop();
+		expect(live.prepare).toHaveBeenCalledOnce();
+		expect(t.onText).toHaveBeenCalledExactlyOnceWith("边说边识别");
+		expect(t.request).not.toHaveBeenCalled();
+		expect(t.voice.phase).toBe("idle");
+	});
+
+	it("reports an empty live result instead of adding blank text", async () => {
+		const t = setup({ prepare: vi.fn(async () => {}) });
+		vi.mocked(t.recording.stop).mockResolvedValueOnce({ text: "  " });
+		await t.voice.start();
+		await t.voice.stop();
+		expect(t.onText).not.toHaveBeenCalled();
+		expect(t.onError).toHaveBeenCalledWith("没有识别到文字，请重新录音");
+	});
 });
