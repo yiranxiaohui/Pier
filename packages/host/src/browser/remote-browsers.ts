@@ -1,7 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { IceServer } from "@pier/crypto";
-import { type BrowserTransport, PierProtocolError, type RemoteBrowserInfo } from "@pier/protocol";
+import {
+	type BrowserControl,
+	type BrowserControlResult,
+	type BrowserTransport,
+	PierProtocolError,
+	type RemoteBrowserInfo,
+} from "@pier/protocol";
 import type { Connection } from "../connection.ts";
 import type { BrowserControllers } from "./controllers.ts";
 import { BrowserRuntimeInstaller, type BrowserRuntimeInstallerOptions } from "./installation.ts";
@@ -115,6 +121,14 @@ export class RemoteBrowsers {
 		await session.process.setTransport(transport);
 		session.transport = transport;
 		return { transport };
+	}
+	/** The opening connection's own controls of its browser (`browser.remoteControl`, 1.67). */
+	control(owner: Connection, id: string, command: BrowserControl): Promise<BrowserControlResult> {
+		const session = this.sessions.get(id);
+		if (!session || session.owner !== owner || session.closed || !session.ready || !session.process)
+			throw new PierProtocolError("NOT_FOUND", "远程浏览器连接已关闭");
+		if (!session.process.control) throw new PierProtocolError("UNSUPPORTED", "这个远程浏览器无法控制");
+		return session.process.control(command);
 	}
 	private closeSession(session: Session): Promise<void> {
 		if (session.closing) return session.closing;

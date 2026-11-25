@@ -1,6 +1,5 @@
 import type { WorkspaceInfo } from "@pier/protocol";
 import { type CSSProperties, useEffect } from "react";
-import { BrowserDialog } from "./components/BrowserPanel.tsx";
 import { DirectoryPicker } from "./components/DirectoryPicker.tsx";
 import { Welcome, WorkspaceHome } from "./components/Home.tsx";
 import { HostHub } from "./components/HostHub.tsx";
@@ -182,7 +181,6 @@ export function App() {
 			<PairingRequestDialog />
 			<AddPeerDialog />
 			<DirectoryPicker />
-			<BrowserDialog />
 		</div>
 	);
 }

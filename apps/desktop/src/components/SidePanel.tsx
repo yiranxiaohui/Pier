@@ -22,11 +22,13 @@ import {
 	useAppState,
 	useStore,
 } from "../lib/store.tsx";
+import { BrowserView } from "./BrowserPanel.tsx";
 import { FilesPanel } from "./FilesPanel.tsx";
 import { FileViewer } from "./FileViewer.tsx";
 import { GitPanel } from "./GitPanel.tsx";
 import {
 	IconBot,
+	IconBrowser,
 	IconFile,
 	IconFolder,
 	IconGitBranch,
@@ -61,6 +63,7 @@ type View = "closed" | "tool" | "file" | "overlay";
 const TOOLS: Record<RightPanelTab, { label: string; hint: string; Icon: ComponentType<{ size?: number }> }> = {
 	files: { label: "文件", hint: "工作区文件（Ctrl/⌘+Shift+E）", Icon: IconFolder },
 	git: { label: "源代码管理", hint: "Git 源代码管理（Ctrl/⌘+Shift+G）", Icon: IconGitBranch },
+	browser: { label: "浏览器", hint: "工作区所在电脑的浏览器", Icon: IconBrowser },
 	subagent: { label: "Subagent", hint: "Subagent 的对话", Icon: IconBot },
 };
 
@@ -171,7 +174,10 @@ function PanelResizeHandle({
 	);
 }
 
-/** The panel's files, source control or subagent view of the workspace on screen, or its launcher. */
+/**
+ * The panel's files, source control or subagent view of the workspace on screen, or its launcher.
+ * The browser has its own page (it stays mounted while other views are on top).
+ */
 function ToolView({
 	workspace,
 	composerKey,
@@ -195,6 +201,7 @@ function ToolView({
 	if (tab === "files") {
 		return <FilesPanel key={workspace.id} workspace={workspace} {...(composerKey ? { composerKey } : {})} />;
 	}
+	if (tab === "browser") return null;
 	return <PanelLauncher workspace={workspace} active={active} focusRequest={focusRequest} />;
 }
 
@@ -246,10 +253,17 @@ export function SidePanel({
 	/** The panel's own column: under a dialog it keeps its files / source control view, if open. */
 	const sideView: View = view === "overlay" ? (toolOpen ? "tool" : "closed") : view;
 
+	// The browser takes the room of a file tab rather than that of the files view.
+	const sizeOf = (shown: "tool" | "file"): "tool" | "file" =>
+		shown === "tool" && toolTab === "browser" ? "file" : shown;
 	// Closing slides the panel away at its last size, with its last content.
 	const lastOpen = useRef<"tool" | "file">(sideView === "file" ? "file" : "tool");
-	if (view === "tool" || view === "file") lastOpen.current = view;
-	const size = sideView === "tool" || sideView === "file" ? sideView : lastOpen.current;
+	const lastSize = useRef<"tool" | "file">(lastOpen.current);
+	if (view === "tool" || view === "file") {
+		lastOpen.current = view;
+		lastSize.current = sizeOf(view);
+	}
+	const size = sideView === "tool" || sideView === "file" ? sizeOf(sideView) : lastSize.current;
 	const content: View = view === "closed" ? lastOpen.current : view;
 	// A dialog that closes leaves at once, not by sliding out of the panel.
 	const previousView = useRef(view);
@@ -354,6 +368,8 @@ export function SidePanel({
 	const overlay = view === "overlay";
 	const tools = !overlay && workspace ? openTools.filter((id) => id !== "subagent" || hasSubagent) : [];
 	const launcherShown = content === "tool" && toolTab === "launcher";
+	const browserOpen = !!workspace && openTools.includes("browser");
+	const browserShown = content === "tool" && toolTab === "browser";
 	// In `modal` mode file tabs live in the dialog only.
 	const stripTabs = modal && !overlay ? [] : shownTabs;
 	// Same names in different folders show their folder too.
@@ -411,7 +427,7 @@ export function SidePanel({
 										role="tab"
 										id={`${ids}-tool-${id}`}
 										aria-selected={selected}
-										aria-controls={`${ids}-tool`}
+										aria-controls={`${ids}-${id === "browser" ? "browser" : "tool"}`}
 										aria-label={label}
 										tabIndex={selected ? 0 : -1}
 										className="file-preview-tab-label"
@@ -539,7 +555,7 @@ export function SidePanel({
 						id={`${ids}-tool`}
 						role="tabpanel"
 						aria-labelledby={`${ids}-${toolTab === "launcher" ? "launcher" : `tool-${toolTab}`}`}
-						hidden={content !== "tool"}
+						hidden={content !== "tool" || browserShown}
 					>
 						{(toolLive || toolMounted) && workspace ? (
 							<ToolView
@@ -550,6 +566,23 @@ export function SidePanel({
 							/>
 						) : null}
 					</div>
+					{/* The browser stays mounted under other tabs: its picture keeps streaming. */}
+					{browserOpen && (toolLive || toolMounted) && workspace ? (
+						<div
+							className="side-panel-view browser-page"
+							id={`${ids}-browser`}
+							role="tabpanel"
+							aria-labelledby={`${ids}-tool-browser`}
+							hidden={!browserShown}
+						>
+							<BrowserView
+								key={workspace.id}
+								workspace={workspace}
+								composerKey={composerKey}
+								active={browserShown && view !== "closed" && !hidden}
+							/>
+						</div>
+					) : null}
 					{shownTabs.map((tab, index) => {
 						const target =
 							tab.composerKey && (workspace?.id === tab.workspaceId && composerKey ? composerKey : tab.composerKey);

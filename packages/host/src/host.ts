@@ -342,6 +342,9 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"terminal.open",
 ]);
 
+/** `browser.remoteControl` operations recorded in the audit log (1.67). */
+const AUDITED_BROWSER_CONTROLS = new Set(["navigate", "newTab", "pick", "capture"]);
+
 function auditDetail(method: MethodName, params: Record<string, unknown>): Record<string, unknown> | undefined {
 	switch (method) {
 		case "host.killProcess":
@@ -364,6 +367,8 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 			return { workspaceId: params.workspaceId, browserId: params.browserId };
 		case "browser.action":
 			return { workspaceId: params.workspaceId, action: (params.command as { action?: string })?.action };
+		case "browser.remoteControl":
+			return { browserId: params.browserId, op: (params.command as { op?: string })?.op };
 		case "task.create":
 			return { workspaceId: params.workspaceId, runtime: params.runtime };
 		case "task.update":
@@ -1002,7 +1007,11 @@ export class PierHost implements RequestHandler {
 				(parsed.data as ParsedMethodParams<"workspace.readBytes">).offset === 0;
 			const hostDownload =
 				method === "host.readBytes" && (parsed.data as ParsedMethodParams<"host.readBytes">).offset === 0;
-			if (connection.device && (AUDITED_METHODS.has(method) || authorizedDownload || hostDownload)) {
+			// The panel polls its browser's state every second: only what navigates or reads the page.
+			const browserControl =
+				method === "browser.remoteControl" &&
+				AUDITED_BROWSER_CONTROLS.has((parsed.data as ParsedMethodParams<"browser.remoteControl">).command.op);
+			if (connection.device && (AUDITED_METHODS.has(method) || authorizedDownload || hostDownload || browserControl)) {
 				const params = (parsed.data ?? {}) as Record<string, unknown>;
 				const detail = auditDetail(method, params);
 				this.remote.record({
@@ -1288,6 +1297,9 @@ export class PierHost implements RequestHandler {
 				this.remoteBrowsers.setTransport(ctx.connection, params.browserId, params.transport),
 			"browser.setTransport": (ctx, params) =>
 				this.browsers.setTransport(ctx.connection, params.browserId, params.transport),
+			"browser.control": (ctx, params) => this.browsers.control(ctx.connection, params.browserId, params.command),
+			"browser.remoteControl": (ctx, params) =>
+				this.remoteBrowsers.control(ctx.connection, params.browserId, params.command),
 			"browser.list": (ctx) => ({
 				browsers: this.browsers.list(ctx.connection),
 				preparations: this.browsers.preparations(ctx.connection),

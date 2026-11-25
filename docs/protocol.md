@@ -1,4 +1,4 @@
-# Pier 协议 v1.66
+# Pier 协议 v1.67
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -788,7 +788,7 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 | `tunnel.read` | `{ tunnelId }` | `{ data, end }`；base64 原始字节，每次最多 64 KiB；最多等 25 秒，无数据时返回空串和 `end:false`；同一流只能有一个挂起读取 |
 | `tunnel.write` | `{ tunnelId, data, end? }` | `{ written }`；单块最多 64 KiB，`end` 半关闭写方向 |
 | `tunnel.close` | `{ tunnelId }` | `{ closed }`；释放 TCP 套接字和缓冲 |
-| `browser.open` 🔒 | `{ workspaceId, peerId?, url, mode, controlled? }` | `LocalBrowserInfo`；`mode:service` 转发一个端口，返回本地 URL，由 UI 打开默认浏览器；`mode:network` 启动本地 Chromium 独立窗口和远程 HTTP / CONNECT 代理；`controlled:true` 也使用独立窗口并注册工作区控制器 |
+| `browser.open` 🔒 | `{ workspaceId, peerId?, url, mode, controlled?, managed? }` | `LocalBrowserInfo`；`mode:service` 转发一个端口，返回本地 URL，由 UI 打开默认浏览器；`mode:network` 启动本地 Chromium 独立窗口和远程 HTTP / CONNECT 代理；`controlled:true` 也使用独立窗口并注册工作区控制器；`managed:true`（1.67）也使用独立窗口，供 `browser.control` 驱动，不注册控制器 |
 | `browser.list` 🔒 | — | `{ browsers: LocalBrowserInfo[], preparations?: BrowserPreparation[] }`；只列出调用连接创建的实例和正在准备的远程浏览器 |
 | `browser.close` 🔒 | `{ browserId }` | `{ closed }`；关闭代理、转发和项目启动的独立浏览器 |
 | `browser.attach` | `{ workspaceId, browserId }` | `{ attached:true }`；调用连接声明可在本地执行此工作区的浏览器命令 |
@@ -796,7 +796,7 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 | `browser.action` | `{ workspaceId, browserId?, command }` | `BrowserResult`；多个控制器时必须指定 ID；没有控制器时提示先在客户端打开并允许外部集成通过协议操作 |
 | `browser.result` | `{ requestId, result?, error? }` | `{ accepted }`；只有接收命令的注册连接能回复；命令超时或被取消后回复被忽略 |
 
-`LocalBrowserInfo = { browserId, workspaceId, peerId?, url, localUrl, mode, controllable }`。
+`LocalBrowserInfo = { browserId, workspaceId, peerId?, url, localUrl, mode, controllable, transport?, managed? }`；`managed:true`（1.67）表示 Pier 启动并可通过 `browser.control` 驱动的浏览器：远程浏览器总是如此，本机的独立窗口亦然。每台电脑（按 `peerId`）同时只有一个本地独立窗口，它们共用一份配置目录。
 `BrowserCommand = { action, tabId?, url?, selector?, text?, key?, expression? }`；`action` 支持 `tabs` / `navigate` / `snapshot` / `click` / `fill` / `press` / `evaluate` / `screenshot`，选择器是 CSS。导航仅接受不带 userinfo 的 HTTP(S) 地址。`BrowserResult = { text?, image?: { data, mimeType:"image/png" } }`。
 
 `browser.command` 事件 `{ browserId, requestId, command }` 只发给注册此控制器的连接，不广播、不写 EventLog。注册连接在本地私有 CDP 进程管道执行后调用 `browser.result`，远程等待上限 30 秒。断线、移除控制器或取消会话请求时结束等待。内置 pi 不再注册 `pier_browser` 工具；浏览器协议仍供外部集成使用，协议调用者按现有完全信任模型自行控制审批。
@@ -810,3 +810,26 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 `speech.status` 返回转写服务的 `url`（完整接口地址）、`model`、`language`、`hasApiKey` 和 `configured`，不返回密钥。`speech.configure` 保存这三个设置及可选 `apiKey`；省略密钥保留原值，空字符串删除，更换 URL 时省略则清除原密钥。空 URL 停用。已配对设备可读取与修改，配置变更的审计不包含内容。
 
 `speech.transcribe { id, data, mimeType }` 接受不超过 4 MiB 的 base64 音频（WebM / MP4 / WAV / Ogg / MP3），转发为兼容 `/audio/transcriptions` 的 multipart `file`、`model`、`response_format=json` 及可选 `language`，返回 `{ text }`。请求最多 60 秒，同一连接只允许一个，全 Host 最多四个；不落盘，不转发服务的原始错误。`speech.cancel { id }` 只取消该连接的匹配请求，返回 `{ cancelled }`；连接关闭会取消其请求。UI 每次录音限制 120 秒，仅把结果填入草稿，不自动发送。
+
+## 面板中的浏览器（1.67）
+
+桌面端右侧面板的浏览器用自己的地址栏、前进后退、标签页代替浏览器界面，并能选取网页元素、截图标注后发给 Agent。这些操作不经过外部集成的 `browser.action`，无需 `controlled`：只有打开该浏览器的连接能使用。
+
+| 方法 | 参数 | 返回 |
+|---|---|---|
+| `browser.control` 🔒 | `{ browserId, command: BrowserControl }` | `BrowserControlResult`；`browserId` 是本连接 `browser.open` 得到的浏览器。远程浏览器转发为工作区主机的 `browser.remoteControl`（该主机需要 1.67，否则 `UNSUPPORTED`）；本机浏览器须为 `managed`，系统默认浏览器为 `UNSUPPORTED`；不是本连接打开的为 `NOT_FOUND` |
+| `browser.remoteControl` | `{ browserId, command: BrowserControl }` | `BrowserControlResult`；仅 `browser.remoteOpen` 的调用连接可用，其他连接为 `NOT_FOUND` |
+
+`BrowserControl = { op, tabId?, url?, nodeId?, value? }`，`op`：
+
+- `state`：返回 `state: BrowserPageState = { tabs: [{ id, title, url }], activeTabId?, canGoBack, canGoForward, loading }`。当前标签页按各标签页的 `document.visibilityState` 判断（多个可见时沿用上一次的，都无响应时保持不变）；浏览器启动时的空白页不算可后退的历史。
+- `navigate`（`url`，仅 HTTP(S)、无 userinfo）、`back`、`forward`、`reload`、`stop`：作用于当前或指定的标签页，返回新的 `state`。
+- `newTab`（可选 `url`，缺省为空白页）、`activateTab`、`closeTab`（`tabId`，缺省为当前标签页）：返回新的 `state`。关闭最后一个标签页时改为打开空白页，浏览器不退出。
+- `pick`：像开发者工具的检查器一样，由用户在网页上点选一个元素（网页不响应这次点击），返回 `element: BrowserElement`；`cancelPick`、页面中按 Esc、标签页关闭或浏览器退出时返回 `{ cancelled: true }`。同时只有一个选取，新的 `pick` 会结束上一个；页面跳转后自动继续。最多等待 30 分钟（`BROWSER_PICK_TIMEOUT_MS`）。
+- `highlight`（`nodeId`）/ `clearHighlight`：保持标出选中的元素 / 取消。`nodeId` 在页面变化后失效。
+- `capture`：返回当前标签页可见区域的截图 `image`。
+- `fullscreen`（`value`，缺省 `true`）：隐藏 / 恢复浏览器自己的标签栏和地址栏（窗口全屏 / 最大化）。面板嵌入远程画面时开启，在独立窗口查看前关闭。
+
+`BrowserElement = { nodeId, url, title, label, selector, tag, text, html, rect, image? }`：`label` 是开发者工具式的 `div#id.class`；`selector` 是选取时只匹配该元素的 CSS 选择器（优先唯一 ID，最多向上 12 层）；`text` 为 `innerText`，截断到 2,000 字符；`html` 为 `outerHTML`，截断到 6,000 字符；`rect` 为相对顶层视口的 CSS 像素（同源 iframe 中的元素已加上框架偏移，跨源 iframe 只能选到 `<iframe>` 本身）；`image` 为元素可见部分的截图。`BrowserImage = { data, mimeType, width, height }`，PNG 超过约 8 MB（base64）时改为 JPEG。
+
+远程主机的审计日志记录 `browser.remoteControl` 的 `navigate` / `newTab` / `pick` / `capture`，只含 `browserId` 和 `op`，不含网址、网页内容或截图；`state` 等其余操作不记录。远程浏览器以 `--disable-infobars` 启动，网页上方不显示提示条。

@@ -2,6 +2,8 @@ import { z } from "zod";
 import { PEER_ADDRESS } from "./addresses.ts";
 import {
 	BrowserCommandSchema,
+	type BrowserControlResult,
+	BrowserControlSchema,
 	type BrowserPreparation,
 	type BrowserResult,
 	type LocalBrowserInfo,
@@ -176,8 +178,14 @@ export const MethodParamsSchemas = {
 		mode: z.enum(["service", "network", "remote"]),
 		transport: z.enum(["webrtc", "websockets"]).optional(),
 		controlled: z.boolean().optional(),
+		/** Launch a Pier-managed browser window on this computer too (`mode:service`, 1.67). */
+		managed: z.boolean().optional(),
 	}),
 	"browser.setTransport": z.object({ browserId: Id, transport: z.enum(["webrtc", "websockets"]) }),
+	/** Drive a browser this connection opened: address bar, tabs, element picking (1.67). */
+	"browser.control": z.object({ browserId: Id, command: BrowserControlSchema }),
+	/** The same on the workspace host, for a remote browser the calling connection opened (1.67). */
+	"browser.remoteControl": z.object({ browserId: Id, command: BrowserControlSchema }),
 	/** Launch a browser and streaming session on the workspace host (1.47). */
 	"browser.remoteOpen": z.object({
 		workspaceId: Id,
@@ -975,6 +983,7 @@ export const LOCAL_ONLY_METHODS: ReadonlySet<MethodName> = new Set([
 	"portForward.close",
 	"browser.open",
 	"browser.setTransport",
+	"browser.control",
 	"browser.list",
 	"browser.close",
 	"device.revoke",
@@ -1047,6 +1056,8 @@ export interface MethodResults {
 	"browser.remoteOpen": RemoteBrowserInfo;
 	"browser.remoteClose": { closed: boolean };
 	"browser.remoteTransport": { transport: "webrtc" | "websockets" };
+	"browser.control": BrowserControlResult;
+	"browser.remoteControl": BrowserControlResult;
 	"browser.list": { browsers: LocalBrowserInfo[]; preparations?: BrowserPreparation[] };
 	"browser.close": { closed: boolean };
 	"browser.attach": { attached: true };

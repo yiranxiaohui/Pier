@@ -14,6 +14,8 @@ import type {
 	AuthMethod,
 	AuthNotice,
 	AuthPromptInfo,
+	BrowserControl,
+	BrowserControlResult,
 	CustomModel,
 	CustomProvider,
 	CustomProviderApi,
@@ -264,6 +266,44 @@ export interface Toast {
 export interface Draft {
 	text: string;
 	images: Array<{ data: string; mimeType: string; name: string }>;
+	/**
+	 * What was picked in the workspace browser (an element, a marked-up screenshot): shown as
+	 * chips above the text, and sent before it as plain text the Agent can read.
+	 */
+	contexts?: DraftContext[] | undefined;
+}
+
+/** A piece of context attached to a draft from outside the text (see `Draft.contexts`). */
+export interface DraftContext {
+	id: string;
+	kind: "element" | "screenshot";
+	/** The chip's text, e.g. `div.card` or 区域截图. */
+	label: string;
+	/** What the user wrote about it, shown after the label. */
+	note?: string | undefined;
+	/** What the Agent receives. */
+	text: string;
+}
+
+/** What the workspace browser adds to a composer. */
+export interface ComposerAttachment {
+	context?: DraftContext;
+	images?: Draft["images"];
+}
+
+/** A mounted composer, for the panels that add to it. */
+export interface ComposerHandle {
+	insertFile(path: string, directory: boolean): void;
+	attach(attachment: ComposerAttachment): void;
+}
+
+/** Add an attachment to a draft; at most 16 images, as when pasting. */
+export function attachToDraft(draft: Draft, attachment: ComposerAttachment): Draft {
+	return {
+		...draft,
+		images: [...draft.images, ...(attachment.images ?? [])].slice(0, 16),
+		...(attachment.context ? { contexts: [...(draft.contexts ?? []), attachment.context] } : {}),
+	};
 }
 
 /** Model, thinking level and Fast mode picked for new chats (see `AppState.newChatModel`). */
@@ -496,11 +536,11 @@ const SELECTION_KEY = "pier.selection";
 export const NEW_CHAT_DRAFT = "#new-chat";
 const FILES_PANEL_KEY = "pier.filesPanel";
 /** The views of the right-hand panel that open as tabs. */
-export type RightPanelTab = "files" | "git" | "subagent";
+export type RightPanelTab = "files" | "git" | "browser" | "subagent";
 /** What the right-hand panel shows: a view's tab, or the launcher listing what can be opened. */
 export type RightPanelView = RightPanelTab | "launcher";
 /** The tabs remembered across restarts (a subagent's conversation is not). */
-const SAVED_PANEL_TABS: readonly RightPanelTab[] = ["files", "git"];
+const SAVED_PANEL_TABS: readonly RightPanelTab[] = ["files", "git", "browser"];
 
 /**
  * The tabs of the right-hand panel from `localStorage[FILES_PANEL_KEY]`. Before tabs were
@@ -673,7 +713,7 @@ export class PierStore {
 	private announcedUpdate: string | undefined;
 	private updateRequest = 0;
 	/** Mounted composers, by session, that accept text inserted from elsewhere (the file panel). */
-	private readonly composerInserts = new Map<string, (path: string, directory: boolean) => void>();
+	private readonly composers = new Map<string, ComposerHandle>();
 	/** Mounted views sampling the shown computer (`summary`) or every computer (`detail`). */
 	private readonly statsWatchers = { summary: 0, detail: 0 };
 	private statsTimer: ReturnType<typeof setInterval> | undefined;
@@ -2751,11 +2791,21 @@ export class PierStore {
 	}
 
 	/** Called by a mounted composer; returns the unregister function. */
-	registerComposer(sessionId: string, insert: (path: string, directory: boolean) => void): () => void {
-		this.composerInserts.set(sessionId, insert);
+	registerComposer(sessionId: string, handle: ComposerHandle): () => void {
+		this.composers.set(sessionId, handle);
 		return () => {
-			if (this.composerInserts.get(sessionId) === insert) this.composerInserts.delete(sessionId);
+			if (this.composers.get(sessionId) === handle) this.composers.delete(sessionId);
 		};
+	}
+
+	/**
+	 * Add what was picked in the workspace browser to the session's composer (`NEW_CHAT_DRAFT`
+	 * for the new-chat one), or to its saved draft when that composer is not on screen.
+	 */
+	attachToComposer(sessionId: string, attachment: ComposerAttachment): void {
+		const composer = this.composers.get(sessionId);
+		if (composer) composer.attach(attachment);
+		else this.saveDraft(sessionId, attachToDraft(this.draft(sessionId), attachment));
 	}
 
 	/**
@@ -2763,9 +2813,9 @@ export class PierStore {
 	 * append it to the saved draft when that composer is not on screen.
 	 */
 	insertFileIntoComposer(sessionId: string, path: string, directory = false): void {
-		const insert = this.composerInserts.get(sessionId);
-		if (insert) {
-			insert(path, directory);
+		const composer = this.composers.get(sessionId);
+		if (composer) {
+			composer.insertFile(path, directory);
 			return;
 		}
 		const draft = this.draft(sessionId);
@@ -3355,7 +3405,7 @@ export class PierStore {
 	}
 
 	saveDraft(sessionId: string, draft: Draft): void {
-		if (!draft.text && !draft.images.length) this.drafts.delete(sessionId);
+		if (!draft.text && !draft.images.length && !draft.contexts?.length) this.drafts.delete(sessionId);
 		else this.drafts.set(sessionId, draft);
 	}
 
@@ -3788,38 +3838,57 @@ export class PierStore {
 		}
 	}
 
-	/** Browser location follows the workspace host. Default local browsing needs no managed session. */
+	/**
+	 * Browser location follows the workspace host. Default local browsing needs no managed session;
+	 * `managed` (the panel's browser) launches a Pier-managed window on this computer instead.
+	 */
 	async openBrowser(
 		workspaceId: string,
 		url: string,
 		controlled = false,
 		transport: "webrtc" | "websockets" = "webrtc",
+		managed = false,
 	) {
 		const parsed = new URL(url);
 		if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password)
 			throw new Error("请输入不带用户名和密码的 HTTP 或 HTTPS 地址");
 		const node = this.nodeOf(workspaceId);
-		if (node === LOCAL_NODE && !controlled) {
+		if (node === LOCAL_NODE && !controlled && !managed) {
 			await this.bridge.openExternal(parsed.href);
 			return undefined;
 		}
 		const local = this.nodeClient(LOCAL_NODE);
 		if (!local) throw new Error("尚未连接到本机 Pier Host");
-		if (node !== LOCAL_NODE) {
-			const version = local.host?.protocolVersion?.split(".").map(Number);
-			if (version?.[0] !== 1 || (version[1] ?? 0) < 48)
-				throw new Error("请先更新本机 Pier（自动准备远程浏览器需要协议 1.48）");
-		}
+		const version = local.host?.protocolVersion?.split(".").map(Number);
+		const minor = version?.[0] === 1 ? (version[1] ?? 0) : 0;
+		if (node !== LOCAL_NODE && minor < 48) throw new Error("请先更新本机 Pier（自动准备远程浏览器需要协议 1.48）");
+		if (node === LOCAL_NODE && managed && !controlled && minor < 67)
+			throw new Error("请先更新本机 Pier（面板中的浏览器需要协议 1.67）");
 		return local.request(
 			"browser.open",
 			{
 				workspaceId,
 				url: parsed.href,
 				controlled,
-				...(node === LOCAL_NODE ? { mode: "service" as const } : { mode: "remote" as const, peerId: node, transport }),
+				...(node === LOCAL_NODE
+					? { mode: "service" as const, ...(managed && minor >= 67 ? { managed: true } : {}) }
+					: { mode: "remote" as const, peerId: node, transport }),
 			},
 			{ timeoutMs: node === LOCAL_NODE ? 60_000 : BROWSER_OPEN_TIMEOUT_MS },
 		);
+	}
+
+	/** Whether this computer's Host can drive the browsers it opens (`browser.control`, 1.67). */
+	get canControlBrowsers(): boolean {
+		const version = parseProtocolVersion(this.nodeClient(LOCAL_NODE)?.host?.protocolVersion ?? "");
+		return !!version && version.major === 1 && version.minor >= 67;
+	}
+
+	/** Drive a browser this window opened: the panel's address bar, tabs, element picking. */
+	async browserControl(browserId: string, command: BrowserControl, timeoutMs = 30_000): Promise<BrowserControlResult> {
+		const local = this.nodeClient(LOCAL_NODE);
+		if (!local) throw new Error("尚未连接到本机 Pier Host");
+		return local.request("browser.control", { browserId, command }, { timeoutMs });
 	}
 
 	/** Resolve localhost against the conversation/terminal's host before opening it locally. */

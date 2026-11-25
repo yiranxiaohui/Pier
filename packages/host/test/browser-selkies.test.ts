@@ -65,6 +65,38 @@ describe.skipIf(process.platform !== "linux" || !selkies || !chromium)("real Sel
 			rmSync(root, { recursive: true, force: true });
 		}
 	}, 90_000);
+	it("fills the display with the page while the panel's toolbar stands in for the browser's", async () => {
+		vi.stubEnv("PIER_SELKIES_BIN", selkies);
+		vi.stubEnv("PIER_BROWSER_BIN", chromium);
+		const root = mkdtempSync(join(tmpdir(), "pier-selkies-fullscreen-"));
+		let browser: SelkiesBrowser | undefined;
+		try {
+			browser = await SelkiesBrowser.start({
+				profile: join(root, "profile"),
+				url: "about:blank",
+				transport: "webrtc",
+				iceServers: [],
+				onExit() {},
+			});
+			const live = browser;
+			const room = async () =>
+				JSON.parse(
+					(await live.action({ action: "evaluate", expression: "[innerHeight, screen.height]" })).text ?? "[]",
+				) as number[];
+			// Maximized with its tab strip and address bar, but no banner above the page.
+			await expect.poll(async () => (await room())[0]).toBeGreaterThan(0);
+			const [inner, screen] = await room();
+			expect(inner).toBeLessThan(screen as number);
+			await live.control({ op: "fullscreen", value: true });
+			await expect.poll(async () => (await room())[0]).toBe(screen);
+			// A separate viewer gets them back.
+			await live.control({ op: "fullscreen", value: false });
+			await expect.poll(async () => (await room())[0]).toBe(inner);
+		} finally {
+			await browser?.close();
+			rmSync(root, { recursive: true, force: true });
+		}
+	}, 60_000);
 	it("fits the display and browser to a Retina viewer across sizes and transports", async () => {
 		vi.stubEnv("PIER_SELKIES_BIN", selkies);
 		vi.stubEnv("PIER_BROWSER_BIN", chromium);

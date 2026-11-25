@@ -274,6 +274,15 @@ describe("views opened from the right-hand panel's launcher", () => {
 		expect(newStore().getState().rightPanelTab).toBe("launcher");
 	});
 
+	it("remembers the browser's tab too", () => {
+		const store = withWorkspace();
+		store.showRightPanel("files");
+		store.showRightPanel("browser");
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["files", "browser"], rightPanelTab: "browser" });
+		store.closeRightPanelTab("browser");
+		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["files"], rightPanelTab: "files" });
+	});
+
 	it("keeps the view of a panel saved before views were opened on demand", () => {
 		storage.set("pier.filesPanel", JSON.stringify({ open: true, width: 300, tab: "git" }));
 		expect(panel(newStore())).toMatchObject({ rightPanelTabs: ["git"], rightPanelTab: "git", filesPanel: true });

@@ -11,6 +11,7 @@ import {
 } from "@pier/chat-state";
 import type { UiRequest } from "@pier/protocol";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { splitMessageContexts } from "../lib/browser-context.ts";
 import { clockTime, formatTokens } from "../lib/format.ts";
 import {
 	IconArrowDown,
@@ -18,7 +19,9 @@ import {
 	IconChevronRight,
 	IconClock,
 	IconLayers,
+	IconMousePointer,
 	IconPencil,
+	IconScan,
 	IconSparkles,
 	IconTerminal,
 } from "./Icons.tsx";
@@ -281,6 +284,34 @@ function MessageEditor({
 	);
 }
 
+/** A user message's text; browser picks in it fold into a line that opens to show them. */
+function UserText({ text }: { text: string }) {
+	const parts = splitMessageContexts(text);
+	if (!parts.some((part) => part.type === "context")) return <div className="user-text">{text}</div>;
+	return (
+		<div className="user-text">
+			{parts.map((part, i) =>
+				part.type === "text" ? (
+					// biome-ignore lint/suspicious/noArrayIndexKey: positional parts of one message.
+					<p key={i} className="user-text-part">
+						{part.text}
+					</p>
+				) : (
+					// biome-ignore lint/suspicious/noArrayIndexKey: positional parts of one message.
+					<details key={i} className="user-context">
+						<summary className="user-context-summary">
+							{part.kind === "element" ? <IconMousePointer size={13} /> : <IconScan size={13} />}
+							<span className="user-context-label">{part.label}</span>
+							{part.note ? <span className="user-context-note">{part.note}</span> : null}
+						</summary>
+						<pre>{part.text}</pre>
+					</details>
+				),
+			)}
+		</div>
+	);
+}
+
 function UserMessage({ item, fromEnd, onEdit }: { item: UserItem; fromEnd: number; onEdit?: EditMessage }) {
 	const [editing, setEditing] = useState(false);
 	if (editing && onEdit) {
@@ -302,7 +333,7 @@ function UserMessage({ item, fromEnd, onEdit }: { item: UserItem; fromEnd: numbe
 					))}
 				</div>
 			) : null}
-			{item.text ? <div className="user-text">{item.text}</div> : null}
+			{item.text ? <UserText text={item.text} /> : null}
 			{/* Under the bubble on hover, as ChatGPT has them. */}
 			<div className="user-actions">
 				{item.text ? <CopyButton text={item.text} iconOnly label="复制消息" /> : null}

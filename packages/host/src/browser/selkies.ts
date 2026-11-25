@@ -10,6 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { IceServer } from "@pier/crypto";
 import {
 	type BrowserCommand,
+	type BrowserControl,
 	type BrowserPreparationProgress,
 	type BrowserTransport,
 	PierProtocolError,
@@ -238,6 +239,9 @@ export class SelkiesBrowser implements RemoteBrowserProcess {
 					"--window-size=1440,900",
 					"--start-maximized",
 					"--force-device-scale-factor=1",
+					// No banners above the page (e.g. Chrome for Testing's "only for automated testing"): the
+					// viewer shows the page itself, and the panel's address bar stands in for the browser's.
+					"--disable-infobars",
 				],
 			},
 		);
@@ -313,6 +317,10 @@ export class SelkiesBrowser implements RemoteBrowserProcess {
 	action(command: BrowserCommand) {
 		if (!this.browser || this.closed) return Promise.reject(new Error("远程浏览器已关闭"));
 		return this.browser.action(command);
+	}
+	control(command: BrowserControl) {
+		if (!this.browser || this.closed) return Promise.reject(new Error("远程浏览器已关闭"));
+		return this.browser.control(command);
 	}
 	close(): Promise<void> {
 		if (this.closing) return this.closing;

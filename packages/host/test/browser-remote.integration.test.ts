@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { PierClient } from "@pier/client";
-import type { BrowserCommand, PairingRequest, WorkspaceInfo } from "@pier/protocol";
+import type { BrowserCommand, BrowserControl, PairingRequest, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RemoteBrowserLaunch, RemoteBrowserProcess } from "../src/browser/selkies.ts";
@@ -17,6 +17,7 @@ describe("browsers running on the workspace host", () => {
 	let peerId: string;
 	const launches: RemoteBrowserLaunch[] = [];
 	const actions: BrowserCommand[] = [];
+	const controls: BrowserControl[] = [];
 	const transports: string[] = [];
 	const localLaunch = vi.fn();
 	const cleanup: Array<() => Promise<void>> = [];
@@ -25,7 +26,7 @@ describe("browsers running on the workspace host", () => {
 	let releaseLaunch: (() => void) | undefined;
 	let failLaunch: boolean;
 	beforeEach(async () => {
-		launches.length = actions.length = transports.length = 0;
+		launches.length = actions.length = transports.length = controls.length = 0;
 		closed = 0;
 		launchGate = undefined;
 		releaseLaunch = undefined;
@@ -66,6 +67,18 @@ describe("browsers running on the workspace host", () => {
 						action: async (command) => {
 							actions.push(command);
 							return { text: "remote-result" };
+						},
+						control: async (command) => {
+							controls.push(command);
+							return {
+								state: {
+									tabs: [{ id: "tab", title: "Remote page", url: "http://localhost:3000/" }],
+									activeTabId: "tab",
+									canGoBack: false,
+									canGoForward: false,
+									loading: false,
+								},
+							};
 						},
 						setTransport: async (transport) => {
 							transports.push(transport);
@@ -243,6 +256,84 @@ describe("browsers running on the workspace host", () => {
 			desktop.request("browser.remoteOpen", { workspaceId: "missing", url: "https://example.com" }),
 		).rejects.toThrow();
 		expect(launches).toHaveLength(2);
+	});
+	it("lets only the opening connection drive the remote page, without the integrations opt-in", async () => {
+		const info = await open();
+		expect(info.managed).toBe(true);
+		const result = await local.request("browser.control", { browserId: info.browserId, command: { op: "state" } });
+		expect(result.state?.tabs[0]?.title).toBe("Remote page");
+		await local.request("browser.control", {
+			browserId: info.browserId,
+			command: { op: "navigate", url: "http://localhost:5173/" },
+		});
+		expect(controls).toEqual([{ op: "state" }, { op: "navigate", url: "http://localhost:5173/" }]);
+		// Not part of the external integrations' protocol control.
+		await expect(
+			desktop.request("browser.action", { workspaceId: workspace.id, command: { action: "snapshot" } }),
+		).rejects.toThrow();
+		const stranger = await a.connect();
+		await expect(
+			stranger.request("browser.control", { browserId: info.browserId, command: { op: "state" } }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const remote = await desktop.request("browser.remoteOpen", {
+			workspaceId: (await desktop.request("workspace.add", { path: b.root, policy: "auto" })).workspace.id,
+			url: "https://example.com",
+		});
+		const other = await b.connect();
+		await expect(
+			other.request("browser.remoteControl", { browserId: remote.browserId, command: { op: "state" } }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(controls).toHaveLength(2);
+		await expect(
+			local.request("browser.control", { browserId: info.browserId, command: { op: "teleport" } as never }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await local.request("browser.close", { browserId: info.browserId });
+		await expect(
+			local.request("browser.control", { browserId: info.browserId, command: { op: "state" } }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+	it("asks to update a remote host that cannot be driven yet", async () => {
+		const original = b.host.info.bind(b.host);
+		vi.spyOn(b.host, "info").mockImplementation(() => ({ ...original(), protocolVersion: "1.66" }));
+		const info = await open();
+		await expect(
+			local.request("browser.control", { browserId: info.browserId, command: { op: "state" } }),
+		).rejects.toMatchObject({ code: "UNSUPPORTED", message: expect.stringContaining("1.67") });
+		expect(controls).toEqual([]);
+	});
+	it("launches a managed local window on request and drives it", async () => {
+		const control = vi.fn(async () => ({}));
+		localLaunch.mockResolvedValueOnce({ action: vi.fn(), control, close: vi.fn() });
+		const localWorkspace = (await local.request("workspace.add", { path: a.workspaceDir, policy: "auto" })).workspace;
+		const info = await local.request("browser.open", {
+			workspaceId: localWorkspace.id,
+			url: "http://localhost:3000/",
+			mode: "service",
+			managed: true,
+		});
+		expect(localLaunch).toHaveBeenCalledTimes(1);
+		expect(info).toMatchObject({ mode: "service", managed: true, controllable: false });
+		await local.request("browser.control", { browserId: info.browserId, command: { op: "reload" } });
+		expect(control).toHaveBeenCalledWith({ op: "reload" });
+		// One Pier-launched browser per computer: it shares one profile.
+		await expect(
+			local.request("browser.open", {
+				workspaceId: localWorkspace.id,
+				url: "http://localhost:3000/",
+				mode: "service",
+				managed: true,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		// The system browser is not driven by Pier.
+		const plain = await local.request("browser.open", {
+			workspaceId: localWorkspace.id,
+			url: "http://localhost:4000/",
+			mode: "service",
+		});
+		expect(plain.managed).toBeUndefined();
+		await expect(
+			local.request("browser.control", { browserId: plain.browserId, command: { op: "state" } }),
+		).rejects.toMatchObject({ code: "UNSUPPORTED" });
 	});
 	it("rejects an old remote host before trying to launch or proxy a local browser", async () => {
 		const original = b.host.info.bind(b.host);

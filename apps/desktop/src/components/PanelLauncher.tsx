@@ -1,9 +1,8 @@
 import type { WorkspaceInfo } from "@pier/protocol";
 import { type ComponentType, type KeyboardEvent, useEffect, useRef } from "react";
 import { useCanOpenTerminal } from "../lib/remote-terminals.ts";
-import { useAppState, useStore } from "../lib/store.tsx";
+import { type RightPanelTab, useAppState, useStore } from "../lib/store.tsx";
 import { terminals, useTerminals } from "../lib/terminals.ts";
-import { openBrowserDialog } from "./BrowserPanel.tsx";
 import { IconBrowser, IconFolder, IconGitBranch, IconTerminal } from "./Icons.tsx";
 import { useGitChangeCount } from "./PanelChrome.tsx";
 
@@ -26,10 +25,10 @@ interface LauncherItem {
 
 /**
  * The right-hand panel's launcher (`+` after its tabs, and the panel with no tab open): what
- * can be opened for the workspace on screen. Files and source control open as tabs of the
- * panel; the browser opens its dialog and the terminal the bottom panel, and then the launcher
- * gives way to the panel's last view, or hides an empty panel. Each item has a one-letter
- * shortcut while the launcher is on screen (`active`), unless the letter is being typed.
+ * can be opened for the workspace on screen. Files, source control and the browser open as tabs
+ * of the panel; the terminal opens the bottom panel, and then the launcher gives way to the
+ * panel's last view, or hides an empty panel. Each item has a one-letter shortcut while the
+ * launcher is on screen (`active`), unless the letter is being typed.
  */
 export function PanelLauncher({
 	workspace,
@@ -83,10 +82,10 @@ export function PanelLauncher({
 			id: "browser",
 			label: "浏览器",
 			shortcut: "B",
-			hint: "打开工作区所在电脑的浏览器",
+			hint: "工作区所在电脑的浏览器：打开网页，选取元素或标注截图发给 Agent",
 			Icon: IconBrowser,
-			inPanel: false,
-			run: () => openBrowserDialog(workspace.id),
+			inPanel: true,
+			run: () => store.showRightPanel("browser"),
 		},
 		{
 			id: "terminal",
@@ -160,7 +159,7 @@ export function PanelLauncher({
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the buttons inside. */}
 				<div className="panel-launcher-items" onKeyDown={onKeyDown}>
 					{items.map((item) => {
-						const opened = item.inPanel && openTabs.includes(item.id as "files" | "git");
+						const opened = item.inPanel && openTabs.includes(item.id as RightPanelTab);
 						return (
 							<button
 								key={item.id}

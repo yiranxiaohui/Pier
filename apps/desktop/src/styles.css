@@ -19,6 +19,7 @@
 @import "./styles/settings.css";
 @import "./styles/files.css";
 @import "./styles/side-panel.css";
+@import "./styles/browser.css";
 @import "./styles/git.css";
 @import "./styles/account.css";
 @import "./styles/terminal.css";

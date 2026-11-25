@@ -3,7 +3,10 @@ import { join } from "node:path";
 import type { PierClient } from "@pier/client";
 import {
 	BROWSER_OPEN_TIMEOUT_MS,
+	BROWSER_PICK_TIMEOUT_MS,
 	type BrowserCommand,
+	type BrowserControl,
+	type BrowserControlResult,
 	type BrowserPreparationProgress,
 	BrowserPreparationProgressSchema,
 	type BrowserResult,
@@ -19,6 +22,8 @@ import { type BrowserNetwork, forwardService, remoteProxy, webUrl } from "./netw
 
 export interface BrowserProcess {
 	action(command: BrowserCommand): Promise<BrowserResult>;
+	/** The opening client's own controls (1.67); absent on test doubles that do not drive a page. */
+	control?(command: BrowserControl): Promise<BrowserControlResult>;
 	close(): void | Promise<void>;
 }
 export interface BrowserOptions {
@@ -33,6 +38,8 @@ interface Record {
 	closed: boolean;
 	ready?: boolean;
 	remoteId?: string;
+	/** A Pier-launched browser process (not the system browser or a forwarded port). */
+	dedicated: boolean;
 	preparation?: BrowserPreparationProgress;
 	closing?: Promise<void>;
 }
@@ -84,12 +91,13 @@ export class LocalBrowsers {
 			mode: "service" | "network" | "remote";
 			controlled?: boolean;
 			transport?: BrowserTransport;
+			managed?: boolean;
 		},
 	): Promise<LocalBrowserInfo> {
 		const url = webUrl(params.url);
 		if (params.mode === "remote" && !params.peerId) throw new PierProtocolError("BAD_REQUEST", "请选择远程主机");
 		const controlled = params.controlled === true;
-		const dedicated = params.mode !== "remote" && (params.mode === "network" || controlled);
+		const dedicated = params.mode !== "remote" && (params.mode === "network" || controlled || params.managed === true);
 		if (!dedicated && params.mode !== "remote") {
 			const existing = [...this.browsers.values()].find(
 				(r) =>
@@ -114,10 +122,7 @@ export class LocalBrowsers {
 		if (
 			dedicated &&
 			[...this.browsers.values()].some(
-				(r) =>
-					r.info.mode !== "remote" &&
-					(r.info.mode === "network" || r.info.controllable) &&
-					r.info.peerId === params.peerId,
+				(r) => r.info.mode !== "remote" && r.dedicated && r.info.peerId === params.peerId,
 			)
 		) {
 			throw new PierProtocolError("CONFLICT", "这台主机已有独立浏览器，请在现有窗口打开标签页，或先在浏览器列表关闭它");
@@ -127,6 +132,7 @@ export class LocalBrowsers {
 		const record: Record = {
 			owner,
 			closed: false,
+			dedicated,
 			info: {
 				browserId,
 				workspaceId: params.workspaceId,
@@ -135,6 +141,7 @@ export class LocalBrowsers {
 				localUrl: url.href,
 				mode: params.mode,
 				controllable: controlled,
+				...(dedicated || params.mode === "remote" ? { managed: true } : {}),
 			},
 		};
 		this.browsers.set(browserId, record);
@@ -290,6 +297,30 @@ export class LocalBrowsers {
 		);
 		record.info = { ...record.info, transport };
 		return record.info;
+	}
+	/**
+	 * The panel's own controls of a browser this connection opened: the workspace host's for a
+	 * remote one (it needs protocol 1.67), the Pier-launched process for a local one.
+	 */
+	async control(owner: Connection, id: string, command: BrowserControl): Promise<BrowserControlResult> {
+		const record = this.browsers.get(id);
+		if (!record || record.owner !== owner || record.closed || !record.ready)
+			throw new PierProtocolError("NOT_FOUND", "浏览器会话已关闭");
+		if (record.remoteId) {
+			const client = record.client;
+			if (!client) throw new PierProtocolError("NOT_FOUND", "远程浏览器连接已关闭");
+			const version = parseProtocolVersion(client.host?.protocolVersion ?? "");
+			if (!version || (version.major === 1 && version.minor < 67))
+				throw new PierProtocolError("UNSUPPORTED", "请先更新远程主机的 Pier（地址栏和元素选取需要协议 1.67）");
+			return client.request(
+				"browser.remoteControl",
+				{ browserId: record.remoteId, command },
+				{ timeoutMs: command.op === "pick" ? BROWSER_PICK_TIMEOUT_MS : 30_000 },
+			);
+		}
+		const browser = record.browser;
+		if (!browser?.control) throw new PierProtocolError("UNSUPPORTED", "这个浏览器不由 Pier 管理，无法控制");
+		return browser.control(command);
 	}
 	async close(owner: Connection, id: string): Promise<boolean> {
 		const record = this.browsers.get(id);

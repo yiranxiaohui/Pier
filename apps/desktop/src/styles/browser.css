@@ -1,0 +1,642 @@
+/*
+ * The workspace browser, a tab of the right-hand panel (BrowserPanel.tsx): a toolbar laid out like
+ * a browser's (back, forward, reload, address, pick, screenshot, more), the browser's tabs when it
+ * has several, then the remote picture or what to open. Picking an element or marking up a
+ * screenshot floats a tool strip over the page and a bar to describe it for the conversation.
+ */
+
+.browser-page {
+	/* The tool strip and the note bar float over the picture. */
+	position: relative;
+}
+
+.browser-view {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+
+.browser-toolbar {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	height: 42px;
+	padding: 0 6px;
+	border-bottom: 1px solid var(--border);
+}
+
+.browser-toolbar > button.icon {
+	flex: none;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border-radius: 8px;
+	color: var(--text-muted);
+}
+
+.browser-toolbar > button.icon.active {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+.browser-address {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	margin: 0 4px;
+	padding: 0 10px 0 0;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: var(--bg-input);
+	color: var(--text-faint);
+	transition: border-color 0.15s var(--ease);
+}
+
+.browser-address:focus-within {
+	border-color: var(--border-strong);
+}
+
+.browser-address input {
+	flex: 1;
+	min-width: 0;
+	height: 28px;
+	padding: 0 0 0 10px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	box-shadow: none;
+	font-size: 12.5px;
+	color: var(--text);
+}
+
+.browser-address input:focus {
+	outline: none;
+	box-shadow: none;
+}
+
+.browser-address input:disabled {
+	color: var(--text-muted);
+	background: transparent;
+}
+
+/* ---- the browser's tabs (when it has several) ------------------------------------ */
+
+.browser-tabs {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	height: 34px;
+	padding: 0 6px;
+	overflow-x: auto;
+	scrollbar-width: none;
+	border-bottom: 1px solid var(--border);
+}
+
+.browser-tab {
+	display: flex;
+	flex: 0 1 180px;
+	align-items: center;
+	min-width: 72px;
+	height: 26px;
+	border-radius: 7px;
+	color: var(--text-faint);
+}
+
+.browser-tab:hover {
+	background: var(--bg-hover);
+	color: var(--text-muted);
+}
+
+.browser-tab.active {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+.browser-tab button {
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+}
+
+.browser-tab button:hover:not(:disabled) {
+	background: transparent;
+}
+
+button.browser-tab-label {
+	flex: 1;
+	justify-content: flex-start;
+	min-width: 0;
+	height: 100%;
+	padding: 0 4px 0 9px;
+	overflow: hidden;
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+button.browser-tab-close {
+	flex: none;
+	width: 18px;
+	height: 18px;
+	margin-right: 4px;
+	padding: 0;
+	border-radius: 5px;
+	opacity: 0;
+}
+
+.browser-tab:hover .browser-tab-close,
+.browser-tab.active .browser-tab-close,
+.browser-tab-close:focus-visible {
+	opacity: 1;
+}
+
+.browser-tab button.browser-tab-close:hover:not(:disabled) {
+	background: var(--bg-active);
+}
+
+button.browser-tab-new {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border-radius: 7px;
+	color: var(--text-faint);
+}
+
+.browser-banner {
+	flex: none;
+	padding: 7px 10px 7px 14px;
+	font-size: 12.5px;
+}
+
+.browser-banner > span {
+	flex: 1;
+	min-width: 0;
+}
+
+.browser-banner > button.icon {
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	color: inherit;
+}
+
+/* ---- the page ------------------------------------------------------------------- */
+
+.browser-body {
+	position: relative;
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+}
+
+.browser-frame {
+	display: block;
+	flex: 1;
+	width: 100%;
+	height: 100%;
+	border: none;
+	background: #111;
+}
+
+/* Nothing open yet, a separate window, or a lost connection: a short note in the middle. */
+.browser-empty {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	min-height: 0;
+	padding: 24px;
+	overflow-y: auto;
+	text-align: center;
+}
+
+.browser-empty > * {
+	max-width: 420px;
+}
+
+.browser-empty > svg {
+	color: var(--text-faint);
+}
+
+.browser-empty h3 {
+	margin: 4px 0 0;
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--text);
+}
+
+.browser-empty p {
+	margin: 0;
+	font-size: 12.5px;
+	line-height: 1.6;
+}
+
+.browser-empty-url {
+	overflow-wrap: anywhere;
+	font-family: var(--mono);
+	font-size: 11.5px;
+}
+
+.browser-empty-icon {
+	display: grid;
+	place-items: center;
+	width: 44px;
+	height: 44px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--bg-elevated);
+	box-shadow: var(--shadow-sm), var(--highlight);
+	color: var(--text-muted);
+}
+
+.browser-empty .browser-preparation {
+	width: min(100%, 520px);
+	max-width: none;
+	margin: 0;
+	text-align: left;
+}
+
+.browser-ports {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.browser-port-list {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 6px;
+}
+
+button.browser-port {
+	gap: 6px;
+	height: 28px;
+	padding: 0 10px;
+	border-radius: 8px;
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+button.browser-port .muted {
+	font-family: var(--sans);
+	font-size: 11px;
+}
+
+.browser-options {
+	width: min(100%, 360px);
+	margin-top: 6px;
+	text-align: left;
+	font-size: 12.5px;
+}
+
+.browser-options summary {
+	cursor: pointer;
+	color: var(--text-faint);
+	text-align: center;
+}
+
+.browser-options[open] summary {
+	margin-bottom: 10px;
+}
+
+.browser-options .browser-field {
+	display: grid;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+
+.browser-options .select {
+	width: 100%;
+}
+
+.browser-options label.browser-consent {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.browser-options p {
+	margin-top: 6px;
+}
+
+/* ---- picking and marking up ------------------------------------------------------ */
+
+/* The frozen screenshot the region, draw and erase tools work on, over the live picture. */
+.browser-annotator {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	overflow: hidden;
+	background: #111;
+	touch-action: none;
+	user-select: none;
+}
+
+.browser-annotator.tool-region,
+.browser-annotator.tool-draw {
+	cursor: crosshair;
+}
+
+.browser-annotator.tool-erase {
+	cursor: cell;
+}
+
+.browser-annotator-canvas {
+	position: absolute;
+	display: block;
+}
+
+.browser-annotator-dim {
+	fill: rgba(0, 0, 0, 0.45);
+}
+
+.browser-annotator-region {
+	fill: none;
+	stroke: #3b82f6;
+}
+
+.browser-annotate-tools {
+	position: absolute;
+	top: 10px;
+	left: 50%;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px;
+	border: 1px solid var(--border-strong);
+	border-radius: 10px;
+	background: var(--bg-raised);
+	box-shadow: var(--shadow-lg);
+	transform: translateX(-50%);
+}
+
+.browser-annotate-tools > button {
+	gap: 5px;
+	height: 28px;
+	padding: 0 10px;
+	border: none;
+	border-radius: 7px;
+	background: transparent;
+	box-shadow: none;
+	font-size: 12.5px;
+	color: var(--text-muted);
+}
+
+.browser-annotate-tools > button:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--text);
+}
+
+.browser-annotate-tools > button.active {
+	background: var(--info-soft);
+	color: var(--info);
+}
+
+.browser-annotate-tools > button:last-child {
+	width: 28px;
+	padding: 0;
+}
+
+.browser-annotate-divider {
+	width: 1px;
+	height: 16px;
+	margin: 0 2px;
+	background: var(--border-strong);
+}
+
+/* A narrow panel keeps only the tools' icons. */
+@container (max-width: 520px) {
+	.browser-annotate-tools > button > span {
+		display: none;
+	}
+	.browser-annotate-tools > button {
+		width: 30px;
+		padding: 0;
+	}
+}
+
+.browser-page {
+	container-type: inline-size;
+}
+
+.browser-annotate-bar {
+	position: absolute;
+	right: 12px;
+	bottom: 12px;
+	left: 12px;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	max-width: 640px;
+	margin: 0 auto;
+	padding: 6px 6px 6px 10px;
+	border: 1px solid var(--border-strong);
+	border-radius: 12px;
+	background: var(--bg-raised);
+	box-shadow: var(--shadow-lg);
+}
+
+.browser-annotate-status {
+	display: flex;
+	flex: none;
+	align-items: center;
+	max-width: 40%;
+	overflow: hidden;
+	font-size: 12px;
+	color: var(--text-faint);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.browser-annotate-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	height: 24px;
+	padding: 0 8px;
+	overflow: hidden;
+	border-radius: 6px;
+	background: var(--info-soft);
+	color: var(--info);
+	font-family: var(--mono);
+	font-size: 11.5px;
+	text-overflow: ellipsis;
+}
+
+.browser-annotate-bar input {
+	flex: 1;
+	min-width: 0;
+	height: 30px;
+	padding: 0 4px;
+	border: none;
+	border-bottom: 1px solid var(--border-strong);
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	font-size: 13px;
+}
+
+.browser-annotate-bar input:focus {
+	outline: none;
+	box-shadow: none;
+	border-bottom-color: var(--text-muted);
+}
+
+.browser-annotate-bar button.primary {
+	flex: none;
+	height: 30px;
+	padding: 0 12px;
+	font-size: 12.5px;
+}
+
+/* ---- what the composer shows for a pick ------------------------------------------- */
+
+.composer-context {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	max-width: min(320px, 100%);
+	height: 30px;
+	padding: 0 4px 0 9px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	background: var(--bg-elevated);
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.composer-context > svg {
+	flex: none;
+	color: var(--info);
+}
+
+.composer-context-label {
+	flex: none;
+	max-width: 160px;
+	overflow: hidden;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--text);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.composer-context-note {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.composer-context button {
+	flex: none;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-faint);
+}
+
+.composer-context button:hover:not(:disabled) {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+/* Chips sit on the images' row, centred against the thumbnails. */
+.composer-images {
+	align-items: center;
+}
+
+/* ---- a sent message's picks, folded (Transcript.tsx) ------------------------------- */
+
+.user-text-part {
+	margin: 0;
+}
+
+.user-context {
+	max-width: 100%;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	background: var(--bg-elevated);
+	font-size: 12.5px;
+	white-space: normal;
+}
+
+.user-text-part + .user-context,
+.user-context + .user-text-part,
+.user-context + .user-context {
+	margin-top: 8px;
+}
+
+.user-context-summary {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	padding: 5px 10px;
+	cursor: pointer;
+	list-style: none;
+	color: var(--text-muted);
+}
+
+.user-context-summary::-webkit-details-marker {
+	display: none;
+}
+
+.user-context-summary > svg {
+	flex: none;
+	color: var(--info);
+}
+
+.user-context-label {
+	flex: none;
+	max-width: 50%;
+	overflow: hidden;
+	font-family: var(--mono);
+	font-size: 11.5px;
+	color: var(--text);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.user-context-note {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.user-context pre {
+	max-height: 260px;
+	margin: 0;
+	padding: 8px 10px;
+	overflow: auto;
+	border-top: 1px solid var(--border);
+	font-family: var(--mono);
+	font-size: 11.5px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+	color: var(--text-muted);
+}

@@ -723,6 +723,89 @@ export const IconTarget = make(
 	</>,
 );
 
+// arrow-right
+export const IconArrowRight = make(
+	<>
+		<path d="M5 12h14" />
+		<path d="m12 5 7 7-7 7" />
+	</>,
+);
+// mouse-pointer-2
+export const IconMousePointer = make(
+	<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z" />,
+);
+// square-dashed-mouse-pointer
+export const IconPickElement = make(
+	<>
+		<path d="M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z" />
+		<path d="M5 3a2 2 0 0 0-2 2" />
+		<path d="M19 3a2 2 0 0 1 2 2" />
+		<path d="M5 21a2 2 0 0 1-2-2" />
+		<path d="M9 3h1" />
+		<path d="M9 21h2" />
+		<path d="M14 3h1" />
+		<path d="M3 9v1" />
+		<path d="M21 9v2" />
+		<path d="M3 14v1" />
+	</>,
+);
+// square-dashed
+export const IconRegion = make(
+	<>
+		<path d="M5 3a2 2 0 0 0-2 2" />
+		<path d="M19 3a2 2 0 0 1 2 2" />
+		<path d="M21 19a2 2 0 0 1-2 2" />
+		<path d="M5 21a2 2 0 0 1-2-2" />
+		<path d="M9 3h1" />
+		<path d="M9 21h1" />
+		<path d="M14 3h1" />
+		<path d="M14 21h1" />
+		<path d="M3 9v1" />
+		<path d="M21 9v1" />
+		<path d="M3 14v1" />
+		<path d="M21 14v1" />
+	</>,
+);
+// scan
+export const IconScan = make(
+	<>
+		<path d="M3 7V5a2 2 0 0 1 2-2h2" />
+		<path d="M17 3h2a2 2 0 0 1 2 2v2" />
+		<path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+		<path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+	</>,
+);
+// eraser
+export const IconEraser = make(
+	<>
+		<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21" />
+		<path d="m5.082 11.09 8.828 8.828" />
+	</>,
+);
+// camera
+export const IconCamera = make(
+	<>
+		<path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z" />
+		<circle cx="12" cy="13" r="3" />
+	</>,
+);
+// globe
+export const IconGlobe = make(
+	<>
+		<circle cx="12" cy="12" r="10" />
+		<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+		<path d="M2 12h20" />
+	</>,
+);
+// ellipsis-vertical
+export const IconMoreVertical = make(
+	<>
+		<circle cx="12" cy="12" r="1" />
+		<circle cx="12" cy="5" r="1" />
+		<circle cx="12" cy="19" r="1" />
+	</>,
+);
+
 /**
  * The script “Pier” wordmark, traced from the brand lettering. It is filled with the text color,
  * so it follows the theme; `height` sets its size (the width follows, about 2.7 × the height).

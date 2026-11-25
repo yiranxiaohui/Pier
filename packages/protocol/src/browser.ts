@@ -26,6 +26,108 @@ export interface LocalBrowserInfo {
 	mode: "service" | "network" | "remote";
 	controllable: boolean;
 	transport?: BrowserTransport;
+	/**
+	 * A Pier-managed browser process (1.67): its page can be driven with `browser.control`
+	 * (address bar, history, tabs, element picking). Remote browsers always are; a local one is
+	 * when opened with `managed` (or for external integrations / a remote network).
+	 */
+	managed?: boolean;
+}
+
+/**
+ * The desktop's own controls of a browser it opened (1.67): the panel's address bar, history and
+ * tabs, picking an element, screenshots. Unlike `BrowserCommand` this needs no opt-in: only the
+ * connection that opened the browser may use it.
+ *
+ * - `state`: the tabs and the active tab's history.
+ * - `navigate` / `back` / `forward` / `reload` / `stop`: the active (or given) tab.
+ * - `newTab` (optional `url`), `activateTab`, `closeTab` (`tabId`); closing the last tab leaves
+ *   an empty page instead of quitting the browser.
+ * - `pick`: let the user click an element on the page, as in DevTools' inspector; resolves with
+ *   the element, or `cancelled` (`cancelPick`, Esc in the page, navigation). One pick at a time.
+ * - `highlight` (`nodeId` from a picked element) / `clearHighlight`: keep it outlined.
+ * - `capture`: a PNG of the active tab's viewport.
+ * - `fullscreen` (`value`): hide the browser's own tab strip and address bar while the panel's
+ *   stand in for them, or show them again (a separate viewer window).
+ */
+export const BrowserControlSchema = z.object({
+	op: z.enum([
+		"state",
+		"navigate",
+		"back",
+		"forward",
+		"reload",
+		"stop",
+		"newTab",
+		"activateTab",
+		"closeTab",
+		"pick",
+		"cancelPick",
+		"highlight",
+		"clearHighlight",
+		"capture",
+		"fullscreen",
+	]),
+	tabId: z.string().max(256).optional(),
+	url: z.string().max(8192).optional(),
+	nodeId: z.number().int().nonnegative().optional(),
+	value: z.boolean().optional(),
+});
+export type BrowserControl = z.infer<typeof BrowserControlSchema>;
+
+/** `pick` may wait this long for the user's click. */
+export const BROWSER_PICK_TIMEOUT_MS = 30 * 60_000;
+
+export interface BrowserTab {
+	id: string;
+	title: string;
+	url: string;
+}
+
+/** The browser's tabs, the one on screen, and that tab's history. */
+export interface BrowserPageState {
+	tabs: BrowserTab[];
+	activeTabId?: string;
+	canGoBack: boolean;
+	canGoForward: boolean;
+	loading: boolean;
+}
+
+export interface BrowserImage {
+	data: string;
+	/** JPEG only for a viewport too large as a PNG. */
+	mimeType: "image/png" | "image/jpeg";
+	width: number;
+	height: number;
+}
+
+/** An element picked on a page, described for an Agent. Text fields are cut to a bounded size. */
+export interface BrowserElement {
+	/** The page's backend node, for `highlight`; valid until the page changes. */
+	nodeId: number;
+	url: string;
+	title: string;
+	/** `div#id.class`, as DevTools labels an element. */
+	label: string;
+	/** A CSS selector that matched only this element when it was picked. */
+	selector: string;
+	tag: string;
+	/** Its visible text (`innerText`), cut to 2,000 characters. */
+	text: string;
+	/** Its `outerHTML`, cut to 6,000 characters. */
+	html: string;
+	/** Where it is on the page, in CSS pixels relative to the top-level viewport. */
+	rect: { x: number; y: number; width: number; height: number };
+	/** Its visible part, when it has one. */
+	image?: BrowserImage;
+}
+
+export interface BrowserControlResult {
+	state?: BrowserPageState;
+	element?: BrowserElement;
+	image?: BrowserImage;
+	/** A `pick` ended without an element. */
+	cancelled?: boolean;
 }
 
 export type BrowserTransport = "webrtc" | "websockets";

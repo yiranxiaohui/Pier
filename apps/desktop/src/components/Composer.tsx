@@ -7,12 +7,13 @@ import {
 	type SlashActions,
 } from "@pier/chat-state";
 import type { WorkspaceInfo } from "@pier/protocol";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef, useState } from "react";
+import { promptWithContexts } from "../lib/browser-context.ts";
 import { draftToPrompt } from "../lib/composer-text.ts";
-import { type Draft, useStore } from "../lib/store.tsx";
+import { attachToDraft, type Draft, useStore } from "../lib/store.tsx";
 import { useVoiceInput } from "../lib/use-voice-input.ts";
 import { ComposerInput, type ComposerInputHandle } from "./ComposerInput.tsx";
-import { IconArrowUp, IconImage, IconStop, IconX } from "./Icons.tsx";
+import { IconArrowUp, IconImage, IconMousePointer, IconScan, IconStop, IconX } from "./Icons.tsx";
 import { SessionModelPicker } from "./ModelPicker.tsx";
 import { PolicyPicker } from "./SessionControls.tsx";
 import { SlashMenu, type SlashMenuEntry, useSlashMenu } from "./SlashMenu.tsx";
@@ -47,14 +48,63 @@ function readImage(file: File): Promise<Draft["images"][number]> {
 }
 
 /**
- * Let the file panel insert file chips at the cursor of this composer.
- * `key` is the draft key (a session id, or the new-chat draft).
+ * Let the file panel insert file chips at the cursor of this composer, and the workspace browser
+ * attach what was picked on a page. `key` is the draft key (a session id, or the new-chat draft).
  */
-export function useComposerInsert(key: string, input: RefObject<ComposerInputHandle | null>): void {
+export function useComposerInsert(
+	key: string,
+	input: RefObject<ComposerInputHandle | null>,
+	setDraft: Dispatch<SetStateAction<Draft>>,
+): void {
 	const store = useStore();
 	useEffect(
-		() => store.registerComposer(key, (path, directory) => input.current?.insertFile(path, directory)),
-		[store, key, input],
+		() =>
+			store.registerComposer(key, {
+				insertFile: (path, directory) => input.current?.insertFile(path, directory),
+				attach: (attachment) => {
+					setDraft((draft) => attachToDraft(draft, attachment));
+					input.current?.focus();
+				},
+			}),
+		[store, key, input, setDraft],
+	);
+}
+
+/** The images and browser picks attached to a draft, each with a remove button. */
+export function DraftAttachments({ draft, setDraft }: { draft: Draft; setDraft: Dispatch<SetStateAction<Draft>> }) {
+	const contexts = draft.contexts ?? [];
+	if (!draft.images.length && !contexts.length) return null;
+	return (
+		<div className="composer-images">
+			{contexts.map((context) => (
+				<div key={context.id} className="composer-context" title={context.text}>
+					{context.kind === "element" ? <IconMousePointer size={13} /> : <IconScan size={13} />}
+					<span className="composer-context-label">{context.label}</span>
+					{context.note ? <span className="composer-context-note">{context.note}</span> : null}
+					<button
+						type="button"
+						title="移除"
+						aria-label={`移除 ${context.label}`}
+						onClick={() => setDraft((d) => ({ ...d, contexts: (d.contexts ?? []).filter((c) => c.id !== context.id) }))}
+					>
+						<IconX size={11} />
+					</button>
+				</div>
+			))}
+			{draft.images.map((image, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: positional attachments.
+				<div key={i} className="composer-image">
+					<img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
+					<button
+						type="button"
+						title="移除"
+						onClick={() => setDraft((d) => ({ ...d, images: d.images.filter((_, j) => j !== i) }))}
+					>
+						<IconX size={11} />
+					</button>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -90,7 +140,7 @@ export function Composer({
 		store.saveDraft(sessionId, draft);
 	}, [store, sessionId, draft]);
 
-	useComposerInsert(sessionId, input);
+	useComposerInsert(sessionId, input, setDraft);
 
 	// An extension asked to prefill the editor.
 	const editorNonce = chat.editorText?.nonce;
@@ -105,8 +155,8 @@ export function Composer({
 	const running = chat.runState === "streaming" || chat.runState === "retrying" || chat.runState === "compacting";
 	const closed = !!chat.closed;
 	const prompt = draftToPrompt(draft.text);
-	const canSend =
-		!voice.busy && !closed && chat.loaded && !sending && (prompt.trim().length > 0 || draft.images.length > 0);
+	const attached = draft.images.length > 0 || (draft.contexts?.length ?? 0) > 0;
+	const canSend = !voice.busy && !closed && chat.loaded && !sending && (prompt.trim().length > 0 || attached);
 	const menu = useSlashMenu(controller, prompt);
 
 	const actions: SlashActions = {
@@ -121,10 +171,11 @@ export function Composer({
 
 	async function send(mode: "auto" | "steer" | "followUp", override?: string) {
 		const text = draftToPrompt(override ?? draft.text).trim();
-		if (voice.busy || closed || !chat.loaded || sending || (!text && !draft.images.length)) return;
+		const contexts = draft.contexts ?? [];
+		if (voice.busy || closed || !chat.loaded || sending || (!text && !draft.images.length && !contexts.length)) return;
 		const images = draft.images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType }));
 		const previous = { ...draft, text: override ?? draft.text };
-		const cleared = { text: "", images: [] };
+		let cleared: Draft = { text: "", images: [] };
 
 		let resolution = resolveSlash(text, menu.list.commands, menu.list.known, controller.chat.session?.runtime);
 		if (resolution.kind === "unknown" || (resolution.kind === "host" && !menu.list.known)) {
@@ -151,11 +202,13 @@ export function Composer({
 			return;
 		}
 
+		// Browser picks go with messages; a command leaves them in the draft for the next one.
+		if (resolution.kind === "host" && contexts.length) cleared = { ...cleared, contexts };
 		setDraft(cleared);
 		const result =
 			resolution.kind === "host"
 				? await controller.sendCommand(text, images, mode)
-				: await controller.send(text, images, mode);
+				: await controller.send(promptWithContexts(text, contexts), images, mode);
 		setSending(false);
 		if (result === undefined) setDraft(previous);
 		input.current?.focus();
@@ -196,23 +249,7 @@ export function Composer({
 				void addFiles(e.dataTransfer.files);
 			}}
 		>
-			{draft.images.length ? (
-				<div className="composer-images">
-					{draft.images.map((image, i) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: positional attachments.
-						<div key={i} className="composer-image">
-							<img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
-							<button
-								type="button"
-								title="移除"
-								onClick={() => setDraft((d) => ({ ...d, images: d.images.filter((_, j) => j !== i) }))}
-							>
-								<IconX size={11} />
-							</button>
-						</div>
-					))}
-				</div>
-			) : null}
+			<DraftAttachments draft={draft} setDraft={setDraft} />
 			<SlashMenu menu={menu} onPick={(entry) => pick(entry)} />
 			<ComposerInput
 				ref={input}

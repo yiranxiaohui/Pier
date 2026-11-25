@@ -62,4 +62,61 @@ describe("workspace browser routing", () => {
 		expect(request).not.toHaveBeenCalled();
 		expect(openExternal).not.toHaveBeenCalled();
 	});
+	it("launches a managed window locally for the panel, once this computer's Host can drive it", async () => {
+		const { store, request, openExternal } = setup(LOCAL_NODE, "1.67");
+		await store.openBrowser("workspace", "http://localhost:3000/", false, "webrtc", true);
+		expect(request).toHaveBeenCalledWith(
+			"browser.open",
+			{ workspaceId: "workspace", url: "http://localhost:3000/", mode: "service", controlled: false, managed: true },
+			{ timeoutMs: 60_000 },
+		);
+		expect(openExternal).not.toHaveBeenCalled();
+		expect(store.canControlBrowsers).toBe(true);
+		const old = setup(LOCAL_NODE, "1.66");
+		await expect(old.store.openBrowser("workspace", "http://localhost:3000/", false, "webrtc", true)).rejects.toThrow(
+			"1.67",
+		);
+		expect(old.store.canControlBrowsers).toBe(false);
+		expect(old.request).not.toHaveBeenCalled();
+	});
+	it("drives the browser through this computer's Host", async () => {
+		const { store, request } = setup("peer", "1.67");
+		await store.browserControl("browser", { op: "navigate", url: "http://localhost:5173/" });
+		expect(request).toHaveBeenCalledWith(
+			"browser.control",
+			{ browserId: "browser", command: { op: "navigate", url: "http://localhost:5173/" } },
+			{ timeoutMs: 30_000 },
+		);
+	});
+});
+
+describe("attaching browser picks to a composer", () => {
+	const context = {
+		id: "c1",
+		kind: "element" as const,
+		label: "div.card",
+		text: "<browser-element>…</browser-element>",
+	};
+	const image = { data: "AAAA", mimeType: "image/png", name: "div.card" };
+	it("hands them to the composer on screen", () => {
+		const store = new PierStore({ kind: "browser" } as unknown as Bridge);
+		const attach = vi.fn();
+		const unregister = store.registerComposer("session", { insertFile: vi.fn(), attach });
+		store.attachToComposer("session", { context, images: [image] });
+		expect(attach).toHaveBeenCalledWith({ context, images: [image] });
+		expect(store.draft("session")).toEqual({ text: "", images: [] });
+		unregister();
+	});
+	it("keeps them in the saved draft of a composer that is not on screen, up to 16 images", () => {
+		const store = new PierStore({ kind: "browser" } as unknown as Bridge);
+		store.saveDraft("session", { text: "hi", images: Array.from({ length: 15 }, () => image) });
+		store.attachToComposer("session", { context, images: [image, image] });
+		const draft = store.draft("session");
+		expect(draft.text).toBe("hi");
+		expect(draft.images).toHaveLength(16);
+		expect(draft.contexts).toEqual([context]);
+		// A draft with only a pick is kept.
+		store.attachToComposer("other", { context });
+		expect(store.draft("other")).toEqual({ text: "", images: [], contexts: [context] });
+	});
 });

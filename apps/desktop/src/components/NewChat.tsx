@@ -5,7 +5,7 @@ import { draftToPrompt } from "../lib/composer-text.ts";
 import { type Draft, LOCAL_NODE, NEW_CHAT_DRAFT, useAppState, useComputers, useStore } from "../lib/store.tsx";
 import { useVoiceInput } from "../lib/use-voice-input.ts";
 import { AgentIcon } from "./AgentIcons.tsx";
-import { readImages, useComposerInsert } from "./Composer.tsx";
+import { DraftAttachments, readImages, useComposerInsert } from "./Composer.tsx";
 import { ComposerInput, type ComposerInputHandle } from "./ComposerInput.tsx";
 import { useNodeStatus } from "./HostPanels.tsx";
 import {
@@ -20,7 +20,6 @@ import {
 	IconMonitor,
 	IconSearch,
 	IconWrench,
-	IconX,
 	PierWordmark,
 } from "./Icons.tsx";
 import { NewChatModelPicker } from "./ModelPicker.tsx";
@@ -299,12 +298,12 @@ export function NewChatView({ workspaceId }: { workspaceId?: string }) {
 		store.saveDraft(NEW_CHAT_DRAFT, draft);
 	}, [store, draft]);
 
-	useComposerInsert(NEW_CHAT_DRAFT, input);
+	useComposerInsert(NEW_CHAT_DRAFT, input, setDraft);
 
 	const prompt = draftToPrompt(draft.text);
 	const runtimes = useNewChatRuntimes(workspaceId);
 	const menu = useNewChatSlashMenu(workspaceId, prompt, runtimes);
-	const hasContent = prompt.trim().length > 0 || draft.images.length > 0;
+	const hasContent = prompt.trim().length > 0 || draft.images.length > 0 || (draft.contexts?.length ?? 0) > 0;
 	const canSend = !voice.busy && online && !!workspace && !sending && hasContent;
 
 	async function send(override?: string) {
@@ -387,23 +386,7 @@ export function NewChatView({ workspaceId }: { workspaceId?: string }) {
 							void addFiles(e.dataTransfer.files);
 						}}
 					>
-						{draft.images.length ? (
-							<div className="composer-images">
-								{draft.images.map((image, i) => (
-									// biome-ignore lint/suspicious/noArrayIndexKey: positional attachments.
-									<div key={i} className="composer-image">
-										<img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
-										<button
-											type="button"
-											title="移除"
-											onClick={() => setDraft((d) => ({ ...d, images: d.images.filter((_, j) => j !== i) }))}
-										>
-											<IconX size={11} />
-										</button>
-									</div>
-								))}
-							</div>
-						) : null}
+						<DraftAttachments draft={draft} setDraft={setDraft} />
 						<SlashMenu menu={menu} onPick={(entry) => pick(entry)} />
 						<ComposerInput
 							ref={input}
