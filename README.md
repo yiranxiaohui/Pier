@@ -15,16 +15,17 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 
 ## 特性
 
-- **一个界面，五种 Agent**：电脑上的 pi、Claude Code、Codex、OpenCode 和 Hermes Agent，都使用你自己安装、自己管理更新的版本。原生 CLI 与 Pier 共用会话，可以用 `claude --resume`、`codex resume`、`opencode --session <ID>` 或 `hermes --resume <ID>` 在终端继续。
+- **一个界面，五种 Agent**：电脑上的 pi、Claude Code、Codex、OpenCode 和 Hermes Agent，都使用你自己安装、自己管理更新的版本；pi、Claude Code、Codex、OpenCode 可以在 Pier 中一键安装和更新，可选国内镜像或 GitHub 加速线路。原生 CLI 与 Pier 共用会话，可以用 `claude --resume`、`codex resume`、`opencode --session <ID>` 或 `hermes --resume <ID>` 在终端继续。
+- **长任务更省心**：每个会话都可以设一个比模型窗口更小的上下文上限，Agent 接近上限前自动压缩对话，更省 token、请求更快；Agent 派出的 Subagent 显示为卡片，可以查看各自的对话并单独停止。
 - **多台电脑统一管理**：每台电脑都是一个节点。粘贴配对链接，或通过 SSH 登录 Linux 电脑自动安装 Pier 并配对，那台电脑的工作区和会话与本机的一起列在侧边栏中。
 - **手机随时跟进**：原生 App（Expo / React Native）扫码配对后查看进度、发送指令、审批操作，断线自动重连补发。
-- **完整的工作台**：文件浏览、预览与编辑，Git（含工作树）、内置终端、远程浏览器、端口映射、进程管理、定时任务、Skills 与 MCP 管理、语音输入。
+- **完整的工作台**：文件浏览、预览与编辑（VS Code 同款 Monaco 编辑器），Git（含工作树）、内置终端（右键复制粘贴）、远程主机的 Shell 与文件管理、远程浏览器、端口映射、进程管理、定时任务、Skills 与 MCP 管理、语音输入，浅色 / 深色「暖墨」主题。
 - **端到端加密的远程访问**：配对后的连接全程加密；不在同一网络时经自建的 [Pier Relay](apps/relay/README.md) 连接，优先打洞 P2P 直连，中继只看得到密文。
 - **安装与更新省心**：Windows、macOS、Linux 都有安装包和命令行安装入口；桌面端与 Android 支持应用内更新（签名校验，可选国内加速线路），Linux 服务器可安装为后台服务。
 
 ## 安装
 
-按你使用的设备选择，**安装 Pier 本身不需要 Node.js、Bun 或开发工具**。电脑端负责运行 Agent，手机端连接电脑使用；手机本身不运行 Agent。Agent 使用电脑上你自己安装的版本：pi 需要 Node.js 22.19+，可以在 Pier 中一键安装（运行 pi 官方安装程序），也可以自己安装，Pier 会自动找到。
+按你使用的设备选择，**安装 Pier 本身不需要 Node.js、Bun 或开发工具**。电脑端负责运行 Agent，手机端连接电脑使用；手机本身不运行 Agent。Agent 使用电脑上你自己安装的版本，可以装好 Pier 后在其中一键安装，见[快速上手](#快速上手)。
 
 | 平台 | 推荐安装方式 | 支持范围 |
 |---|---|---|
@@ -53,7 +54,7 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 & ([scriptblock]::Create((Invoke-RestMethod 'https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.ps1'))) -Mirror ghfast
 ```
 
-脚本从 Release 获取 x64 安装程序，**先校验 SHA-256，再打开安装向导**。支持 `-Version v0.2.60`、`-Mirror auto|github|ghfast|gh-proxy|ghproxy`（或自定义 HTTPS 前缀）、`-Silent`（静默安装）、`-Help`；也支持 `PIER_VERSION` / `PIER_MIRROR` 环境变量。默认依次尝试 GitHub 与镜像，下载失败或持续过慢时自动换线并续传；指定线路时不换线。需要系统的 `curl.exe`（新版 Windows 10 / 11 自带），没有时请使用安装包。
+脚本从 Release 获取 x64 安装程序，**先校验 SHA-256，再打开安装向导**。支持 `-Version v0.3.8`、`-Mirror auto|github|ghfast|gh-proxy|ghproxy`（或自定义 HTTPS 前缀）、`-Silent`（静默安装）、`-Help`；也支持 `PIER_VERSION` / `PIER_MIRROR` 环境变量。默认依次尝试 GitHub 与镜像，下载失败或持续过慢时自动换线并续传；指定线路时不换线。需要系统的 `curl.exe`（新版 Windows 10 / 11 自带），没有时请使用安装包。
 
 更新前请从托盘**完整退出 Pier**；可在应用内更新，或再次运行脚本。脚本不强制结束 Agent 会话，不安装 Windows 服务，不修改 PowerShell 执行策略。卸载用「设置 → 应用 → 已安装的应用 → Pier」，保留用户数据时不要选择删除应用数据。
 
@@ -84,18 +85,18 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 Debian / Ubuntu 推荐下载对应架构的 `.deb`，在下载目录安装（示例版本请替换为实际版本）：
 
 ```bash
-sudo apt install ./pier-v0.2.60-linux-x64.deb
+sudo apt install ./pier-v0.3.8-linux-x64.deb
 pier
 ```
 
 其他发行版可使用 `.AppImage`：
 
 ```bash
-chmod +x ./pier-v0.2.60-linux-x64.AppImage
-./pier-v0.2.60-linux-x64.AppImage
+chmod +x ./pier-v0.3.8-linux-x64.AppImage
+./pier-v0.3.8-linux-x64.AppImage
 ```
 
-ARM64 将文件名中的 `linux-x64` 换成 `linux-arm64`。AppImage 需要 FUSE；缺少 FUSE 时可用 `./pier-v0.2.60-linux-x64.AppImage --appimage-extract-and-run`。仍需系统图形会话和 GTK / WebKit 等运行库，不支持直接在 Alpine / musl 环境运行。桌面端不要用 root 启动。也可以使用下面的一键脚本，检测到图形会话时默认只安装 `pier` 命令。
+ARM64 将文件名中的 `linux-x64` 换成 `linux-arm64`。AppImage 需要 FUSE；缺少 FUSE 时可用 `./pier-v0.3.8-linux-x64.AppImage --appimage-extract-and-run`。仍需系统图形会话和 GTK / WebKit 等运行库，不支持直接在 Alpine / musl 环境运行。桌面端不要用 root 启动。也可以使用下面的一键脚本，检测到图形会话时默认只安装 `pier` 命令。
 
 ### Linux 一键安装
 
@@ -142,7 +143,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 
 | 参数 | 说明 |
 |---|---|
-| `--version v0.2.60` | 安装指定版本，默认为最新正式版 |
+| `--version v0.3.8` | 安装指定版本，默认为最新正式版 |
 | `--app-dir <目录>` | 仅 macOS：指定 `Pier.app` 所在目录，或用 `PIER_APP_DIR` 设置 |
 | `--service` / `--portable` | 仅 Linux：安装后台服务和 `pier` 命令 / 只安装 `pier` 命令 |
 | `--user` / `--system` | 仅 Linux：服务范围，默认普通账号为用户服务、root 为系统服务 |
@@ -185,7 +186,7 @@ bunx expo run:ios --device
 
 ### 安装包
 
-从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的文件（`<版本>` 形如 `0.2.60`，可用 Release 中的 `SHA256SUMS.txt` 核对）：
+从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的文件（`<版本>` 形如 `0.3.8`，可用 Release 中的 `SHA256SUMS.txt` 核对）：
 
 | 平台 | 文件 | 说明 |
 |---|---|---|
@@ -199,16 +200,16 @@ bunx expo run:ios --device
 ## 快速上手
 
 1. **打开 Pier**：Windows 从开始菜单打开，macOS 从 Finder 的应用目录打开，Linux 从应用菜单或 `pier` 打开；Linux 服务器用一键脚本安装后，在终端运行 `pier` 打开 CLI。需要登录后自动运行时，在桌面端「设置 → 常规 → 开机自启」开启。
-2. **准备 Agent**：pi、Claude Code、Codex、OpenCode 都可以在「设置 → Agent 配置」中一键安装，Claude Code、Codex、OpenCode 还可以选择国内镜像或 GitHub 加速下载线路（pi 也可以自己用 `curl -fsSL https://pi.dev/install.sh | sh` 安装，Pier 会自动找到它）；pi 在「设置 → Agent 配置 → pi → 模型与服务商」中登录服务商或填写 API Key，Claude Code / Codex 按提示登录。
+2. **准备 Agent**：在「设置 → Agent 配置」中一键安装 pi、Claude Code、Codex 或 OpenCode，下载慢时可以换国内镜像或 GitHub 加速线路。Claude Code、Codex、OpenCode 安装官方原生程序，不需要 Node.js；pi 运行官方安装程序，需要 Node.js 22.19+ 和 npm，缺少时 Pier 会说明缺什么并给出安装命令，装好后直接再点「安装」，无需重启 Pier。也可以自己安装（例如 `curl -fsSL https://pi.dev/install.sh | sh`），Pier 会自动找到。之后 pi 在「设置 → Agent 配置 → pi → 模型与服务商」中登录服务商或填写 API Key，Claude Code / Codex 按提示登录。
    使用 OpenCode 时，用 `opencode auth login` 登录，或在「设置 → Agent 配置 → OpenCode」中配置模型与服务商。详见[使用指南](docs/guide.md#opencode)。
    使用 Hermes Agent 时，在运行 Host 的电脑上安装 `hermes` 并用 `hermes setup` 配置模型（例如 DeepSeek）。详见[使用指南](docs/guide.md#hermes-agent)。
-3. **开始会话**：添加工作区（项目目录），新建会话时在输入框下方选择 pi、Claude Code、Codex、OpenCode 或 Hermes。
+3. **开始会话**：添加工作区（项目目录），新建会话时在输入框下方选择 pi、Claude Code、Codex、OpenCode 或 Hermes。长任务可以点会话底部状态栏的上下文用量（例如 `103k / 500k`）设置[上下文上限](docs/guide.md#上下文上限)。
 4. **连接手机**：在桌面端「远程主机 → 本机 → 连接管理」开启远程访问并显示配对二维码，在手机 App 中点「添加电脑」扫码。服务器上在 `pier` CLI 中依次输入 `/remote on`、`/pair`，用手机 App 扫描终端中的二维码（也可粘贴配对链接），再输入 `/pair yes` 确认。
 5. **添加其他电脑**：在侧边栏点「添加电脑」，粘贴那台电脑的配对链接，或选择「通过 SSH 添加」自动安装并配对；不在同一网络时配置[中继](docs/guide.md#中继与-p2p-直连)。
 
 ## 界面预览
 
-以下截图来自实际运行的 Pier 界面，使用示例工作区与演示模型。桌面端截自浏览器预览，手机端截自 Web 预览。
+以下截图来自实际运行的 Pier 界面，使用示例工作区与演示模型。桌面端截自浏览器预览，手机端截自 Web 预览。截图摄于 v0.3.8 改用「暖墨」配色之前，配色与当前版本不同；桌面端在「设置 → 常规 → 外观」、手机端在「设置 → 外观」中可以选择浅色、深色或跟随系统。
 
 ### 桌面端：会话、工具调用与审批
 
@@ -235,7 +236,7 @@ bunx expo run:ios --device
 
 | 文档 | 内容 |
 |---|---|
-| [使用指南](docs/guide.md) | 安装与更新、手机与其他电脑、中继、Claude Code / Codex / pi 配置，以及文件、Git、终端、浏览器、端口、进程、定时任务、语音输入等功能的详细说明 |
+| [使用指南](docs/guide.md) | 安装与更新、手机与其他电脑、中继，pi / Claude Code / Codex / OpenCode / Hermes Agent 的安装与配置、上下文上限、Subagent、Skills 与 MCP，以及文件、Git、终端、浏览器、端口、进程、定时任务、语音输入等功能的详细说明 |
 | [开发指南](docs/development.md) | 项目结构、本地开发与调试、构建桌面端 / 手机端 / sidecar、发版流程 |
 | [Pier Relay](apps/relay/README.md) | 自建中继的部署与管理后台 |
 | [协议](docs/protocol.md) · [安全设计](docs/security.md) | 客户端与 Host 之间的协议、远程访问的加密与配对设计 |
