@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useStore } from "../store.ts";
 import {
+	openRecognitionServiceSettings,
 	refreshSystemSpeechSupport,
 	type SpeechProvider,
 	SYSTEM_SPEECH_LANGUAGES,
@@ -153,7 +154,26 @@ function SystemSpeechOptions({ language, servicePackage }: { language: string; s
 				说话时由手机系统的语音识别服务转成文字，中途停顿会继续听，点击停止后填入输入框。可能需要联网；每次最多 2
 				分钟，识别后可编辑再发送。设置只保存在这台手机。
 			</Muted>
-			{Platform.OS === "android" && servicePackage ? <Muted>识别服务：{servicePackage}</Muted> : null}
+			{Platform.OS === "android" && servicePackage ? (
+				<View style={styles.field}>
+					<Muted>识别服务：{servicePackage}</Muted>
+					<Muted>
+						提示「识别服务没有获得麦克风授权」或「系统语音引擎需要您的授权」时，打开识别服务的应用信息，在权限中允许它使用麦克风。
+					</Muted>
+					<Button
+						title="识别服务权限"
+						icon="key-outline"
+						small
+						testID="speech-service-settings"
+						style={styles.serviceButton}
+						onPress={() => {
+							void openRecognitionServiceSettings(servicePackage).catch(() =>
+								store.toast("error", "无法打开识别服务的应用信息，请在系统设置的应用管理中找到它"),
+							);
+						}}
+					/>
+				</View>
+			) : null}
 		</>
 	);
 }
@@ -287,6 +307,7 @@ const styles = StyleSheet.create({
 	chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 	chip: { borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: 12, paddingVertical: 8 },
 	chipText: { fontSize: 13, fontWeight: "600" },
+	serviceButton: { alignSelf: "flex-start" },
 	disabled: { opacity: 0.55 },
 	pressed: { opacity: 0.7 },
 });

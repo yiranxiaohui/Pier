@@ -1,6 +1,7 @@
 import type { DeviceSpeech, RecognizedText, StartRecording, VoiceRecording } from "@pier/chat-state";
 import { MAX_SPEECH_SECONDS } from "@pier/protocol";
 import { requireOptionalNativeModule } from "expo";
+import { startActivityAsync } from "expo-intent-launcher";
 import type {
 	ExpoSpeechRecognitionErrorEvent,
 	ExpoSpeechRecognitionNativeEventMap,
@@ -196,7 +197,11 @@ export function systemSpeechError(event: Pick<ExpoSpeechRecognitionErrorEvent, "
 		case "not-allowed":
 			return "请在系统设置中允许 Pier 使用麦克风和语音识别后重试";
 		case "service-not-allowed":
-			return "系统语音识别服务拒绝了请求，可在语音设置中改用电脑语音服务";
+			// Android's ERROR_INSUFFICIENT_PERMISSIONS: usually the recognition service itself (for example
+			// Xiaomi's 系统语音引擎, which is not granted the microphone by default) may not record.
+			return Platform.OS === "android"
+				? "识别服务没有获得麦克风授权：请在语音设置中点「识别服务权限」，允许它使用麦克风后重试，也可以改用电脑语音服务"
+				: "系统语音识别被限制，请在系统设置中允许 Pier 使用语音识别后重试";
 		case "network":
 			return "系统语音识别需要联网，请检查网络后重试";
 		case "language-not-supported":
@@ -387,6 +392,11 @@ function availableRecognizer(): { speech: Recognizer; support: SystemSpeechSuppo
 		);
 	}
 	return { speech, support };
+}
+
+/** Open the recognition service's Android app page, where its own microphone permission is granted. */
+export async function openRecognitionServiceSettings(servicePackage: string): Promise<void> {
+	await startActivityAsync("android.settings.APPLICATION_DETAILS_SETTINGS", { data: `package:${servicePackage}` });
 }
 
 export const startSystemRecognition: StartRecording<RecognizedText> = async (signal, onError) => {

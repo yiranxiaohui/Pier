@@ -7,11 +7,13 @@ const mock = vi.hoisted(() => ({
 	platform: { OS: "android" },
 	native: undefined as unknown,
 	storage: { getItem: vi.fn(), setItem: vi.fn() },
+	startActivity: vi.fn(),
 }));
 
 vi.mock("expo", () => ({ requireOptionalNativeModule: () => mock.native ?? null }));
 vi.mock("react-native", () => ({ Platform: mock.platform }));
 vi.mock("../src/storage.ts", () => mock.storage);
+vi.mock("expo-intent-launcher", () => ({ startActivityAsync: mock.startActivity }));
 
 function fakeRecognizer(services = ["com.xiaomi.mibrain.speech"], defaultService = "com.xiaomi.mibrain.speech") {
 	const listeners = new Map<string, Set<Listener>>();
@@ -146,6 +148,18 @@ describe("system speech support", () => {
 });
 
 describe("system speech permissions", () => {
+	it("sends users to the recognition service's own permissions", async () => {
+		const speech = await load();
+		mock.startActivity.mockResolvedValueOnce({ resultCode: 0 });
+		await speech.openRecognitionServiceSettings("com.xiaomi.mibrain.speech");
+		expect(mock.startActivity).toHaveBeenCalledWith("android.settings.APPLICATION_DETAILS_SETTINGS", {
+			data: "package:com.xiaomi.mibrain.speech",
+		});
+		expect(speech.systemSpeechError({ error: "service-not-allowed", message: "" })).toContain("识别服务权限");
+		mock.platform.OS = "ios";
+		expect(speech.systemSpeechError({ error: "service-not-allowed", message: "" })).toContain("允许 Pier 使用语音识别");
+	});
+
 	it("asks for permission and explains a refusal", async () => {
 		const fake = fakeRecognizer();
 		const speech = await load(fake);
@@ -243,7 +257,7 @@ describe("live system recognition", () => {
 		const starting = speech.startSystemRecognition(new AbortController().signal, vi.fn());
 		fake.emit("error", { error: "service-not-allowed", message: "Bind failed" });
 		fake.emit("end");
-		await expect(starting).rejects.toThrow("系统语音识别服务拒绝了请求");
+		await expect(starting).rejects.toThrow("识别服务没有获得麦克风授权");
 		expect(fake.listening()).toBe(0);
 	});
 
