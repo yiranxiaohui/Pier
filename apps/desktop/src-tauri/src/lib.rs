@@ -1,5 +1,6 @@
 mod appimage_env;
 mod autostart;
+mod clipboard;
 mod host;
 mod html_preview;
 #[cfg(target_os = "linux")]
@@ -81,6 +82,7 @@ pub fn run() {
             system_speech::system_speech_cancel,
             autostart::autostart_status,
             autostart::autostart_set_enabled,
+            clipboard::clipboard_write_image,
             host::host_status,
             host::host_logs,
             host::host_restart,

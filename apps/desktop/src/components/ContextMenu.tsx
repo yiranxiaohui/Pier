@@ -61,11 +61,17 @@ export function ContextMenu({
 	position,
 	items,
 	label,
+	stayOnScroll = false,
 	onClose,
 }: {
 	position: ContextMenuPosition;
 	items: ContextMenuItem[];
 	label?: string;
+	/**
+	 * Stay open when the anchor's scroll containers scroll, for anchors in a chat transcript,
+	 * which scrolls by itself while an agent replies.
+	 */
+	stayOnScroll?: boolean;
 	onClose(): void;
 }) {
 	const ref = useRef<HTMLDivElement>(null);
@@ -74,6 +80,8 @@ export function ContextMenu({
 	onCloseRef.current = onClose;
 	const anchorRef = useRef(position.anchor);
 	anchorRef.current = position.anchor;
+	const stayOnScrollRef = useRef(stayOnScroll);
+	stayOnScrollRef.current = stayOnScroll;
 	const entries = normalize(items);
 
 	// Keep the menu inside the window: flip it left/up when it would overflow.
@@ -102,7 +110,7 @@ export function ContextMenu({
 		};
 		const onScroll = (e: Event) => {
 			const target = e.target as Node;
-			if (ref.current?.contains(target)) return;
+			if (stayOnScrollRef.current || ref.current?.contains(target)) return;
 			// Unrelated scroll containers (another pane re-laying out) must not dismiss the menu.
 			const anchor = anchorRef.current;
 			if (anchor && !target.contains?.(anchor)) return;

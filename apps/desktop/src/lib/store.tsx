@@ -69,6 +69,7 @@ import type { Bridge, HostStatus, LocalFileSink, UpdateStatus } from "./bridge.t
 import { remoteServiceUrl } from "./browser-url.ts";
 import { fileToken } from "./composer-text.ts";
 import { workspaceNameError } from "./file-names.ts";
+import { imageFileName, parseDataUrl } from "./image-clipboard.ts";
 import { newSessionDefaultsFromSettings } from "./new-session-defaults.ts";
 import { remotePageBlocker } from "./settings-target.ts";
 import { beginWorkspacePaste, finishWorkspacePaste, renameWorkspaceClipboardPath } from "./workspace-clipboard.ts";
@@ -3755,6 +3756,36 @@ export class PierStore {
 	/** Ask where to save a download named `name` on this computer; null when cancelled. */
 	saveLocalFile(name: string): Promise<LocalFileSink | null> {
 		return this.bridge.saveFile(name);
+	}
+
+	/** Copy an image shown in a chat (a data URL) to the clipboard. */
+	async copyImage(src: string): Promise<void> {
+		try {
+			await this.bridge.copyImage(src);
+			this.toast("info", "已复制图片");
+		} catch (error) {
+			this.toast("error", `复制图片失败：${errorText(error)}`);
+		}
+	}
+
+	/** Save an image shown in a chat (a base64 data URL) to a file on this computer. */
+	async saveImage(src: string): Promise<void> {
+		const image = parseDataUrl(src);
+		if (!image) {
+			this.toast("error", "无法保存这张图片");
+			return;
+		}
+		let sink: LocalFileSink | null = null;
+		try {
+			sink = await this.saveLocalFile(imageFileName(image.mimeType));
+			if (!sink) return;
+			await sink.write(image.base64);
+			const savedTo = (await sink.finish()) ?? sink.path;
+			this.toast("info", savedTo ? `已保存图片到 ${savedTo}` : "已保存图片");
+		} catch (error) {
+			await sink?.abort().catch(() => {});
+			this.toast("error", `保存图片失败：${errorText(error)}`);
+		}
 	}
 
 	/** Browser location follows the workspace host. Default local browsing needs no managed session. */

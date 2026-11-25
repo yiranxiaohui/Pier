@@ -7,6 +7,7 @@
  */
 
 import { normalizeUpdateMirror } from "@pier/client";
+import { imagePixels, imagePngBlob } from "./image-clipboard.ts";
 
 export type HostState = "starting" | "ready" | "restarting" | "failed" | "stopped";
 
@@ -37,6 +38,11 @@ export interface Bridge {
 	 * desktop app reads it natively: WebView2 asks the user before every `navigator.clipboard.readText()`.
 	 */
 	readClipboardText(): Promise<string>;
+	/**
+	 * Put the image at `src` (a data or blob URL) on the clipboard. The desktop app writes it
+	 * natively, as the WebViews differ in which images their clipboard API takes.
+	 */
+	copyImage(src: string): Promise<void>;
 	/** Show a local file or directory in the system file manager; only the desktop app can. */
 	revealPath?(path: string): Promise<void>;
 	/**
@@ -195,6 +201,13 @@ function tauriBridge(): Bridge {
 			const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
 			return readText();
 		},
+		copyImage: async (src) => {
+			const { width, height, rgba } = await imagePixels(src);
+			// The pixels go as the raw request body; see `src-tauri/src/clipboard.rs`.
+			await (await core).invoke("clipboard_write_image", rgba, {
+				headers: { "Pier-Image-Width": String(width), "Pier-Image-Height": String(height) },
+			});
+		},
 		revealPath: async (path) => {
 			const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
 			await revealItemInDir(path);
@@ -268,6 +281,8 @@ function browserBridge(): Bridge {
 			window.open(target, "_blank", "noopener,noreferrer");
 		},
 		readClipboardText: () => navigator.clipboard.readText(),
+		// The blob is passed as a promise so converting it keeps the click's user activation.
+		copyImage: (src) => navigator.clipboard.write([new ClipboardItem({ "image/png": imagePngBlob(src) })]),
 		saveFile: async (name) => browserDownload(name),
 		quit: async () => window.close(),
 		updates: params.get("updates") === "demo" ? demoUpdates() : unsupportedUpdates,

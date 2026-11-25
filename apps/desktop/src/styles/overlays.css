@@ -4,7 +4,8 @@
 	position: fixed;
 	right: 20px;
 	bottom: 20px;
-	z-index: 50;
+	/* Above the image lightbox, whose copy and save actions report here. */
+	z-index: 75;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
@@ -407,16 +408,21 @@
 	cursor: default;
 }
 
-.lightbox-close.icon {
+.lightbox-actions {
 	position: absolute;
 	top: 16px;
 	right: 16px;
+	display: flex;
+	gap: 4px;
+}
+
+.lightbox-actions .ghost.icon {
 	width: 34px;
 	height: 34px;
 	color: rgba(255, 255, 255, 0.8);
 }
 
-.lightbox-close.icon:hover:not(:disabled) {
+.lightbox-actions .ghost.icon:hover:not(:disabled) {
 	background: rgba(255, 255, 255, 0.12);
 	color: #fff;
 }
