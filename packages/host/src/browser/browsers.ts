@@ -12,11 +12,12 @@ import {
 	type BrowserResult,
 	type BrowserTransport,
 	type LocalBrowserInfo,
+	type PierHostEvent,
 	PierProtocolError,
 	parseProtocolVersion,
 } from "@pier/protocol";
 import type { Connection } from "../connection.ts";
-import { ChromiumBrowser } from "./chromium.ts";
+import { ChromiumBrowser, type EmbedHooks } from "./chromium.ts";
 import type { BrowserControllers } from "./controllers.ts";
 import { type BrowserNetwork, forwardService, remoteProxy, webUrl } from "./network.ts";
 
@@ -27,7 +28,32 @@ export interface BrowserProcess {
 	close(): void | Promise<void>;
 }
 export interface BrowserOptions {
-	launch?: (profile: string, url: string, proxyPort: number | undefined, onExit: () => void) => Promise<BrowserProcess>;
+	launch?: (
+		profile: string,
+		url: string,
+		proxyPort: number | undefined,
+		onExit: () => void,
+		options?: { embed?: EmbedHooks; locale?: string },
+	) => Promise<BrowserProcess>;
+}
+
+/** Controls only a windowless local browser drawn in the panel has (1.69). */
+const EMBEDDED_CONTROLS = new Set<BrowserControl["op"]>([
+	"screencast",
+	"input",
+	"copy",
+	"dialog",
+	"choose",
+	"files",
+	"embed",
+]);
+/** Frames wait while this much is still queued for the panel's connection. */
+const FRAME_BACKLOG_BYTES = 1024 * 1024;
+
+/** Resolves once the connection has sent most of what is queued (or after a few seconds). */
+async function drained(owner: Connection): Promise<void> {
+	for (let i = 0; i < 250 && !owner.isClosed && owner.bufferedAmount > FRAME_BACKLOG_BYTES; i++)
+		await new Promise((resolve) => setTimeout(resolve, 20));
 }
 interface Record {
 	owner: Connection;
@@ -42,6 +68,10 @@ interface Record {
 	dedicated: boolean;
 	preparation?: BrowserPreparationProgress;
 	closing?: Promise<void>;
+	/** The user's language for a windowless browser's pages. */
+	locale?: string;
+	/** Reopening the browser in the panel or as a window (`embed`). */
+	switching?: Promise<unknown>;
 }
 
 export class LocalBrowsers {
@@ -92,12 +122,16 @@ export class LocalBrowsers {
 			controlled?: boolean;
 			transport?: BrowserTransport;
 			managed?: boolean;
+			embedded?: boolean;
+			locale?: string;
 		},
 	): Promise<LocalBrowserInfo> {
 		const url = webUrl(params.url);
 		if (params.mode === "remote" && !params.peerId) throw new PierProtocolError("BAD_REQUEST", "请选择远程主机");
 		const controlled = params.controlled === true;
 		const dedicated = params.mode !== "remote" && (params.mode === "network" || controlled || params.managed === true);
+		// Only the panel's own browser on this computer is drawn in the panel.
+		const embedded = dedicated && params.mode === "service" && params.managed === true && params.embedded === true;
 		if (!dedicated && params.mode !== "remote") {
 			const existing = [...this.browsers.values()].find(
 				(r) =>
@@ -133,6 +167,7 @@ export class LocalBrowsers {
 			owner,
 			closed: false,
 			dedicated,
+			...(params.locale ? { locale: params.locale } : {}),
 			info: {
 				browserId,
 				workspaceId: params.workspaceId,
@@ -142,6 +177,7 @@ export class LocalBrowsers {
 				mode: params.mode,
 				controllable: controlled,
 				...(dedicated || params.mode === "remote" ? { managed: true } : {}),
+				...(embedded ? { embedded: true } : {}),
 			},
 		};
 		this.browsers.set(browserId, record);
@@ -211,22 +247,7 @@ export class LocalBrowsers {
 			}
 			if (owner.isClosed || record.closed) throw new Error("Browser connection closed");
 			if (dedicated) {
-				const profile = join(
-					this.dir,
-					"browser-profiles",
-					createHash("sha256")
-						.update(params.peerId ?? "local")
-						.digest("hex")
-						.slice(0, 32),
-				);
-				record.browser = await (this.options.launch ?? ChromiumBrowser.start)(
-					profile,
-					record.info.localUrl,
-					params.mode === "network" ? record.network?.port : undefined,
-					() => {
-						void this.closeRecord(record);
-					},
-				);
+				record.browser = await this.launch(record, record.info.localUrl, embedded);
 				if (record.closed || owner.isClosed) {
 					record.browser.close();
 					throw new Error("Browser connection closed");
@@ -259,6 +280,95 @@ export class LocalBrowsers {
 		} catch (error) {
 			this.closeRecord(record);
 			throw error;
+		}
+	}
+	/**
+	 * Start the browser process of a record: with its own profile per computer, windowless and
+	 * drawn in the panel when `embedded`. Only the process the record holds closes it when it exits
+	 * (one that fails to start makes `launch` throw instead).
+	 */
+	private async launch(record: Record, url: string, embedded: boolean): Promise<BrowserProcess> {
+		const profile = join(
+			this.dir,
+			"browser-profiles",
+			createHash("sha256")
+				.update(record.info.peerId ?? "local")
+				.digest("hex")
+				.slice(0, 32),
+		);
+		let started: BrowserProcess | undefined;
+		started = await (this.options.launch ?? ChromiumBrowser.start)(
+			profile,
+			url,
+			record.info.mode === "network" ? record.network?.port : undefined,
+			() => {
+				if (started && record.browser === started) void this.closeRecord(record);
+			},
+			{
+				...(embedded ? { embed: this.hooks(record) } : {}),
+				...(record.locale ? { locale: record.locale } : {}),
+			},
+		);
+		return started;
+	}
+	/** Frames and popups of a windowless browser go to the connection that opened it, and nowhere else. */
+	private hooks(record: Record): EmbedHooks {
+		const send = (event: PierHostEvent) => {
+			if (!record.closed && !record.owner.isClosed) record.owner.send({ type: "evt", event });
+		};
+		return {
+			frame: (frame) => {
+				send({ type: "browser.frame", browserId: record.info.browserId, ...frame });
+				return drained(record.owner);
+			},
+			popup: (tabId, popup) =>
+				send({ type: "browser.popup", browserId: record.info.browserId, tabId, ...(popup ? { popup } : {}) }),
+		};
+	}
+	/**
+	 * Reopen the panel's browser drawn in the panel or as a window (`embed`): the same profile, so
+	 * logins stay, and its web pages reopened in their tabs.
+	 */
+	private async embed(record: Record, embedded: boolean): Promise<BrowserControlResult> {
+		if (!record.dedicated || record.info.mode !== "service" || !record.info.managed)
+			throw new PierProtocolError("UNSUPPORTED", "只有面板中的本机浏览器可以切换显示方式");
+		if ((record.info.embedded === true) === embedded) return {};
+		const old = record.browser;
+		if (!old?.control) throw new PierProtocolError("UNSUPPORTED", "这个浏览器不由 Pier 管理，无法切换");
+		const state = (await old.control({ op: "state" }).catch(() => undefined))?.state;
+		const tabs = (state?.tabs ?? []).filter((tab) => /^https?:/i.test(tab.url)).slice(0, 16);
+		const active = tabs.find((tab) => tab.id === state?.activeTabId);
+		// The tab on screen opens last, so it is the active one.
+		const urls = [...tabs.filter((tab) => tab !== active), ...(active ? [active] : [])].map((tab) => tab.url);
+		record.browser = undefined;
+		await old.close();
+		const reopen = async (mode: boolean) => {
+			if (record.closed) throw new PierProtocolError("NOT_FOUND", "浏览器会话已关闭");
+			const next = await this.launch(record, urls[0] ?? "about:blank", mode);
+			if (record.closed) {
+				await next.close();
+				throw new PierProtocolError("NOT_FOUND", "浏览器会话已关闭");
+			}
+			record.browser = next;
+			record.info = { ...record.info, embedded: mode };
+			for (const url of urls.slice(1)) await next.control?.({ op: "newTab", url }).catch(() => {});
+		};
+		try {
+			await reopen(embedded);
+			return {};
+		} catch (error) {
+			if (record.closed) throw error;
+			const reason = error instanceof Error ? error.message : String(error);
+			// Keep the browser as it was, and say why the other way did not work.
+			try {
+				await reopen(!embedded);
+			} catch {
+				void this.closeRecord(record);
+			}
+			throw new PierProtocolError(
+				"CONFLICT",
+				`${embedded ? "无法在面板中显示浏览器" : "无法以独立窗口打开浏览器"}：${reason}`,
+			);
 		}
 	}
 	private closeRecord(record: Record): Promise<void> {
@@ -306,6 +416,20 @@ export class LocalBrowsers {
 		const record = this.browsers.get(id);
 		if (!record || record.owner !== owner || record.closed || !record.ready)
 			throw new PierProtocolError("NOT_FOUND", "浏览器会话已关闭");
+		if (record.remoteId && EMBEDDED_CONTROLS.has(command.op))
+			throw new PierProtocolError("UNSUPPORTED", "远程浏览器的画面由串流显示，不支持这个操作");
+		// While it reopens, wait for the new process instead of failing.
+		if (record.switching) await record.switching.catch(() => {});
+		if (command.op === "embed") {
+			if (record.closed) throw new PierProtocolError("NOT_FOUND", "浏览器会话已关闭");
+			const switching = this.embed(record, command.value !== false);
+			record.switching = switching;
+			try {
+				return await switching;
+			} finally {
+				if (record.switching === switching) record.switching = undefined;
+			}
+		}
 		if (record.remoteId) {
 			const client = record.client;
 			if (!client) throw new PierProtocolError("NOT_FOUND", "远程浏览器连接已关闭");
@@ -319,7 +443,10 @@ export class LocalBrowsers {
 			);
 		}
 		const browser = record.browser;
+		if (record.closed) throw new PierProtocolError("NOT_FOUND", "浏览器会话已关闭");
 		if (!browser?.control) throw new PierProtocolError("UNSUPPORTED", "这个浏览器不由 Pier 管理，无法控制");
+		if (EMBEDDED_CONTROLS.has(command.op) && !record.info.embedded)
+			throw new PierProtocolError("UNSUPPORTED", "这个浏览器显示在独立窗口中");
 		return browser.control(command);
 	}
 	async close(owner: Connection, id: string): Promise<boolean> {

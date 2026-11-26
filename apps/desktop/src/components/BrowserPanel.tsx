@@ -15,6 +15,7 @@ import { portAddress, portTarget, supportsPortFeature } from "../lib/host-ports.
 import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
 import { type AnnotationTool, BrowserAnnotator, renderAnnotated, type Stroke } from "./BrowserAnnotator.tsx";
 import { BrowserPreparationStatus } from "./BrowserPreparationStatus.tsx";
+import { BrowserScreen } from "./BrowserScreen.tsx";
 import { ContextMenu, type ContextMenuItem, type ContextMenuPosition } from "./ContextMenu.tsx";
 import {
 	IconArrowLeft,
@@ -108,8 +109,9 @@ const TOOLS: Array<{ id: AnnotationTool; label: string; hint: string; Icon: type
  * The workspace browser as a tab of the right-hand panel, laid out like a browser: back, forward,
  * reload, an address bar, then picking an element or marking up a screenshot for the conversation
  * on screen (`composerKey`). A remote workspace's browser runs on that computer and its picture
- * is embedded here; a local workspace's opens in a Pier-managed window this panel drives. Only
- * one browser runs per workspace; it keeps running while the panel is closed.
+ * is streamed here; a local workspace's is a windowless Pier-managed browser drawn here (or, on
+ * request or an older Host, a window this panel drives). Only one browser runs per workspace; it
+ * keeps running while the panel is closed.
  */
 export function BrowserView({
 	workspace,
@@ -310,6 +312,23 @@ export function BrowserView({
 		addressInput.current?.blur();
 		if (!session) void open(url);
 		else void control({ op: "navigate", url });
+	};
+
+	/** Reopen the local browser drawn in the panel or as its own window, keeping its pages. */
+	const switchEmbed = async (embedded: boolean) => {
+		if (!sessionId) return;
+		endAnnotation();
+		setBusy(true);
+		setError("");
+		try {
+			await store.browserControl(sessionId, { op: "embed", value: embedded }, 60_000);
+			setSessions((rows) => rows.map((row) => (row.browserId === sessionId ? { ...row, embedded } : row)));
+			setPage(undefined);
+		} catch (error) {
+			setError(message(error));
+		} finally {
+			setBusy(false);
+		}
 	};
 
 	const closeBrowser = async () => {
@@ -553,6 +572,15 @@ export function BrowserView({
 					else void openExternally();
 				},
 			},
+		!remote &&
+			session &&
+			canControl &&
+			store.canEmbedBrowsers && {
+				label: session.embedded ? "在独立窗口中显示" : "在面板中显示",
+				icon: session.embedded ? <IconExternal size={14} /> : <IconMonitor size={14} />,
+				disabled: busy,
+				onSelect: () => void switchEmbed(!session.embedded),
+			},
 		!!pageUrl &&
 			/^https?:/.test(pageUrl) && {
 				label: "用系统浏览器打开当前网页",
@@ -748,6 +776,19 @@ export function BrowserView({
 								<p className="muted">主机连接已断开，重新连接后会恢复画面。</p>
 							</div>
 						)
+					) : session.embedded ? (
+						<BrowserScreen
+							browserId={session.browserId}
+							active={active && !busy}
+							interactive={!frozen}
+							onError={setError}
+							onShortcut={(action) => {
+								if (action === "address") {
+									addressInput.current?.focus();
+									addressInput.current?.select();
+								} else void control({ op: action });
+							}}
+						/>
 					) : (
 						<div className="browser-empty">
 							<IconBrowser size={22} />
@@ -756,6 +797,11 @@ export function BrowserView({
 							<p className="muted">
 								网页显示在 Pier 打开的浏览器窗口中。这里的地址栏、前进后退、选取元素和截图都作用于那个窗口。
 							</p>
+							{canControl && store.canEmbedBrowsers ? (
+								<button type="button" disabled={busy} onClick={() => void switchEmbed(true)}>
+									在面板中显示
+								</button>
+							) : null}
 						</div>
 					)
 				) : (
@@ -775,7 +821,9 @@ export function BrowserView({
 								<p className="muted">
 									{remote
 										? `在上方输入网址。浏览器运行在 ${name} 上，localhost 指那台电脑，登录状态和下载也保存在那里。`
-										: "在上方输入网址，Pier 会打开一个由它管理的浏览器窗口（Chrome、Chromium 或 Edge），并在这里控制它。"}
+										: store.canEmbedBrowsers
+											? "在上方输入网址，网页就显示在这里。Pier 在后台运行一个由它管理的 Chrome、Chromium 或 Edge（独立配置，不影响你平时的浏览器），登录状态会保留。"
+											: "在上方输入网址，Pier 会打开一个由它管理的浏览器窗口（Chrome、Chromium 或 Edge），并在这里控制它。"}
 								</p>
 								{ports.length ? (
 									<div className="browser-ports">
@@ -880,7 +928,7 @@ export function BrowserView({
 								{annotation.working ? (
 									<IconLoader size={13} className="spin" />
 								) : annotation.picking ? (
-									remote ? (
+									remote || session?.embedded ? (
 										"点击页面上的元素"
 									) : (
 										"在浏览器窗口中点击元素"

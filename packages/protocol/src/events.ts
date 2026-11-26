@@ -1,4 +1,4 @@
-import type { BrowserCommand, BrowserPreparationProgress } from "./browser.ts";
+import type { BrowserCommand, BrowserPopup, BrowserPreparationProgress } from "./browser.ts";
 import type {
 	AgentConfigRuntime,
 	AgentConfigScope,
@@ -100,6 +100,14 @@ export type PierHostEvent =
 			progress: BrowserPreparationProgress;
 	  }
 	| { type: "browser.remoteClosed"; browserId: string }
+	/**
+	 * A frame of the page an embedded browser shows (1.69), sent only to the connection that opened
+	 * it while `screencast` is on: a base64 JPEG of `width` × `height` CSS pixels (the image itself
+	 * is at the device pixel ratio asked for).
+	 */
+	| { type: "browser.frame"; browserId: string; tabId: string; data: string; width: number; height: number }
+	/** A select list, dialog or file chooser opened on the page on screen, or closed (no `popup`) (1.69). */
+	| { type: "browser.popup"; browserId: string; tabId: string; popup?: BrowserPopup }
 	| { type: "browser.command"; browserId: string; requestId: string; command: BrowserCommand }
 	| { type: "task.changed" }
 	| { type: "host.notice"; level: "info" | "warning" | "error"; message: string; sessionId?: string }

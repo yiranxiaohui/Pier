@@ -4,6 +4,7 @@ import type { PierClient } from "@pier/client";
 import type { BrowserCommand, BrowserControl, PairingRequest, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
+import type { EmbedHooks } from "../src/browser/chromium.ts";
 import type { RemoteBrowserLaunch, RemoteBrowserProcess } from "../src/browser/selkies.ts";
 import { Recorder, startTestHost, type TestHost } from "./helpers.ts";
 
@@ -334,6 +335,169 @@ describe("browsers running on the workspace host", () => {
 		await expect(
 			local.request("browser.control", { browserId: plain.browserId, command: { op: "state" } }),
 		).rejects.toMatchObject({ code: "UNSUPPORTED" });
+	});
+	it("draws the panel's local browser in the panel and reopens it as a window with its pages", async () => {
+		const hooks: Array<EmbedHooks | undefined> = [];
+		const exits: Array<() => void> = [];
+		const closes: Array<ReturnType<typeof vi.fn>> = [];
+		const calls: BrowserControl[][] = [];
+		localLaunch.mockImplementation(
+			async (_profile: string, _url: string, _port: unknown, onExit: () => void, options?: { embed?: EmbedHooks }) => {
+				hooks.push(options?.embed);
+				exits.push(onExit);
+				const close = vi.fn(async () => {});
+				closes.push(close);
+				const received: BrowserControl[] = [];
+				calls.push(received);
+				return {
+					action: vi.fn(),
+					close,
+					control: async (command: BrowserControl) => {
+						received.push(command);
+						if (command.op !== "state") return {};
+						return {
+							state: {
+								tabs: [
+									{ id: "a", title: "A", url: "http://localhost:3000/a" },
+									{ id: "b", title: "B", url: "http://localhost:3000/b" },
+									{ id: "c", title: "", url: "about:blank" },
+								],
+								activeTabId: "a",
+								canGoBack: false,
+								canGoForward: false,
+								loading: false,
+							},
+						};
+					},
+				};
+			},
+		);
+		const localWorkspace = (await local.request("workspace.add", { path: a.workspaceDir, policy: "auto" })).workspace;
+		const events = new Recorder();
+		local.onEvent(events.handler);
+		const info = await local.request("browser.open", {
+			workspaceId: localWorkspace.id,
+			url: "http://localhost:3000/a",
+			mode: "service",
+			managed: true,
+			embedded: true,
+			locale: "zh-CN",
+		});
+		expect(info).toMatchObject({ mode: "service", managed: true, embedded: true });
+		expect(localLaunch.mock.calls[0]?.[4]).toMatchObject({ locale: "zh-CN" });
+		const browserId = info.browserId;
+		const control = (command: BrowserControl) => local.request("browser.control", { browserId, command });
+
+		// Frames and popups go to the connection that opened it, and only there.
+		const stranger = await a.connect();
+		const overheard = new Recorder();
+		stranger.onEvent(overheard.handler);
+		await hooks[0]?.frame({ tabId: "a", data: "AAAA", width: 640, height: 480 });
+		hooks[0]?.popup("a", { kind: "files", multiple: false });
+		hooks[0]?.popup("a", undefined);
+		expect((await events.waitForType("browser.frame")).event).toEqual({
+			type: "browser.frame",
+			browserId,
+			tabId: "a",
+			data: "AAAA",
+			width: 640,
+			height: 480,
+		});
+		await events.waitFor((frame) => frame.event.type === "browser.popup" && !frame.event.popup);
+		expect(events.frames.filter((frame) => frame.event.type === "browser.popup").map((frame) => frame.event)).toEqual([
+			{ type: "browser.popup", browserId, tabId: "a", popup: { kind: "files", multiple: false } },
+			{ type: "browser.popup", browserId, tabId: "a" },
+		]);
+		await control({ op: "screencast", value: true, width: 640, height: 480, scale: 2 });
+		await control({ op: "input", input: { type: "text", text: "你好" } });
+		expect(calls[0]).toEqual([
+			{ op: "screencast", value: true, width: 640, height: 480, scale: 2 },
+			{ op: "input", input: { type: "text", text: "你好" } },
+		]);
+		expect(overheard.types()).not.toContain("browser.frame");
+		expect(overheard.types()).not.toContain("browser.popup");
+
+		// As a window: the same profile, its web pages reopened with the one on screen last.
+		await control({ op: "embed", value: false });
+		expect(closes[0]).toHaveBeenCalledTimes(1);
+		expect(localLaunch).toHaveBeenCalledTimes(2);
+		expect(localLaunch.mock.calls[1]?.[0]).toBe(localLaunch.mock.calls[0]?.[0]);
+		expect(localLaunch.mock.calls[1]?.[1]).toBe("http://localhost:3000/b");
+		expect(hooks[1]).toBeUndefined();
+		expect(calls[1]).toEqual([{ op: "newTab", url: "http://localhost:3000/a" }]);
+		expect((await local.request("browser.list")).browsers).toMatchObject([{ browserId, embedded: false }]);
+		await expect(control({ op: "input", input: { type: "text", text: "x" } })).rejects.toMatchObject({
+			code: "UNSUPPORTED",
+		});
+		await control({ op: "reload" });
+		expect(calls[1]).toContainEqual({ op: "reload" });
+		// The old process going away late does not close the reopened browser.
+		exits[0]?.();
+		expect((await local.request("browser.list")).browsers).toHaveLength(1);
+
+		// And back into the panel.
+		await control({ op: "embed", value: true });
+		expect(localLaunch).toHaveBeenCalledTimes(3);
+		expect(hooks[2]).toBeDefined();
+		expect((await local.request("browser.list")).browsers).toMatchObject([{ browserId, embedded: true }]);
+		// The new process exiting closes the browser.
+		exits[2]?.();
+		await expect.poll(async () => (await local.request("browser.list")).browsers).toEqual([]);
+	});
+	it("keeps the panel's browser as it was when it cannot open as a window", async () => {
+		const modes: boolean[] = [];
+		localLaunch.mockImplementation(
+			async (_profile: string, url: string, _port: unknown, _onExit: () => void, options?: { embed?: EmbedHooks }) => {
+				modes.push(!!options?.embed);
+				// No display for a window here.
+				if (!options?.embed) throw new Error("本地浏览器已关闭");
+				return {
+					action: vi.fn(),
+					close: vi.fn(async () => {}),
+					control: async (command: BrowserControl) =>
+						command.op === "state"
+							? {
+									state: {
+										tabs: [{ id: "a", title: "A", url }],
+										activeTabId: "a",
+										canGoBack: false,
+										canGoForward: false,
+										loading: false,
+									},
+								}
+							: {},
+				};
+			},
+		);
+		const localWorkspace = (await local.request("workspace.add", { path: a.workspaceDir, policy: "auto" })).workspace;
+		const info = await local.request("browser.open", {
+			workspaceId: localWorkspace.id,
+			url: "http://localhost:3000/a",
+			mode: "service",
+			managed: true,
+			embedded: true,
+		});
+		await expect(
+			local.request("browser.control", { browserId: info.browserId, command: { op: "embed", value: false } }),
+		).rejects.toMatchObject({ code: "CONFLICT", message: "无法以独立窗口打开浏览器：本地浏览器已关闭" });
+		expect(modes).toEqual([true, false, true]);
+		expect(localLaunch.mock.calls[2]?.[1]).toBe("http://localhost:3000/a");
+		expect((await local.request("browser.list")).browsers).toMatchObject([
+			{ browserId: info.browserId, embedded: true },
+		]);
+		await local.request("browser.control", { browserId: info.browserId, command: { op: "screencast", value: false } });
+	});
+	it("keeps a remote browser's stream: no panel frames, input or window switch", async () => {
+		const info = await open();
+		for (const command of [
+			{ op: "screencast", value: true, width: 640, height: 480 },
+			{ op: "input", input: { type: "text", text: "x" } },
+			{ op: "embed", value: false },
+		] as BrowserControl[])
+			await expect(local.request("browser.control", { browserId: info.browserId, command })).rejects.toMatchObject({
+				code: "UNSUPPORTED",
+			});
+		expect(controls).toEqual([]);
 	});
 	it("rejects an old remote host before trying to launch or proxy a local browser", async () => {
 		const original = b.host.info.bind(b.host);

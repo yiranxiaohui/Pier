@@ -1,4 +1,4 @@
-# Pier 协议 v1.68
+# Pier 协议 v1.69
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -808,7 +808,7 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 | `tunnel.read` | `{ tunnelId }` | `{ data, end }`；base64 原始字节，每次最多 64 KiB；最多等 25 秒，无数据时返回空串和 `end:false`；同一流只能有一个挂起读取 |
 | `tunnel.write` | `{ tunnelId, data, end? }` | `{ written }`；单块最多 64 KiB，`end` 半关闭写方向 |
 | `tunnel.close` | `{ tunnelId }` | `{ closed }`；释放 TCP 套接字和缓冲 |
-| `browser.open` 🔒 | `{ workspaceId, peerId?, url, mode, controlled?, managed? }` | `LocalBrowserInfo`；`mode:service` 转发一个端口，返回本地 URL，由 UI 打开默认浏览器；`mode:network` 启动本地 Chromium 独立窗口和远程 HTTP / CONNECT 代理；`controlled:true` 也使用独立窗口并注册工作区控制器；`managed:true`（1.67）也使用独立窗口，供 `browser.control` 驱动，不注册控制器 |
+| `browser.open` 🔒 | `{ workspaceId, peerId?, url, mode, controlled?, managed?, embedded?, locale? }` | `LocalBrowserInfo`；`mode:service` 转发一个端口，返回本地 URL，由 UI 打开默认浏览器；`mode:network` 启动本地 Chromium 独立窗口和远程 HTTP / CONNECT 代理；`controlled:true` 也使用独立窗口并注册工作区控制器；`managed:true`（1.67）也使用独立窗口，供 `browser.control` 驱动，不注册控制器；本机 `mode:service` 加 `managed:true` 时，`embedded:true`（1.69）改为不开窗口、由面板绘制网页（见「面板中绘制的本机浏览器」），`locale` 为用户的语言（BCP 47，如 `zh-CN`） |
 | `browser.list` 🔒 | — | `{ browsers: LocalBrowserInfo[], preparations?: BrowserPreparation[] }`；只列出调用连接创建的实例和正在准备的远程浏览器 |
 | `browser.close` 🔒 | `{ browserId }` | `{ closed }`；关闭代理、转发和项目启动的独立浏览器 |
 | `browser.attach` | `{ workspaceId, browserId }` | `{ attached:true }`；调用连接声明可在本地执行此工作区的浏览器命令 |
@@ -816,7 +816,7 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 | `browser.action` | `{ workspaceId, browserId?, command }` | `BrowserResult`；多个控制器时必须指定 ID；没有控制器时提示先在客户端打开并允许外部集成通过协议操作 |
 | `browser.result` | `{ requestId, result?, error? }` | `{ accepted }`；只有接收命令的注册连接能回复；命令超时或被取消后回复被忽略 |
 
-`LocalBrowserInfo = { browserId, workspaceId, peerId?, url, localUrl, mode, controllable, transport?, managed? }`；`managed:true`（1.67）表示 Pier 启动并可通过 `browser.control` 驱动的浏览器：远程浏览器总是如此，本机的独立窗口亦然。每台电脑（按 `peerId`）同时只有一个本地独立窗口，它们共用一份配置目录。
+`LocalBrowserInfo = { browserId, workspaceId, peerId?, url, localUrl, mode, controllable, transport?, managed?, embedded? }`；`managed:true`（1.67）表示 Pier 启动并可通过 `browser.control` 驱动的浏览器：远程浏览器总是如此，本机的独立窗口亦然；`embedded:true`（1.69）表示它没有窗口，网页由面板绘制。每台电脑（按 `peerId`）同时只有一个本地独立窗口，它们共用一份配置目录。
 `BrowserCommand = { action, tabId?, url?, selector?, text?, key?, expression? }`；`action` 支持 `tabs` / `navigate` / `snapshot` / `click` / `fill` / `press` / `evaluate` / `screenshot`，选择器是 CSS。导航仅接受不带 userinfo 的 HTTP(S) 地址。`BrowserResult = { text?, image?: { data, mimeType:"image/png" } }`。
 
 `browser.command` 事件 `{ browserId, requestId, command }` 只发给注册此控制器的连接，不广播、不写 EventLog。注册连接在本地私有 CDP 进程管道执行后调用 `browser.result`，远程等待上限 30 秒。断线、移除控制器或取消会话请求时结束等待。内置 pi 不再注册 `pier_browser` 工具；浏览器协议仍供外部集成使用，协议调用者按现有完全信任模型自行控制审批。
@@ -853,3 +853,20 @@ Linux 读取 `/proc`，macOS 执行固定 `ps` 查询，Windows 使用 PowerShel
 `BrowserElement = { nodeId, url, title, label, selector, tag, text, html, rect, image? }`：`label` 是开发者工具式的 `div#id.class`；`selector` 是选取时只匹配该元素的 CSS 选择器（优先唯一 ID，最多向上 12 层）；`text` 为 `innerText`，截断到 2,000 字符；`html` 为 `outerHTML`，截断到 6,000 字符；`rect` 为相对顶层视口的 CSS 像素（同源 iframe 中的元素已加上框架偏移，跨源 iframe 只能选到 `<iframe>` 本身）；`image` 为元素可见部分的截图。`BrowserImage = { data, mimeType, width, height }`，PNG 超过约 8 MB（base64）时改为 JPEG。
 
 远程主机的审计日志记录 `browser.remoteControl` 的 `navigate` / `newTab` / `pick` / `capture`，只含 `browserId` 和 `op`，不含网址、网页内容或截图；`state` 等其余操作不记录。远程浏览器以 `--disable-infobars` 启动，网页上方不显示提示条。
+
+### 面板中绘制的本机浏览器（1.69）
+
+本机工作区的面板浏览器以 `browser.open { mode:"service", managed:true, embedded:true, locale? }` 打开：Host 以无窗口方式（`--headless=new`）启动它管理的 Chrome / Chromium / Edge，不出现窗口或任务栏图标，网页画面经 CDP 屏幕广播发给打开它的连接，由面板绘制并把鼠标、键盘和输入法转回网页。用户代理去掉 `HeadlessChrome` 字样，`--lang` 与 `Accept-Language` 取 `locale`；每个标签页模拟获得焦点（显示光标和 `:focus` 样式）。下载保存到系统「下载」文件夹。仍经私有 CDP 管道控制，不监听调试端口。`BrowserControl` 增加以下字段与操作，只有这种浏览器支持，其他浏览器（包括远程浏览器）返回 `UNSUPPORTED`：
+
+- `screencast`（`value`、`width`、`height`、`scale`）：`value` 不为 `false` 时，把当前标签页的视口设为 `width × height` CSS 像素（100–8192）、设备像素比 `scale`（0.5–4），并开始发送 `browser.frame` 事件；尺寸变化时再次调用；`value:false` 停止。当前标签页改变（`activateTab`、`newTab`、关闭标签页、网页打开新标签页或弹窗）时自动改为显示新的标签页。
+- `input`（`input: BrowserInput`）：按到达顺序写入正在显示的标签页，不等待网页处理（点击引出的对话框在回答前会挡住后续输入）。`BrowserInput` 为 `{ type:"mouse", event: "move"|"down"|"up"|"wheel", x, y, button?, buttons?, clickCount?, deltaX?, deltaY?, modifiers? }`（视口 CSS 像素）、`{ type:"key", event:"down"|"up", key, code, keyCode, text?, modifiers?, repeat?, location? }`（DOM 键盘事件的字段，`text` 为按键输入的字符）、`{ type:"text", text }`（插入文字：输入法上屏、粘贴）或 `{ type:"composition", text }`（输入法组合中的文字，空串取消）。`modifiers` 为 Alt 1、Ctrl 2、Meta/⌘ 4、Shift 8 之和。macOS 上 ⌘A / ⌘C / ⌘X / ⌘Z 与 ⌘/⌥ 方向键等编辑命令随按键一起发送。鼠标移动的结果可能带 `cursor`：光标下元素的 CSS 光标关键字（不含网页图片光标）。
+- `copy`：返回 `text`，为网页当前选中的文字（含同源 iframe 和文本框，不含密码框），供客户端写入系统剪贴板。
+- `dialog`（`value` 为是否确定，`text` 为 prompt 的输入）、`choose`（`index` 为选项序号，省略为不选关闭）、`files`（`files` 为绝对路径，省略或空数组为取消）：回答当前标签页的 `browser.popup`；没有对应的弹出内容时返回错误。
+- `embed`（`value`）：以同一配置目录重新打开这个浏览器，`value:false` 为独立窗口，`true` 为面板绘制；原浏览器中 HTTP(S) 的标签页按原顺序重新打开，原当前标签页最后打开并成为当前标签页。切换期间其他 `browser.control` 等待切换完成。`browser.list` 的 `embedded` 随之更新。独立窗口的 `managed` 浏览器也可用 `embed:true` 切回面板。
+
+`state` 的 `BrowserPageState` 增加 `popup?: BrowserPopup`，为当前标签页等待回答的内容。
+
+事件（不广播、不写 EventLog，只发给打开该浏览器的连接）：
+
+- `browser.frame { browserId, tabId, data, width, height }`：base64 JPEG，`width × height` 为 CSS 像素，图片本身按 `scale` 放大。上一帧发给连接后、连接待发送数据低于约 1 MiB 时才取下一帧，每秒最多约 30 帧。
+- `browser.popup { browserId, tabId, popup? }`：网页打开了无窗口浏览器不绘制的内容，或关闭（无 `popup`）。`BrowserPopup` 为 `{ kind:"select", rect, options: [{ label, disabled?, group? }], selected }`（单选下拉框：Pier 在隔离环境中的脚本接管可信的鼠标按下，`rect` 为顶层视口 CSS 像素，跨源 iframe 中的下拉框保持原样）、`{ kind:"dialog", dialog: "alert"|"confirm"|"prompt"|"beforeunload", message, defaultPrompt? }` 或 `{ kind:"files", multiple }`（网页请求选择文件）。每次开始或切换显示的标签页时，也会发送一次该标签页当前的 `popup`。

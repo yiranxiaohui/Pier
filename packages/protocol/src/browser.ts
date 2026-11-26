@@ -32,7 +32,53 @@ export interface LocalBrowserInfo {
 	 * when opened with `managed` (or for external integrations / a remote network).
 	 */
 	managed?: boolean;
+	/**
+	 * A windowless local browser whose page is drawn in the panel (1.69): `browser.frame` events
+	 * after `screencast`, driven with `input`; select lists, dialogs and file choosers come as
+	 * `browser.popup`. Opened with `embedded`; `embed` switches it to a window and back.
+	 */
+	embedded?: boolean;
 }
+
+/** Modifier keys held during an input event: Alt 1, Ctrl 2, Meta / Command 4, Shift 8. */
+const Modifiers = z.number().int().min(0).max(15).optional();
+const Coordinate = z.number().finite().min(-100_000).max(100_000);
+
+/**
+ * Mouse, keyboard and text input to the page an embedded browser shows (1.69), in CSS pixels of
+ * its viewport. `key` carries the DOM event's `key`, `code` and `keyCode`, and `text` when it types
+ * a character; `text` inserts a string (a finished IME composition, a paste); `composition` shows
+ * the IME's text in progress.
+ */
+export const BrowserInputSchema = z.discriminatedUnion("type", [
+	z.object({
+		type: z.literal("mouse"),
+		event: z.enum(["move", "down", "up", "wheel"]),
+		x: Coordinate,
+		y: Coordinate,
+		button: z.enum(["none", "left", "middle", "right", "back", "forward"]).optional(),
+		/** Buttons held, as in the DOM's `MouseEvent.buttons`. */
+		buttons: z.number().int().min(0).max(31).optional(),
+		clickCount: z.number().int().min(0).max(3).optional(),
+		deltaX: Coordinate.optional(),
+		deltaY: Coordinate.optional(),
+		modifiers: Modifiers,
+	}),
+	z.object({
+		type: z.literal("key"),
+		event: z.enum(["down", "up"]),
+		key: z.string().max(32),
+		code: z.string().max(32),
+		keyCode: z.number().int().min(0).max(255),
+		text: z.string().max(8).optional(),
+		modifiers: Modifiers,
+		repeat: z.boolean().optional(),
+		location: z.number().int().min(0).max(3).optional(),
+	}),
+	z.object({ type: z.literal("text"), text: z.string().min(1).max(100_000) }),
+	z.object({ type: z.literal("composition"), text: z.string().max(1000) }),
+]);
+export type BrowserInput = z.infer<typeof BrowserInputSchema>;
 
 /**
  * The desktop's own controls of a browser it opened (1.67): the panel's address bar, history and
@@ -49,6 +95,16 @@ export interface LocalBrowserInfo {
  * - `capture`: a PNG of the active tab's viewport.
  * - `fullscreen` (`value`): hide the browser's own tab strip and address bar while the panel's
  *   stand in for them, or show them again (a separate viewer window).
+ *
+ * An embedded local browser (1.69) also takes:
+ * - `screencast` (`value`, `width`, `height`, `scale`): show the active tab at that viewport size
+ *   (CSS pixels, device pixel ratio `scale`) as `browser.frame` events, or stop (`value: false`).
+ * - `input` (`input`): mouse, keyboard or text for the tab on screen.
+ * - `copy`: the page's selected text, as `text`.
+ * - `dialog` (`value` accepts, `text` answers a prompt), `choose` (`index` of the option, none to
+ *   dismiss), `files` (absolute paths, none to cancel): answer the `browser.popup` on screen.
+ * - `embed` (`value`): reopen the browser drawn in the panel, or as a window (`value: false`),
+ *   with the same tabs and profile.
  */
 export const BrowserControlSchema = z.object({
 	op: z.enum([
@@ -67,11 +123,25 @@ export const BrowserControlSchema = z.object({
 		"clearHighlight",
 		"capture",
 		"fullscreen",
+		"screencast",
+		"input",
+		"copy",
+		"dialog",
+		"choose",
+		"files",
+		"embed",
 	]),
 	tabId: z.string().max(256).optional(),
 	url: z.string().max(8192).optional(),
 	nodeId: z.number().int().nonnegative().optional(),
 	value: z.boolean().optional(),
+	width: z.number().int().min(100).max(8192).optional(),
+	height: z.number().int().min(100).max(8192).optional(),
+	scale: z.number().finite().min(0.5).max(4).optional(),
+	input: BrowserInputSchema.optional(),
+	text: z.string().max(100_000).optional(),
+	index: z.number().int().min(0).max(100_000).optional(),
+	files: z.array(z.string().min(1).max(4096)).max(64).optional(),
 });
 export type BrowserControl = z.infer<typeof BrowserControlSchema>;
 
@@ -91,7 +161,37 @@ export interface BrowserPageState {
 	canGoBack: boolean;
 	canGoForward: boolean;
 	loading: boolean;
+	/** What an embedded browser's active tab is waiting for the user to answer (1.69). */
+	popup?: BrowserPopup;
 }
+
+/** One entry of a select list. */
+export interface BrowserSelectOption {
+	label: string;
+	disabled?: boolean;
+	/** The `<optgroup>` it is in. */
+	group?: string;
+}
+
+/**
+ * Something the page on screen opened that a windowless browser does not draw (1.69): a select
+ * list (where it is on the page, in CSS pixels), a JavaScript dialog, or a file chooser.
+ */
+export type BrowserPopup =
+	| {
+			kind: "select";
+			rect: { x: number; y: number; width: number; height: number };
+			options: BrowserSelectOption[];
+			/** The option chosen now, -1 for none. */
+			selected: number;
+	  }
+	| {
+			kind: "dialog";
+			dialog: "alert" | "confirm" | "prompt" | "beforeunload";
+			message: string;
+			defaultPrompt?: string;
+	  }
+	| { kind: "files"; multiple: boolean };
 
 export interface BrowserImage {
 	data: string;
@@ -128,6 +228,10 @@ export interface BrowserControlResult {
 	image?: BrowserImage;
 	/** A `pick` ended without an element. */
 	cancelled?: boolean;
+	/** `copy`: the selected text. */
+	text?: string;
+	/** `input` (a mouse move): the pointer's shape over the page, a CSS cursor keyword. */
+	cursor?: string;
 }
 
 export type BrowserTransport = "webrtc" | "websockets";

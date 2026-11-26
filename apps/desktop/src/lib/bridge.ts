@@ -32,6 +32,8 @@ export interface Bridge {
 	restartHost(): Promise<void>;
 	/** Ask the user for a directory. Resolves to an absolute path, or null when cancelled. */
 	pickDirectory(): Promise<string | null>;
+	/** Ask the user for files to upload to a web page: absolute paths, empty when cancelled. */
+	pickFiles(multiple: boolean): Promise<string[]>;
 	openExternal(url: string): Promise<void>;
 	/**
 	 * The clipboard's text, for pasting outside a native paste (a menu item, a custom shortcut). The
@@ -193,6 +195,11 @@ function tauriBridge(): Bridge {
 			const result = await open({ directory: true, multiple: false, title: "选择工作区目录" });
 			return typeof result === "string" ? result : null;
 		},
+		pickFiles: async (multiple) => {
+			const { open } = await import("@tauri-apps/plugin-dialog");
+			const result = await open({ directory: false, multiple, title: "选择要上传的文件" });
+			return Array.isArray(result) ? result : typeof result === "string" ? [result] : [];
+		},
 		openExternal: async (url) => {
 			const { openUrl } = await import("@tauri-apps/plugin-opener");
 			await openUrl(url);
@@ -277,6 +284,10 @@ function browserBridge(): Bridge {
 		onLog: () => () => {},
 		restartHost: async () => window.location.reload(),
 		pickDirectory: async () => window.prompt("工作区目录的绝对路径")?.trim() || null,
+		pickFiles: async () => {
+			const path = window.prompt("要上传的文件的绝对路径")?.trim();
+			return path ? [path] : [];
+		},
 		openExternal: async (target) => {
 			window.open(target, "_blank", "noopener,noreferrer");
 		},

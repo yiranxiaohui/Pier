@@ -180,6 +180,13 @@ export const MethodParamsSchemas = {
 		controlled: z.boolean().optional(),
 		/** Launch a Pier-managed browser window on this computer too (`mode:service`, 1.67). */
 		managed: z.boolean().optional(),
+		/** With `managed`: a windowless browser drawn in the panel instead of a window (1.69). */
+		embedded: z.boolean().optional(),
+		/** The user's language (BCP 47) for an embedded browser's pages (1.69). */
+		locale: z
+			.string()
+			.regex(/^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,3}$/)
+			.optional(),
 	}),
 	"browser.setTransport": z.object({ browserId: Id, transport: z.enum(["webrtc", "websockets"]) }),
 	/** Drive a browser this connection opened: address bar, tabs, element picking (1.67). */

@@ -2,7 +2,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -12,9 +12,25 @@ import {
 	type BrowserControlResult,
 	type BrowserElement,
 	type BrowserImage,
+	type BrowserInput,
 	type BrowserPageState,
+	type BrowserPopup,
 	type BrowserResult,
 } from "@pier/protocol";
+import {
+	acceptLanguage,
+	browserLocale,
+	COPY_SCRIPT,
+	cursorKeyword,
+	cursorScript,
+	dialogPopup,
+	keyEvent,
+	mouseEvent,
+	PIER_WORLD,
+	parseSelect,
+	SELECT_BINDING,
+	SELECT_SCRIPT,
+} from "./embed.ts";
 import { DESCRIBE, type DescribedElement, HIGHLIGHT, imageSize, visibleClip } from "./inspect.ts";
 import { webUrl } from "./network.ts";
 
@@ -81,6 +97,10 @@ const NO_SANDBOX = ["No usable sandbox!", "The SUID sandbox helper binary was fo
 export const SANDBOX_UNAVAILABLE =
 	"浏览器启动后立即退出：它无法启用沙箱，因为这台电脑不允许普通程序创建用户命名空间（Ubuntu 23.10 起 AppArmor 的默认设置）。请为运行 Pier Host 的用户配置免密 sudo 后重试，Pier 会为它下载的浏览器装好沙箱辅助程序；也可以安装 Google Chrome。";
 
+function existingDir(path: string): string | undefined {
+	return existsSync(path) ? path : undefined;
+}
+
 interface Pending {
 	resolve(result: Record<string, unknown>): void;
 	reject(error: Error): void;
@@ -104,6 +124,56 @@ function firstEntry(entries: HistoryEntry[]): number {
 const PNG_LIMIT = 8_000_000;
 /** How long a tab may take to say whether it is on screen before it is skipped. */
 const PROBE_MS = 1500;
+/** At most about 30 frames a second go to the panel. */
+const FRAME_INTERVAL_MS = 33;
+/** How often a mouse move also asks for the pointer's shape, and how long that may take. */
+const CURSOR_INTERVAL_MS = 120;
+const CURSOR_MS = 400;
+/** A key or click waits behind a JavaScript dialog until it is answered. */
+const INPUT_MS = 60_000;
+
+/** A frame of the tab on screen, as a base64 JPEG of `width` × `height` CSS pixels. */
+export interface BrowserFrame {
+	tabId: string;
+	data: string;
+	width: number;
+	height: number;
+}
+
+/** Where a windowless browser's picture and popups go (the panel that opened it). */
+export interface EmbedHooks {
+	/** A frame of the tab on screen; the next one comes once this resolves. */
+	frame(frame: BrowserFrame): Promise<void> | void;
+	/** A select list, dialog or file chooser opened on a tab, or closed (`undefined`). */
+	popup(tabId: string, popup: BrowserPopup | undefined): void;
+}
+
+export interface LaunchOptions {
+	executable?: string;
+	args?: string[];
+	env?: NodeJS.ProcessEnv;
+	downloadDir?: string;
+	/** Run without a window and draw the page in the panel. */
+	embed?: EmbedHooks;
+	/** The user's language (BCP 47), for a windowless browser's pages. */
+	locale?: string;
+}
+
+interface OpenPopup {
+	popup: BrowserPopup;
+	/** The CDP session of the tab it is on. */
+	session: string;
+	/** The select's isolated world. */
+	contextId?: number;
+	/** The file input. */
+	nodeId?: number;
+}
+
+interface Viewport {
+	width: number;
+	height: number;
+	scale: number;
+}
 
 export class ChromiumBrowser {
 	private nextId = 1;
@@ -123,10 +193,25 @@ export class ChromiumBrowser {
 	private activeTab?: string;
 	/** The element pick waiting for the user's click, if any. */
 	private picking?: { session: string; finish(nodeId?: number): void };
+	/** A windowless browser's user agent without "Headless", and its `Accept-Language`. */
+	private userAgent?: string;
+	private language?: string;
+	/** The tab of each CDP session. */
+	private readonly tabOf = new Map<string, string>();
+	/** What each tab waits for the user to answer, by tab. */
+	private readonly popups = new Map<string, OpenPopup>();
+	/** The panel's viewport while it shows the page. */
+	private viewport?: Viewport;
+	/** The tab being streamed and at which size. */
+	private cast?: Viewport & { tabId: string; session: string };
+	private castChain: Promise<void> = Promise.resolve();
+	private lastFrame = 0;
+	private lastCursor = 0;
 
 	constructor(
 		private readonly child: ChildProcess,
 		private readonly onExit: () => void,
+		private readonly embed?: EmbedHooks,
 	) {
 		this.exited = new Promise((resolve) => {
 			child.once("exit", () => resolve());
@@ -164,10 +249,12 @@ export class ChromiumBrowser {
 		url: string,
 		proxyPort: number | undefined,
 		onExit: () => void,
-		launchOptions?: { executable?: string; args?: string[]; env?: NodeJS.ProcessEnv; downloadDir?: string },
+		launchOptions?: LaunchOptions,
 	): Promise<ChromiumBrowser> {
 		mkdirSync(profile, { recursive: true, mode: 0o700 });
 		const launch = launchSettings(process.platform, launchOptions?.env ?? process.env);
+		const embed = launchOptions?.embed;
+		const locale = browserLocale(launchOptions?.locale);
 		const args = [
 			"--remote-debugging-pipe",
 			`--user-data-dir=${profile}`,
@@ -176,6 +263,8 @@ export class ChromiumBrowser {
 			"--disable-background-networking",
 			...launch.args,
 		];
+		// The panel draws the page: no window, no taskbar entry.
+		if (embed) args.push("--headless=new", "--window-size=1280,800", ...(locale ? [`--lang=${locale}`] : []));
 		if (proxyPort)
 			args.push(
 				"--disable-quic",
@@ -190,16 +279,26 @@ export class ChromiumBrowser {
 			windowsHide: false,
 			env: launch.env,
 		});
-		const browser = new ChromiumBrowser(child, onExit);
+		const browser = new ChromiumBrowser(child, onExit, embed);
 		try {
-			await browser.send("Browser.getVersion");
-			if (launchOptions?.downloadDir)
-				await browser.send("Browser.setDownloadBehavior", {
-					behavior: "allow",
-					downloadPath: launchOptions.downloadDir,
-				});
+			const version = await browser.send("Browser.getVersion");
+			const downloadDir = launchOptions?.downloadDir ?? (embed ? existingDir(join(homedir(), "Downloads")) : undefined);
+			if (downloadDir)
+				await browser.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: downloadDir });
+			if (embed) {
+				// Sites treat "HeadlessChrome" as a bot; the panel's browser is a person's.
+				browser.userAgent = String(version.userAgent ?? "").replace(/HeadlessChrome\//g, "Chrome/");
+				if (locale) browser.language = acceptLanguage(locale);
+				// Tabs a page opens become the one on screen, as in a browser window.
+				await browser.send("Target.setDiscoverTargets", { discover: true });
+			}
 			const tabs = await browser.targets();
-			const tab = tabs[0];
+			// Chrome may restore the profile's last tabs next to the empty page it was started with:
+			// the browser opens on the one address it was asked for.
+			const tab = tabs.find((t) => t.url === "about:blank") ?? tabs[0];
+			for (const restored of tabs)
+				if (restored !== tab)
+					await browser.send("Target.closeTarget", { targetId: restored.targetId }).catch(() => undefined);
 			// Do not wait for the first page: a slow site, or a dev server compiling its first request,
 			// must not fail the whole launch. It goes on loading, and the panel shows it loading.
 			if (tab) void browser.send("Page.navigate", { url }, await browser.session(tab.targetId)).catch(() => {});
@@ -248,14 +347,16 @@ export class ChromiumBrowser {
 			}
 		}
 	}
-	/** Protocol events: tabs going away and the element picker. */
+	/** Protocol events: tabs going away, the element picker, and what a windowless browser shows. */
 	private event(method: string, params: Record<string, unknown>, sessionId?: string): void {
 		if (method === "Target.detachedFromTarget") {
 			const target = typeof params.targetId === "string" ? params.targetId : undefined;
 			if (target) this.sessions.delete(target);
+			if (typeof params.sessionId === "string") this.tabOf.delete(params.sessionId);
 			if (this.picking && this.picking.session === params.sessionId) this.picking.finish();
 			return;
 		}
+		if (this.embed && this.embedEvent(method, params, sessionId)) return;
 		const picking = this.picking;
 		if (!picking || picking.session !== sessionId) return;
 		if (method === "Overlay.inspectNodeRequested" && typeof params.backendNodeId === "number")
@@ -298,14 +399,317 @@ export class ChromiumBrowser {
 		const existing = this.sessions.get(tabId);
 		if (existing) return existing;
 		// One attachment per tab, even when commands for it arrive together.
-		const session = this.send("Target.attachToTarget", { targetId: tabId, flatten: true }).then((result) =>
-			String(result.sessionId),
-		);
+		const session = this.send("Target.attachToTarget", { targetId: tabId, flatten: true }).then(async (result) => {
+			const id = String(result.sessionId);
+			this.tabOf.set(id, tabId);
+			if (this.embed) await this.prepare(id);
+			return id;
+		});
 		this.sessions.set(tabId, session);
 		session.catch(() => {
 			if (this.sessions.get(tabId) === session) this.sessions.delete(tabId);
 		});
 		return session;
+	}
+	/**
+	 * Set a windowless browser's tab up like one in a window: a person's user agent and language,
+	 * focus (a caret, `:focus` styles), dialogs and file choosers reported instead of blocking or
+	 * doing nothing, and select lists opened in the panel.
+	 */
+	private async prepare(session: string): Promise<void> {
+		const quiet = (method: string, params: Record<string, unknown> = {}) =>
+			this.send(method, params, session).catch(() => undefined);
+		await Promise.all([
+			quiet("Page.enable"),
+			quiet("Runtime.enable"),
+			quiet("Emulation.setFocusEmulationEnabled", { enabled: true }),
+			quiet("Page.setInterceptFileChooserDialog", { enabled: true }),
+			this.userAgent
+				? quiet("Emulation.setUserAgentOverride", {
+						userAgent: this.userAgent,
+						...(this.language ? { acceptLanguage: this.language } : {}),
+					})
+				: undefined,
+			quiet("Runtime.addBinding", { name: SELECT_BINDING, executionContextName: PIER_WORLD }),
+			quiet("Page.addScriptToEvaluateOnNewDocument", {
+				source: SELECT_SCRIPT,
+				worldName: PIER_WORLD,
+				runImmediately: true,
+			}),
+		]);
+	}
+	/** A windowless browser's events: frames, popups, tabs opened by pages. Whether it took the event. */
+	private embedEvent(method: string, params: Record<string, unknown>, sessionId?: string): boolean {
+		const tab = sessionId ? this.tabOf.get(sessionId) : undefined;
+		switch (method) {
+			case "Page.screencastFrame":
+				this.frame(params, sessionId);
+				return true;
+			case "Page.javascriptDialogOpening":
+				if (tab && sessionId) this.openPopup(tab, { popup: dialogPopup(params), session: sessionId });
+				return true;
+			case "Page.javascriptDialogClosed":
+				if (tab && this.popups.get(tab)?.popup.kind === "dialog") this.closePopup(tab);
+				return true;
+			case "Runtime.bindingCalled": {
+				if (params.name !== SELECT_BINDING || !tab || !sessionId) return true;
+				const popup = parseSelect(params.payload);
+				if (popup && typeof params.executionContextId === "number")
+					this.openPopup(tab, { popup, session: sessionId, contextId: params.executionContextId });
+				return true;
+			}
+			case "Page.fileChooserOpened":
+				if (tab && sessionId && typeof params.backendNodeId === "number")
+					this.openPopup(tab, {
+						popup: { kind: "files", multiple: params.mode === "selectMultiple" },
+						session: sessionId,
+						nodeId: params.backendNodeId,
+					});
+				return true;
+			case "Page.frameNavigated": {
+				const frame = params.frame as { parentId?: string } | undefined;
+				if (!tab || !frame || frame.parentId) return true;
+				// A new page drops a list or chooser the old one opened (a dialog closes itself).
+				if (this.popups.get(tab)?.popup.kind !== "dialog") this.closePopup(tab);
+				if (this.cast?.tabId === tab) this.restartCast();
+				return true;
+			}
+			case "Target.targetCreated": {
+				const info = params.targetInfo as { targetId?: string; type?: string; openerId?: string } | undefined;
+				if (info?.type === "page" && info.openerId && info.targetId) {
+					this.activeTab = info.targetId;
+					if (this.viewport) void this.syncCast().catch(() => {});
+				}
+				return true;
+			}
+			case "Target.targetDestroyed": {
+				const id = String(params.targetId ?? "");
+				this.popups.delete(id);
+				if (this.activeTab === id) this.activeTab = undefined;
+				if (this.cast?.tabId === id) {
+					this.cast = undefined;
+					void this.syncCast().catch(() => {});
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+	/** Pass a frame of the tab on screen on, then ask for the next one when the panel can take it. */
+	private frame(params: Record<string, unknown>, sessionId?: string): void {
+		const ack = () => {
+			void this.send("Page.screencastFrameAck", { sessionId: params.sessionId }, sessionId).catch(() => {});
+		};
+		const cast = this.cast;
+		if (!cast || cast.session !== sessionId || !this.embed || typeof params.data !== "string") {
+			ack();
+			return;
+		}
+		const metadata = params.metadata as { deviceWidth?: number; deviceHeight?: number } | undefined;
+		const wait = Math.max(0, this.lastFrame + FRAME_INTERVAL_MS - Date.now());
+		this.lastFrame = Date.now() + wait;
+		const ready = Promise.resolve()
+			.then(() =>
+				this.embed?.frame({
+					tabId: cast.tabId,
+					data: params.data as string,
+					width: Math.round(metadata?.deviceWidth || cast.width),
+					height: Math.round(metadata?.deviceHeight || cast.height),
+				}),
+			)
+			.catch(() => {});
+		void Promise.all([ready, delay(wait)]).then(ack);
+	}
+	private openPopup(tab: string, open: OpenPopup): void {
+		this.popups.set(tab, open);
+		this.embed?.popup(tab, open.popup);
+	}
+	private closePopup(tab: string): void {
+		if (this.popups.delete(tab)) this.embed?.popup(tab, undefined);
+	}
+	/**
+	 * Start streaming the tab on screen again after its page changed: a page from another site
+	 * runs in another renderer process, which streams nothing until asked.
+	 */
+	private restartCast(): void {
+		const run = this.castChain.then(async () => {
+			const cast = this.cast;
+			if (!cast || !this.viewport) return;
+			await this.send("Page.stopScreencast", {}, cast.session).catch(() => {});
+			await this.startCast(cast);
+		});
+		this.castChain = run.catch(() => {});
+	}
+	private async startCast(cast: Viewport & { session: string }): Promise<void> {
+		await this.send(
+			"Emulation.setDeviceMetricsOverride",
+			{ width: cast.width, height: cast.height, deviceScaleFactor: cast.scale, mobile: false },
+			cast.session,
+		);
+		this.lastFrame = 0;
+		await this.send(
+			"Page.startScreencast",
+			{
+				format: "jpeg",
+				quality: 80,
+				maxWidth: Math.round(cast.width * cast.scale),
+				maxHeight: Math.round(cast.height * cast.scale),
+				everyNthFrame: 1,
+			},
+			cast.session,
+		);
+	}
+	/** Stream the active tab at the panel's size, or stop; one change at a time. */
+	private syncCast(): Promise<void> {
+		const run = this.castChain.then(() => this.applyCast());
+		this.castChain = run.catch(() => {});
+		return run;
+	}
+	private async applyCast(): Promise<void> {
+		const viewport = this.viewport;
+		const current = this.cast;
+		if (!viewport) {
+			this.cast = undefined;
+			if (current) await this.send("Page.stopScreencast", {}, current.session).catch(() => {});
+			return;
+		}
+		const tab = await this.tab();
+		const session = await this.session(tab.targetId);
+		if (
+			current?.session === session &&
+			current.width === viewport.width &&
+			current.height === viewport.height &&
+			current.scale === viewport.scale
+		)
+			return;
+		if (current) await this.send("Page.stopScreencast", {}, current.session).catch(() => {});
+		// A tab behind another draws nothing.
+		if (current?.tabId !== tab.targetId)
+			await this.send("Target.activateTarget", { targetId: tab.targetId }).catch(() => {});
+		this.cast = { ...viewport, tabId: tab.targetId, session };
+		await this.startCast(this.cast);
+		// The panel learns what this tab is waiting for (or that nothing is open).
+		this.embed?.popup(tab.targetId, this.popups.get(tab.targetId)?.popup);
+	}
+	/**
+	 * Mouse, keys and text for the tab on screen. They are written to the browser in the order
+	 * they came and not awaited: a click that opens a dialog waits until it is answered.
+	 */
+	private async dispatchInput(input: BrowserInput | undefined): Promise<BrowserControlResult> {
+		if (!input) throw new Error("需要输入内容");
+		const cast = this.cast;
+		if (!cast) return {};
+		const post = (method: string, params: Record<string, unknown>) => {
+			void this.send(method, params, cast.session, INPUT_MS).catch(() => {});
+		};
+		switch (input.type) {
+			case "mouse": {
+				post("Input.dispatchMouseEvent", mouseEvent(input));
+				if (input.event !== "move" || Date.now() - this.lastCursor < CURSOR_INTERVAL_MS) return {};
+				if (this.popups.get(cast.tabId)?.popup.kind === "dialog") return {};
+				this.lastCursor = Date.now();
+				try {
+					const response = await this.send(
+						"Runtime.evaluate",
+						{ expression: cursorScript(input.x, input.y), returnByValue: true },
+						cast.session,
+						CURSOR_MS,
+					);
+					return { cursor: cursorKeyword((response.result as { value?: unknown } | undefined)?.value) };
+				} catch {
+					return {};
+				}
+			}
+			case "key":
+				post("Input.dispatchKeyEvent", keyEvent(input));
+				return {};
+			case "text":
+				post("Input.insertText", { text: input.text });
+				return {};
+			case "composition":
+				post("Input.imeSetComposition", {
+					text: input.text,
+					selectionStart: input.text.length,
+					selectionEnd: input.text.length,
+				});
+				return {};
+		}
+	}
+	/** The popup of a tab (the one on screen by default), checked to be of a kind. */
+	private popupOf<K extends BrowserPopup["kind"]>(
+		kind: K,
+		tabId?: string,
+	): { tab: string; open: OpenPopup & { popup: Extract<BrowserPopup, { kind: K }> } } {
+		const tab = tabId ?? this.cast?.tabId ?? this.activeTab;
+		const open = tab ? this.popups.get(tab) : undefined;
+		if (!tab || !open || open.popup.kind !== kind) throw new Error("网页上没有等待回答的窗口");
+		return { tab, open: open as OpenPopup & { popup: Extract<BrowserPopup, { kind: K }> } };
+	}
+	/** The panel's controls that only a windowless browser has (`screencast`, `input`, popups). */
+	private async embedControl(command: BrowserControl): Promise<BrowserControlResult> {
+		if (!this.embed) throw new Error("这个浏览器显示在独立窗口中");
+		switch (command.op) {
+			case "screencast":
+				if (command.value === false) this.viewport = undefined;
+				else {
+					if (!command.width || !command.height) throw new Error("需要显示区域的大小");
+					this.viewport = { width: command.width, height: command.height, scale: command.scale ?? 1 };
+				}
+				await this.syncCast();
+				return {};
+			case "input":
+				return this.dispatchInput(command.input);
+			case "copy": {
+				const cast = this.cast;
+				if (!cast) return { text: "" };
+				const response = await this.send(
+					"Runtime.evaluate",
+					{ expression: COPY_SCRIPT, returnByValue: true },
+					cast.session,
+					3000,
+				);
+				const value = (response.result as { value?: unknown } | undefined)?.value;
+				return { text: typeof value === "string" ? value.slice(0, 1_000_000) : "" };
+			}
+			case "dialog": {
+				const { tab, open } = this.popupOf("dialog", command.tabId);
+				await this.send(
+					"Page.handleJavaScriptDialog",
+					{ accept: command.value !== false, ...(command.text !== undefined ? { promptText: command.text } : {}) },
+					open.session,
+				);
+				this.closePopup(tab);
+				return {};
+			}
+			case "choose": {
+				const { tab, open } = this.popupOf("select", command.tabId);
+				this.closePopup(tab);
+				await this.send(
+					"Runtime.evaluate",
+					{
+						expression: `globalThis.__pierChoose(${command.index ?? -1})`,
+						contextId: open.contextId,
+						returnByValue: true,
+					},
+					open.session,
+				).catch(() => {});
+				return {};
+			}
+			case "files": {
+				const { tab, open } = this.popupOf("files", command.tabId);
+				const files = command.files ?? [];
+				if (files.some((file) => !isAbsolute(file))) throw new Error("需要文件的完整路径");
+				this.closePopup(tab);
+				if (files.length)
+					await this.send(
+						"DOM.setFileInputFiles",
+						{ files: open.popup.multiple ? files : files.slice(0, 1), backendNodeId: open.nodeId },
+						open.session,
+					);
+				return {};
+			}
+		}
+		throw new Error("不支持的浏览器操作");
 	}
 	private async evaluate(expression: string, session: string): Promise<unknown> {
 		const response = await this.send(
@@ -424,6 +828,9 @@ export class ChromiumBrowser {
 		if (!probe && remembered) return { tab: remembered, loading: false };
 		const probes = await Promise.all(
 			tabs.slice(0, 16).map(async (tab) => {
+				// A page showing a dialog runs no script until it is answered.
+				if (this.popups.get(tab.targetId)?.popup.kind === "dialog")
+					return { tab, visible: tab.targetId === this.activeTab, ready: true };
 				try {
 					const session = await this.session(tab.targetId);
 					const response = await this.send(
@@ -473,12 +880,16 @@ export class ChromiumBrowser {
 				/* A busy page keeps its buttons off until the next look. */
 			}
 		}
+		// A tab the page switched to (or one closed under it) is shown instead.
+		if (this.viewport && tab && this.cast?.tabId !== tab.targetId) void this.syncCast().catch(() => {});
+		const popup = tab ? this.popups.get(tab.targetId)?.popup : undefined;
 		return {
 			tabs: tabs.map((t) => ({ id: t.targetId, title: t.title, url: t.url })),
 			...(tab ? { activeTabId: tab.targetId } : {}),
 			canGoBack,
 			canGoForward,
 			loading,
+			...(popup ? { popup } : {}),
 		};
 	}
 	private async history(session: string, step: -1 | 1): Promise<void> {
@@ -565,13 +976,33 @@ export class ChromiumBrowser {
 			case "cancelPick":
 				this.picking?.finish();
 				return {};
+			case "screencast":
+			case "input":
+			case "copy":
+			case "dialog":
+			case "choose":
+			case "files":
+				return this.embedControl(command);
+			case "embed":
+				throw new Error("这个浏览器不能切换显示方式");
 			case "newTab": {
 				const url = command.url ? webUrl(command.url).href : "about:blank";
-				const created = await this.send("Target.createTarget", { url });
-				this.activeTab = String(created.targetId);
+				if (!this.embed) {
+					const created = await this.send("Target.createTarget", { url });
+					this.activeTab = String(created.targetId);
+					return { state: await this.pageState() };
+				}
+				// Set the tab up (its user agent) before its first request.
+				const created = await this.send("Target.createTarget", { url: "about:blank" });
+				const tabId = String(created.targetId);
+				this.activeTab = tabId;
+				if (url !== "about:blank") await this.send("Page.navigate", { url }, await this.session(tabId));
+				if (this.viewport) await this.syncCast();
 				return { state: await this.pageState() };
 			}
 			case "fullscreen": {
+				// A windowless browser has no window to fill.
+				if (this.embed) return {};
 				const tab = await this.tab(command.tabId);
 				const windowOf = async () => {
 					const window = await this.send("Browser.getWindowForTarget", { targetId: tab.targetId });
@@ -612,6 +1043,7 @@ export class ChromiumBrowser {
 			case "activateTab":
 				await this.send("Target.activateTarget", { targetId: tab.targetId });
 				this.activeTab = tab.targetId;
+				if (this.viewport) await this.syncCast();
 				break;
 			case "closeTab":
 				// The browser quits with its last tab: leave an empty page instead.
@@ -621,6 +1053,7 @@ export class ChromiumBrowser {
 					// The tab goes away a moment later: report the tabs without it.
 					for (let i = 0; i < 20 && (await this.targets()).some((t) => t.targetId === tab.targetId); i++)
 						await new Promise((resolve) => setTimeout(resolve, 50));
+					if (this.viewport) await this.syncCast();
 				} else await this.send("Page.navigate", { url: "about:blank" }, session);
 				break;
 			case "highlight":
@@ -644,6 +1077,8 @@ export class ChromiumBrowser {
 	private finish(): void {
 		if (this.ended) return;
 		this.ended = true;
+		this.viewport = undefined;
+		this.cast = undefined;
 		this.picking?.finish();
 		for (const pending of this.pending.values()) {
 			clearTimeout(pending.timer);

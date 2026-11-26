@@ -138,6 +138,12 @@ function hostSpeaks(info: HostInfo | undefined, minor: number): boolean {
 	return version !== undefined && (version.major > 1 || (version.major === 1 && version.minor >= minor));
 }
 
+/** The user's language for the pages of the panel's browser, when it is a plain BCP 47 tag. */
+function browserLocale(): { locale?: string } {
+	const locale = typeof navigator === "undefined" ? "" : navigator.language;
+	return /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,3}$/.test(locale) ? { locale } : {};
+}
+
 /** Whether the shown host can delete workspace files and directories (`workspace.deletePath`, 1.11). */
 export function hostCanDeleteFiles(info: HostInfo | undefined): boolean {
 	return hostSpeaks(info, 11);
@@ -3938,7 +3944,8 @@ export class PierStore {
 
 	/**
 	 * Browser location follows the workspace host. Default local browsing needs no managed session;
-	 * `managed` (the panel's browser) launches a Pier-managed window on this computer instead.
+	 * `managed` (the panel's browser) launches a Pier-managed browser on this computer instead,
+	 * drawn in the panel (1.69) or, on an older Host, in its own window.
 	 */
 	async openBrowser(
 		workspaceId: string,
@@ -3969,17 +3976,32 @@ export class PierStore {
 				url: parsed.href,
 				controlled,
 				...(node === LOCAL_NODE
-					? { mode: "service" as const, ...(managed && minor >= 67 ? { managed: true } : {}) }
+					? {
+							mode: "service" as const,
+							...(managed && minor >= 67 ? { managed: true } : {}),
+							...(managed && minor >= 69 ? { embedded: true, ...browserLocale() } : {}),
+						}
 					: { mode: "remote" as const, peerId: node, transport }),
 			},
 			{ timeoutMs: node === LOCAL_NODE ? 60_000 : BROWSER_OPEN_TIMEOUT_MS },
 		);
 	}
 
+	/** Ask for files to upload to a web page in the panel's browser; empty when cancelled. */
+	pickFiles(multiple: boolean): Promise<string[]> {
+		return this.bridge.pickFiles(multiple);
+	}
+
 	/** Whether this computer's Host can drive the browsers it opens (`browser.control`, 1.67). */
 	get canControlBrowsers(): boolean {
 		const version = parseProtocolVersion(this.nodeClient(LOCAL_NODE)?.host?.protocolVersion ?? "");
 		return !!version && version.major === 1 && version.minor >= 67;
+	}
+
+	/** Whether this computer's Host draws the panel's browser in the panel (`embedded`, 1.69). */
+	get canEmbedBrowsers(): boolean {
+		const version = parseProtocolVersion(this.nodeClient(LOCAL_NODE)?.host?.protocolVersion ?? "");
+		return !!version && version.major === 1 && version.minor >= 69;
 	}
 
 	/** Drive a browser this window opened: the panel's address bar, tabs, element picking. */

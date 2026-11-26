@@ -128,6 +128,9 @@ export class RemoteBrowsers {
 		if (!session || session.owner !== owner || session.closed || !session.ready || !session.process)
 			throw new PierProtocolError("NOT_FOUND", "远程浏览器连接已关闭");
 		if (!session.process.control) throw new PierProtocolError("UNSUPPORTED", "这个远程浏览器无法控制");
+		// The picture comes from the stream: frames, input and popups are a local browser's.
+		if (["screencast", "input", "copy", "dialog", "choose", "files", "embed"].includes(command.op))
+			throw new PierProtocolError("UNSUPPORTED", "远程浏览器的画面由串流显示，不支持这个操作");
 		return session.process.control(command);
 	}
 	private closeSession(session: Session): Promise<void> {
