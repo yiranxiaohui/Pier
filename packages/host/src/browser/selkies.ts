@@ -35,6 +35,22 @@ export interface RemoteBrowserLaunch {
 	onExit(): void;
 }
 
+/** Switches for the browser on the private display, after the ones every Pier-launched browser gets. */
+export const REMOTE_BROWSER_ARGS = [
+	"--ozone-platform=x11",
+	"--window-position=0,0",
+	"--window-size=1440,900",
+	"--start-maximized",
+	"--force-device-scale-factor=1",
+	// No banners above the page (e.g. Chrome for Testing's "only for automated testing"): the
+	// viewer shows the page itself, and the panel's address bar stands in for the browser's.
+	"--disable-infobars",
+	// Keep cookie encryption in the profile instead of the desktop keyring. Nobody can answer an
+	// unlock prompt from this display: a locked keyring (gnome-keyring running without a desktop
+	// login) holds every request that needs cookies for D-Bus's 25 s timeout at each start.
+	"--password-store=basic",
+];
+
 /** FamilyWild Xauthority cookie, with no X11 TCP listener or access-control bypass. */
 export function xAuthority(cookie: Uint8Array): Buffer {
 	const fields = [Buffer.alloc(0), Buffer.alloc(0), Buffer.from("MIT-MAGIC-COOKIE-1"), Buffer.from(cookie)];
@@ -233,16 +249,7 @@ export class SelkiesBrowser implements RemoteBrowserProcess {
 				executable,
 				env,
 				downloadDir: downloads,
-				args: [
-					"--ozone-platform=x11",
-					"--window-position=0,0",
-					"--window-size=1440,900",
-					"--start-maximized",
-					"--force-device-scale-factor=1",
-					// No banners above the page (e.g. Chrome for Testing's "only for automated testing"): the
-					// viewer shows the page itself, and the panel's address bar stands in for the browser's.
-					"--disable-infobars",
-				],
+				args: REMOTE_BROWSER_ARGS,
 			},
 		);
 		if (this.closed) {

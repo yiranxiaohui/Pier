@@ -339,6 +339,8 @@ Selkies 2.1.0 和 Chrome for Testing 稳定版从官方 HTTPS 地址下载，安
 
 Ubuntu 23.10 起，AppArmor 默认不允许普通程序创建用户命名空间（`kernel.apparmor_restrict_unprivileged_userns = 1`），而 Pier 下载的 Chrome for Testing 没有系统自带的 AppArmor 配置，无法用默认方式启用沙箱。在这类主机上（以及关闭了 `unprivileged_userns_clone` 或把 `user.max_user_namespaces` 设为 0 的主机），Pier 会通过免密 sudo 把 Chrome 自带的沙箱辅助程序安装为浏览器目录下的 `chrome-sandbox`（root 所有、setuid，与 Google Chrome 软件包的做法相同），之后启动不再需要管理员权限，删除 `browser-runtime` 目录即可一并移除。没有免密 sudo 时，浏览器启动失败并提示原因，可配置免密 sudo 后重试，或安装 Google Chrome（Pier 优先使用它，Ubuntu 为它提供了 AppArmor 配置）。Pier 只处理自己下载的浏览器，系统已安装的浏览器和用 `PIER_BROWSER_BIN` 指定的其他程序不做改动。
 
+远程浏览器的 Cookie 加密密钥保存在它的配置目录（`~/.pier/browser-profiles`，仅运行 Host 的用户可读）中，不使用 gnome-keyring、KWallet 等桌面密钥环：远程画面上没有人能解锁密钥环，锁着的密钥环会让浏览器每次启动都等待半分钟。打开浏览器时不等第一个网页加载完，网页较慢时面板显示正在加载。
+
 可用 `PIER_SELKIES_BIN`、`PIER_BROWSER_BIN`、`PIER_XVFB_BIN`、`PIER_OPENBOX_BIN` 指定已有程序的绝对路径；无效的显式路径会提示修正。浏览器仍保留 Chromium 沙箱，不使用 `--no-sandbox`，请使用支持 Chromium 沙箱的普通用户运行 Host。需要离线预装时，可使用 `scripts/install-browser-linux.sh` 安装 Selkies，并由管理员预装 Xvfb、Openbox 和 Chrome / Chromium；原有手动安装路径继续支持。
 
 画面默认为 1440×900、30 fps，嵌入视图按可用空间显示；Selkies 提供键鼠、剪贴板和文件传输。自动剪贴板同步与音频默认关闭。Selkies HTTP 服务及本地查看入口只监听 `127.0.0.1`；页面及连接协商通过独立的 Pier 加密连接转发，WebRTC 媒体由 DTLS-SRTP 加密。每个会话使用随机访问令牌，令牌只在拥有该会话的连接中传递，并放在查看 URL 的 fragment 中；不记录到审计日志。面板的地址栏、标签页、选取和截图以及外部集成的控制都使用私有 CDP 管道，不开放调试端口；只有打开这个浏览器的 Pier 窗口能用面板控制它。远程主机的审计日志记录面板的导航、新建标签页、选取和截图操作（不含网址和网页内容），每秒一次的状态刷新不记录。

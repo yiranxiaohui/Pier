@@ -1,8 +1,9 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChromiumBrowser, launchSettings, SANDBOX_UNAVAILABLE } from "../src/browser/chromium.ts";
+import { REMOTE_BROWSER_ARGS } from "../src/browser/selkies.ts";
 
 describe("browser launch settings", () => {
 	it("keeps Windows Chrome and Edge from relaunching away from the CDP pipe", () => {
@@ -60,5 +61,54 @@ describe.skipIf(process.platform === "win32")("a browser that exits at once", ()
 		const error = await start(fake("echo 'something else went wrong' >&2\nexit 1")).catch((e: Error) => e);
 		expect(error).toBeInstanceOf(Error);
 		expect((error as Error).message).not.toBe(SANDBOX_UNAVAILABLE);
+	});
+});
+
+describe.skipIf(process.platform === "win32")("starting a browser", () => {
+	let root: string | undefined;
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+		root = undefined;
+	});
+
+	it("does not wait for the first page, so a slow one cannot fail the launch", async () => {
+		root = mkdtempSync(join(tmpdir(), "pier-fake-browser-"));
+		const executable = join(root, "chrome");
+		const navigated = join(root, "navigated");
+		// Answers the protocol on the CDP pipe, except the navigation: that page never responds.
+		writeFileSync(
+			executable,
+			`#!${process.execPath}
+const fs = require("node:fs");
+const output = fs.createWriteStream(null, { fd: 4 });
+const answer = (id, result) => output.write(JSON.stringify({ id, result }) + "\\0");
+let buffer = "";
+fs.createReadStream(null, { fd: 3 }).on("data", (chunk) => {
+	buffer += chunk;
+	for (let end; (end = buffer.indexOf("\\0")) >= 0; ) {
+		const { id, method, params } = JSON.parse(buffer.slice(0, end));
+		buffer = buffer.slice(end + 1);
+		if (method === "Browser.getVersion") answer(id, { product: "Fake" });
+		else if (method === "Target.getTargets")
+			answer(id, { targetInfos: [{ targetId: "T", type: "page", title: "", url: "about:blank" }] });
+		else if (method === "Target.attachToTarget") answer(id, { sessionId: "S" });
+		else if (method === "Page.navigate") fs.writeFileSync(${JSON.stringify(navigated)}, params.url);
+		else if (method === "Browser.close") process.exit(0);
+	}
+});
+`,
+		);
+		chmodSync(executable, 0o700);
+		const started = Date.now();
+		const browser = await ChromiumBrowser.start(join(root, "profile"), "http://127.0.0.1:3000/", undefined, () => {}, {
+			executable,
+		});
+		expect(Date.now() - started).toBeLessThan(10_000);
+		await vi.waitFor(() => expect(readFileSync(navigated, "utf8")).toBe("http://127.0.0.1:3000/"));
+		await browser.close();
+	});
+
+	it("keeps the remote browser's cookies away from a desktop keyring nobody can unlock", () => {
+		expect(REMOTE_BROWSER_ARGS).toContain("--password-store=basic");
 	});
 });

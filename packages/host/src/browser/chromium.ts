@@ -200,7 +200,9 @@ export class ChromiumBrowser {
 				});
 			const tabs = await browser.targets();
 			const tab = tabs[0];
-			if (tab) await browser.send("Page.navigate", { url }, await browser.session(tab.targetId));
+			// Do not wait for the first page: a slow site, or a dev server compiling its first request,
+			// must not fail the whole launch. It goes on loading, and the panel shows it loading.
+			if (tab) void browser.send("Page.navigate", { url }, await browser.session(tab.targetId)).catch(() => {});
 			else await browser.send("Target.createTarget", { url });
 			return browser;
 		} catch (error) {
