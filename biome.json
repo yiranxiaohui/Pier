@@ -7,7 +7,7 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!**/bun.lock"]
+		"includes": ["**", "!**/bun.lock", "!packages/host/data/model-prices.json"]
 	},
 	"formatter": {
 		"enabled": true,

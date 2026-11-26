@@ -1,20 +1,21 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Api, calculateCost, InMemoryCredentialStore, type Model, type Usage } from "@earendil-works/pi-ai";
 import { getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import { readPiCatalogData } from "../src/model-price-catalog.ts";
 import { PiEnvironment } from "../src/pi/environment.ts";
 import {
-	bundledPriceIndex,
 	ModelPriceIndex,
+	ModelPrices,
 	modelPrice,
-	officialPriceSnapshot,
+	officialPrices,
 	type PricedCatalogModel,
 	requestCost,
 } from "../src/pi/model-prices.ts";
-import { OFFICIAL_PRICES } from "../src/pi/official-prices.generated.ts";
 import { ProviderManager } from "../src/pi/providers.ts";
 import { PiLoader } from "../src/pi/sdk.ts";
 import type { UsageRecord } from "../src/runtimes/types.ts";
@@ -146,33 +147,31 @@ describe("official model prices", () => {
 		}
 	});
 
-	it("falls back to other prices for the models a catalog does not list", () => {
-		const fallback = new ModelPriceIndex([
+	it("asks several catalogs in order", () => {
+		const later = new ModelPriceIndex([
 			{ provider: "anthropic", id: "claude-opus-5-5", cost: { input: 1, output: 1 } },
 			{ provider: "anthropic", id: "claude-next", cost: { input: 9, output: 99 } },
 		]);
-		const withFallback = new ModelPriceIndex(CATALOG, fallback);
-		expect(withFallback.price("claude-opus-5-5")).toEqual(OPUS);
-		expect(withFallback.price("anthropic/claude-next")).toMatchObject({ input: 9, output: 99 });
-		expect(withFallback.price("unknown")).toBeUndefined();
+		const prices = new ModelPrices([index, undefined, later]);
+		expect(prices.price("claude-opus-5-5")).toEqual(OPUS);
+		expect(prices.price("anthropic/claude-next")).toMatchObject({ input: 9, output: 99 });
+		expect(prices.price("unknown")).toBeUndefined();
+		expect(prices.cost(record({ model: "claude-next", output: 1_000_000 }))).toBeCloseTo(99);
+		expect(prices.cost(record({ model: "claude-next", output: 1, fast: true }))).toBeUndefined();
 	});
 
-	it("bundles the official prices of the pi Pier is developed with", () => {
-		const current = officialPriceSnapshot(
+	it("reads pi's catalog data the way pi's own catalog API lists it", () => {
+		const viaApi = officialPrices(
 			getBuiltinProviders().flatMap((provider) => getBuiltinModels(provider) as readonly PricedCatalogModel[]),
 		);
-		// After upgrading the pi development dependency, run `bun run update-prices`.
-		expect(OFFICIAL_PRICES).toEqual(current);
-		expect(OFFICIAL_PRICES.every((m) => m.provider !== "openrouter" && m.provider !== "opencode")).toBe(true);
-		const bundled = bundledPriceIndex();
-		expect(bundled.price("claude-opus-5-5")).toEqual(OPUS);
-		expect(bundled.price("deepseek-v4-pro")).toMatchObject({ input: 1.32, output: 3.96 });
-		expect(bundled.price("gpt-6.1-sol")?.tiers).toEqual([
-			{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 },
-		]);
+		const dir = join(dirname(fileURLToPath(import.meta.resolve("@earendil-works/pi-ai"))), "providers", "data");
+		// The data also has image and classifier models, priced differently under the same ids.
+		expect(officialPrices(readPiCatalogData(dir))).toEqual(viaApi);
+		expect(viaApi.length).toBeGreaterThan(100);
+		expect(viaApi.every((m) => m.provider !== "openrouter" && m.provider !== "opencode")).toBe(true);
 	});
 
-	it("prices usage with Pier's prices on a computer without pi, and with pi's where it is installed", async () => {
+	it("adds the installed pi's catalog when pi is loaded", async () => {
 		const root = mkdtempSync(join(tmpdir(), "pier-prices-"));
 		try {
 			const withoutPi = await PiEnvironment.create({
@@ -180,9 +179,7 @@ describe("official model prices", () => {
 				loader: new PiLoader({ locate: () => ({ state: "missing" }) }),
 			});
 			expect(withoutPi.loaded).toBe(false);
-			const bundled = new ProviderManager(withoutPi, { onChanged: () => {} }).priceIndex();
-			expect(bundled).toBe(bundledPriceIndex());
-			expect(bundled.cost(record({ output: 1_000_000 }))).toBeCloseTo(20);
+			expect(new ProviderManager(withoutPi, { onChanged: () => {} }).catalogPriceIndex()).toBeUndefined();
 
 			const modelsPath = join(root, "models.json");
 			const withPi = await PiEnvironment.create({
@@ -196,10 +193,9 @@ describe("official model prices", () => {
 				}),
 			});
 			expect(withPi.loaded).toBe(true);
-			const fromPi = new ProviderManager(withPi, { onChanged: () => {} }).priceIndex();
-			expect(fromPi).not.toBe(bundledPriceIndex());
-			expect(fromPi.size).toBeGreaterThan(50);
-			expect(fromPi.cost(record({ output: 1_000_000 }))).toBeCloseTo(20);
+			const fromPi = new ProviderManager(withPi, { onChanged: () => {} }).catalogPriceIndex();
+			expect(fromPi?.size).toBeGreaterThan(50);
+			expect(fromPi?.cost(record({ output: 1_000_000 }))).toBeCloseTo(20);
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

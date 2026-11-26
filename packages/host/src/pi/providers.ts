@@ -16,7 +16,7 @@ import {
 } from "@pier/protocol";
 import type { PiEnvironment } from "./environment.ts";
 import { fillModelsJsonProviders, ModelCapabilityIndex } from "./model-capabilities.ts";
-import { bundledPriceIndex, ModelPriceIndex } from "./model-prices.ts";
+import { ModelPriceIndex } from "./model-prices.ts";
 import {
 	loadModelsJson,
 	mergeCustomProvider,
@@ -214,17 +214,13 @@ export class ProviderManager {
 	}
 
 	/**
-	 * Official model prices (for `usage.stats`, 1.70): pi's catalog, with the prices Pier bundles
-	 * for the models it does not list; only Pier's while pi is not installed or not loaded.
+	 * Official prices in the installed pi's model catalog (for `usage.stats`, 1.70), for the
+	 * models Pier's price file lacks; undefined while pi is not installed or not loaded.
 	 */
-	priceIndex(): ModelPriceIndex {
-		const bundled = bundledPriceIndex();
-		if (!this.env.loaded) return bundled;
+	catalogPriceIndex(): ModelPriceIndex | undefined {
+		if (!this.env.loaded) return undefined;
 		const runtime = this.runtime;
-		return new ModelPriceIndex(
-			[...this.builtinIds].flatMap((id) => runtime.getModels(id)),
-			bundled,
-		);
+		return new ModelPriceIndex([...this.builtinIds].flatMap((id) => runtime.getModels(id)));
 	}
 
 	/**

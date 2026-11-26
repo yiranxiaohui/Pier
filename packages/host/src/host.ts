@@ -56,6 +56,7 @@ import { hostFileTarget } from "./host-files.ts";
 import { HostProcessManager } from "./host-processes.ts";
 import { HostStatsSampler } from "./host-stats.ts";
 import { errorMessage, type ManagedSession } from "./managed-session.ts";
+import { ModelPriceSync } from "./model-price-sync.ts";
 import { LoopbackRelays } from "./oauth-loopback.ts";
 import { OpenCodeRuntime, type OpenCodeRuntimeOptions, opencodeConfigDir } from "./opencode/opencode-runtime.ts";
 import { detectPackageManagers } from "./package-managers.ts";
@@ -76,6 +77,7 @@ import { AccountManager } from "./pi/account.ts";
 import { PiEnvironment, type PiEnvironmentOptions } from "./pi/environment.ts";
 import { ExtensionManager, type ExtensionTarget } from "./pi/extensions.ts";
 import { PiInstaller, type PiInstallerOptions } from "./pi/installer.ts";
+import { ModelPrices } from "./pi/model-prices.ts";
 import { NewApiManager } from "./pi/newapi.ts";
 import { PackageCatalog, type PackageCatalogOptions } from "./pi/package-catalog.ts";
 import { PiRuntime } from "./pi/pi-runtime.ts";
@@ -629,6 +631,7 @@ export class PierHost implements RequestHandler {
 	private readonly handlers: Handlers;
 	private readonly stats = new HostStatsSampler();
 	private readonly usage: UsageStatsCollector;
+	private readonly modelPrices: ModelPriceSync;
 	private readonly shell: AppShell | undefined;
 	private readonly updater: AppUpdater | undefined;
 	private readonly terminals: HostTerminals;
@@ -708,11 +711,16 @@ export class PierHost implements RequestHandler {
 				this.broadcast({ type: "session.listChanged", workspaceId: session.workspaceId });
 			},
 		});
+		this.modelPrices = new ModelPriceSync({ file: join(this.pierDir, "model-prices.json"), log });
 		this.usage = new UsageStatsCollector({
 			workspaces: () => this.config.listWorkspaces(),
 			storedSessions: (workspace) => this.pool.storedSessions(workspace),
 			isArchived: (sessionId) => this.pool.isArchived(sessionId),
-			prices: () => this.providers.priceIndex(),
+			// Pier's price file (synced, else bundled), then the installed pi's catalog.
+			prices: () => {
+				this.modelPrices.refreshIfStale();
+				return new ModelPrices([...this.modelPrices.indexes(), this.providers.catalogPriceIndex()]);
+			},
 			log,
 		});
 		this.tasks = new ScheduledTasks({

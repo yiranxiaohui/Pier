@@ -1,0 +1,52 @@
+name: Model prices
+
+# Keeps packages/host/data/model-prices.json in step with the newest pi model catalog on npm.
+# Hosts sync that file to estimate the cost of requests their agents recorded none for.
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-prices
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update model prices
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      # No dependencies are installed: the script only needs Bun, and it reads the pi-ai
+      # package's catalog data without running any of its code.
+      - name: Update the price file
+        id: update
+        run: |
+          bun packages/host/scripts/update-model-prices.ts | tee "$RUNNER_TEMP/prices.txt"
+          if git diff --quiet -- packages/host/data/model-prices.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          source=$(sed -n 's/.* model prices from \(.*\)$/\1/p' "$RUNNER_TEMP/prices.txt" | head -n 1)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/host/data/model-prices.json
+          git commit -m "chore(prices): update model prices from ${source}" -m "$(tail -n +2 "$RUNNER_TEMP/prices.txt" | head -n 200)"
+          # Another push may have moved main meanwhile; only this file is ours.
+          git pull --rebase origin main
+          git push origin HEAD:main

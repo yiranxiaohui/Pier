@@ -3,7 +3,8 @@
 	"compilerOptions": {
 		"rootDir": ".",
 		"outDir": "dist/types",
-		"types": ["node"]
+		"types": ["node"],
+		"resolveJsonModule": true
 	},
 	"references": [
 		{ "path": "../protocol" },
@@ -12,5 +13,5 @@
 		{ "path": "../chat-state" },
 		{ "path": "../../apps/relay" }
 	],
-	"include": ["src", "test", "spikes", "scripts/*.ts"]
+	"include": ["src", "test", "spikes", "scripts/*.ts", "data/*.json"]
 }
