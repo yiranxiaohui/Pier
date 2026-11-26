@@ -4,6 +4,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	BROWSER_PICK_TIMEOUT_MS,
 	type BrowserCommand,
@@ -71,6 +72,15 @@ export function launchSettings(
 	};
 }
 
+/**
+ * Chromium's fatal startup errors when it cannot sandbox its processes: the host stops unconfined
+ * programs from creating user namespaces (Ubuntu 23.10+ AppArmor) and there is no usable setuid
+ * `chrome-sandbox` beside the browser.
+ */
+const NO_SANDBOX = ["No usable sandbox!", "The SUID sandbox helper binary was found, but is not configured correctly"];
+export const SANDBOX_UNAVAILABLE =
+	"浏览器启动后立即退出：它无法启用沙箱，因为这台电脑不允许普通程序创建用户命名空间（Ubuntu 23.10 起 AppArmor 的默认设置）。请为运行 Pier Host 的用户配置免密 sudo 后重试，Pier 会为它下载的浏览器装好沙箱辅助程序；也可以安装 Google Chrome。";
+
 interface Pending {
 	resolve(result: Record<string, unknown>): void;
 	reject(error: Error): void;
@@ -105,6 +115,9 @@ export class ChromiumBrowser {
 	private ended = false;
 	private chain: Promise<unknown> = Promise.resolve();
 	private readonly exited: Promise<void>;
+	/** Chromium said it cannot sandbox itself (the only thing read from its diagnostics). */
+	private unsandboxed = false;
+	private readonly diagnosticsEnded: Promise<void>;
 	private queued = 0;
 	/** The tab last seen on screen (or activated through `control`). */
 	private activeTab?: string;
@@ -129,7 +142,20 @@ export class ChromiumBrowser {
 			void this.close();
 		});
 		// Drain diagnostic output without logging it: a URL or a browser error can contain secrets.
-		(child.stderr as Readable)?.resume();
+		// Only look for the sandbox failure, which the user can fix and would otherwise not see.
+		const diagnostics = child.stderr as Readable | null;
+		let tail = "";
+		diagnostics?.on("data", (chunk: Buffer) => {
+			if (this.unsandboxed) return;
+			tail = tail.slice(-128) + chunk.toString("latin1");
+			this.unsandboxed = NO_SANDBOX.some((marker) => tail.includes(marker));
+		});
+		this.diagnosticsEnded = new Promise((resolve) => {
+			if (!diagnostics) resolve();
+			diagnostics?.once("end", resolve);
+			diagnostics?.once("close", resolve);
+			diagnostics?.once("error", resolve);
+		});
 		child.once("error", () => this.finish());
 		child.once("exit", () => this.finish());
 	}
@@ -178,7 +204,10 @@ export class ChromiumBrowser {
 			else await browser.send("Target.createTarget", { url });
 			return browser;
 		} catch (error) {
-			browser.close();
+			await browser.close();
+			// The exit can be seen before the last diagnostics are read.
+			if (!browser.unsandboxed) await Promise.race([browser.diagnosticsEnded, delay(1000)]);
+			if (browser.unsandboxed) throw new Error(SANDBOX_UNAVAILABLE);
 			throw error;
 		}
 	}

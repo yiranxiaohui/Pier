@@ -13,7 +13,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserPreparationProgress } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserRuntimeInstaller, type BrowserRuntimeInstallerOptions } from "../src/browser/installation.ts";
+import {
+	BrowserRuntimeInstaller,
+	type BrowserRuntimeInstallerOptions,
+	userNamespacesRestricted,
+} from "../src/browser/installation.ts";
 
 const VERSION = "156.0.8078.47";
 const bytes = Buffer.from("test browser archive");
@@ -51,6 +55,7 @@ describe("automatic remote browser preparation", () => {
 				const path = join(args[3] as string, `chrome-${target}`);
 				mkdirSync(path, { recursive: true });
 				writeFileSync(join(path, "chrome"), "installed browser");
+				writeFileSync(join(path, "chrome_sandbox"), "sandbox helper");
 			}
 			return "";
 		});
@@ -63,6 +68,7 @@ describe("automatic remote browser preparation", () => {
 			fetch,
 			run,
 			probe: async () => VERSION,
+			restrictedUserNamespaces: () => false,
 			...overrides,
 		};
 		const installer = new BrowserRuntimeInstaller(root, options);
@@ -353,5 +359,117 @@ describe("automatic remote browser preparation", () => {
 		await expect(installer.ensure()).rejects.toThrow("PIER_SELKIES_BIN");
 		expect(fetch).not.toHaveBeenCalled();
 		await expect(setup({ platform: "darwin" }).installer.ensure()).rejects.toThrow("Linux");
+	});
+	describe("where unprivileged user namespaces are restricted", () => {
+		const tools = (extra: string[]) => (name: string, override?: string, managed?: string) => {
+			if (override) return undefined;
+			if (managed && existsSync(managed)) return managed;
+			return ["selkies", "Xvfb", "openbox", "unzip", ...extra].includes(name) ? join(root, name) : undefined;
+		};
+		it("gives its own browser a setuid sandbox helper once, through passwordless sudo", async () => {
+			const helpers = new Set<string>();
+			const { installer, run, fetch } = setup({
+				restrictedUserNamespaces: () => true,
+				setuidRoot: (path) => helpers.has(path),
+				find: tools(["sudo", "install"]),
+			});
+			const progress: BrowserPreparationProgress[] = [];
+			const paths = await installer.ensure((p) => progress.push(p));
+			const dir = join(root, `chrome-${VERSION}`, "chrome-linux64");
+			expect(paths.chromium).toBe(join(dir, "chrome"));
+			expect(run).toHaveBeenCalledWith(join(root, "sudo"), ["-n", "true"], expect.anything());
+			expect(run).toHaveBeenCalledWith(
+				join(root, "sudo"),
+				[
+					"-n",
+					"--",
+					join(root, "install"),
+					"-o",
+					"0",
+					"-g",
+					"0",
+					"-m",
+					"4755",
+					join(dir, "chrome_sandbox"),
+					join(dir, "chrome-sandbox"),
+				],
+				expect.objectContaining({ onOutput: expect.any(Function) }),
+			);
+			expect(progress.map((p) => p.message)).toContain("正在为浏览器安装沙箱辅助程序…");
+			// Root now owns the helper: later launches go straight to the browser.
+			helpers.add(join(dir, "chrome-sandbox"));
+			run.mockClear();
+			fetch.mockClear();
+			expect(await installer.ensure()).toEqual(paths);
+			expect(run).not.toHaveBeenCalled();
+			expect(fetch).not.toHaveBeenCalled();
+		});
+		it("adds the helper to a browser installed by an earlier Host, replacing a stale one", async () => {
+			const dir = join(root, `chrome-${VERSION}`, "chrome-linux64");
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "chrome"), "installed browser");
+			writeFileSync(join(dir, "chrome_sandbox"), "sandbox helper");
+			writeFileSync(join(dir, "chrome-sandbox"), "copied without its owner");
+			writeFileSync(
+				join(root, "chrome.json"),
+				JSON.stringify({ executable: `chrome-${VERSION}/chrome-linux64/chrome` }),
+			);
+			const { installer, run, fetch } = setup({
+				restrictedUserNamespaces: () => true,
+				setuidRoot: () => false,
+				find: tools(["sudo", "install"]),
+			});
+			expect((await installer.ensure()).chromium).toBe(join(dir, "chrome"));
+			expect(fetch).not.toHaveBeenCalled();
+			expect(existsSync(join(dir, "chrome-sandbox"))).toBe(false);
+			expect(run).toHaveBeenLastCalledWith(
+				join(root, "sudo"),
+				expect.arrayContaining(["4755", join(dir, "chrome_sandbox"), join(dir, "chrome-sandbox")]),
+				expect.anything(),
+			);
+		});
+		it("leaves installed browsers to their own sandbox setup", async () => {
+			const { installer, run } = setup({
+				restrictedUserNamespaces: () => true,
+				setuidRoot: () => false,
+				chromium: () => "/existing/chrome",
+				find: tools(["sudo", "install"]),
+			});
+			expect((await installer.ensure()).chromium).toBe("/existing/chrome");
+			expect(run).not.toHaveBeenCalled();
+		});
+		it("still prepares the browser without passwordless sudo and says why there is no helper", async () => {
+			const { installer, run } = setup({
+				restrictedUserNamespaces: () => true,
+				setuidRoot: () => false,
+				find: tools(["install"]),
+			});
+			const progress: BrowserPreparationProgress[] = [];
+			expect((await installer.ensure((p) => progress.push(p))).chromium).toContain(`chrome-${VERSION}`);
+			expect(run.mock.calls.some(([, args]) => args.includes("4755"))).toBe(false);
+			expect(progress.at(-1)?.logs).toContain("没有免密 sudo");
+		});
+	});
+	it("reads the kernel's user namespace restrictions", () => {
+		const read = (values: Record<string, string>) => (path: string) => {
+			const value = values[path];
+			if (value === undefined) throw new Error("ENOENT");
+			return `${value}\n`;
+		};
+		expect(userNamespacesRestricted(read({ "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": "1" }))).toBe(
+			true,
+		);
+		expect(userNamespacesRestricted(read({ "/proc/sys/kernel/unprivileged_userns_clone": "0" }))).toBe(true);
+		expect(userNamespacesRestricted(read({ "/proc/sys/user/max_user_namespaces": "0" }))).toBe(true);
+		expect(
+			userNamespacesRestricted(
+				read({
+					"/proc/sys/kernel/apparmor_restrict_unprivileged_userns": "0",
+					"/proc/sys/kernel/unprivileged_userns_clone": "1",
+					"/proc/sys/user/max_user_namespaces": "93576",
+				}),
+			),
+		).toBe(false);
+		expect(userNamespacesRestricted(read({}))).toBe(false);
 	});
 });

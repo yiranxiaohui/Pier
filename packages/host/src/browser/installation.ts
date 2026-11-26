@@ -1,10 +1,10 @@
 /** Installs official browser runtimes once per Host, retaining existing user installations. */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as delay } from "node:timers/promises";
@@ -22,6 +22,36 @@ const SELKIES_SHA256 = {
 const CHROME_MANIFEST =
 	"https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json";
 const MAX_DOWNLOAD = 600 * 1024 * 1024;
+
+/**
+ * Whether this kernel stops unconfined programs from using the unprivileged user namespaces
+ * Chromium's default sandbox needs: AppArmor on Ubuntu 23.10+, a Debian switch, or a zero limit.
+ */
+export function userNamespacesRestricted(
+	read: (path: string) => string = (path) => readFileSync(path, "utf8"),
+): boolean {
+	const value = (path: string) => {
+		try {
+			return read(path).trim();
+		} catch {
+			return undefined;
+		}
+	};
+	return (
+		value("/proc/sys/kernel/apparmor_restrict_unprivileged_userns") === "1" ||
+		value("/proc/sys/kernel/unprivileged_userns_clone") === "0" ||
+		value("/proc/sys/user/max_user_namespaces") === "0"
+	);
+}
+/** A sandbox helper Chromium accepts: owned by root, setuid and executable by everyone. */
+function setuidRoot(path: string): boolean {
+	try {
+		const stat = statSync(path);
+		return stat.isFile() && stat.uid === 0 && (stat.mode & 0o4001) === 0o4001;
+	} catch {
+		return false;
+	}
+}
 export interface BrowserRuntimePaths {
 	selkies: string;
 	chromium: string;
@@ -43,6 +73,8 @@ export interface BrowserRuntimeInstallerOptions {
 	platform?: NodeJS.Platform;
 	arch?: string;
 	uid?: number;
+	restrictedUserNamespaces?: () => boolean;
+	setuidRoot?: (path: string) => boolean;
 }
 type Progress = (progress: BrowserPreparationProgress) => void;
 interface Job {
@@ -271,6 +303,64 @@ export class BrowserRuntimeInstaller {
 			if (key && process.env[key] && !value) throw new Error(`${key} 指定的程序不可用，请修正路径后重试`);
 		return { selkies, xvfb, chromium, openbox };
 	}
+	/** `sudo`, when it runs without asking for a password. */
+	private async passwordlessSudo(signal: AbortSignal): Promise<string | undefined> {
+		const sudo = this.find("sudo");
+		if (!sudo) return undefined;
+		try {
+			await this.run(sudo, ["-n", "true"], { signal });
+			return sudo;
+		} catch {
+			return undefined;
+		}
+	}
+	/**
+	 * Pier's own Chrome for Testing has no AppArmor profile, so where unprivileged user namespaces
+	 * are restricted it can only sandbox itself through a setuid `chrome-sandbox` beside it, as
+	 * Chrome's own packages install. The helper still missing, if any.
+	 */
+	private missingSandboxHelper(chromium: string): string | undefined {
+		if ((this.options.platform ?? process.platform) !== "linux") return undefined;
+		// Only Pier's copy (<root>/chrome-<version>/chrome-linux64/chrome): installed browsers bring their own.
+		if (dirname(dirname(dirname(chromium))) !== this.root) return undefined;
+		// Root can create user namespaces anyway.
+		if ((this.options.uid ?? process.getuid?.()) === 0) return undefined;
+		if (!(this.options.restrictedUserNamespaces ?? userNamespacesRestricted)()) return undefined;
+		const helper = join(dirname(chromium), "chrome-sandbox");
+		return (this.options.setuidRoot ?? setuidRoot)(helper) ? undefined : helper;
+	}
+	/** Best effort: without passwordless sudo, the browser's launch says what to do instead. */
+	private async installSandboxHelper(helper: string, log: BrowserPreparationLog, signal: AbortSignal): Promise<void> {
+		signal.throwIfAborted();
+		// Chrome for Testing ships the helper under its build name.
+		const source = join(dirname(helper), "chrome_sandbox");
+		let shipped = false;
+		try {
+			shipped = lstatSync(source).isFile();
+		} catch {
+			/* An archive without the helper. */
+		}
+		const install = this.find("install");
+		if (!shipped || !install) return;
+		const sudo = await this.passwordlessSudo(signal);
+		if (!sudo) {
+			log.output("这台电脑限制了用户命名空间，但没有免密 sudo，无法为浏览器安装沙箱辅助程序\n");
+			return;
+		}
+		signal.throwIfAborted();
+		log.progress({ stage: "installing", component: "chromium", message: "正在为浏览器安装沙箱辅助程序…" });
+		// A fresh file: never write through whatever stands at the helper's path (it is the Host user's directory).
+		await rm(helper, { force: true });
+		const args = ["-n", "--", install, "-o", "0", "-g", "0", "-m", "4755", source, helper];
+		log.output(`$ ${sudo} ${args.join(" ")}\n`);
+		try {
+			await this.run(sudo, args, { signal, onOutput: log.output });
+		} catch {
+			throw new Error("浏览器沙箱辅助程序安装失败，请查看安装输出后重试");
+		} finally {
+			log.flush();
+		}
+	}
 	private async systemPackages(
 		needs: { xvfb?: boolean; openbox?: boolean; unzip?: boolean; libraries?: boolean },
 		log: BrowserPreparationLog,
@@ -285,15 +375,9 @@ export class BrowserRuntimeInstaller {
 				"这台主机的软件包管理器暂不支持自动补齐系统依赖，请安装 Xvfb、Openbox、unzip 和 Chromium 所需运行库后重试",
 			);
 		const root = (this.options.uid ?? process.getuid?.()) === 0;
-		const sudo = root ? undefined : this.find("sudo");
-		if (!root) {
-			if (!sudo) throw new Error("自动安装缺少的系统依赖需要管理员权限，请为运行 Pier Host 的用户配置免密 sudo 后重试");
-			try {
-				await this.run(sudo, ["-n", "true"], { signal });
-			} catch {
-				throw new Error("自动安装缺少的系统依赖需要管理员权限，请为运行 Pier Host 的用户配置免密 sudo 后重试");
-			}
-		}
+		const sudo = root ? undefined : await this.passwordlessSudo(signal);
+		if (!root && !sudo)
+			throw new Error("自动安装缺少的系统依赖需要管理员权限，请为运行 Pier Host 的用户配置免密 sudo 后重试");
 		const run = async (file: string, args: string[]) => {
 			log.progress({
 				stage: "installing",
@@ -441,7 +525,8 @@ export class BrowserRuntimeInstaller {
 			throw new PierProtocolError("UNSUPPORTED", "远程浏览器自动安装目前支持 Linux x86_64 和 ARM64");
 		const ready = this.discover();
 		const probe = this.options.probe ?? probeVersion;
-		if (ready.selkies && ready.chromium && ready.xvfb && ready.openbox) return ready as BrowserRuntimePaths;
+		if (ready.selkies && ready.chromium && ready.xvfb && ready.openbox && !this.missingSandboxHelper(ready.chromium))
+			return ready as BrowserRuntimePaths;
 		await mkdir(this.root, { recursive: true, mode: 0o700 });
 		let unlock: (() => Promise<void>) | undefined;
 		let staging: string | undefined;
@@ -553,6 +638,8 @@ export class BrowserRuntimeInstaller {
 				});
 				await rename(pointer, join(this.root, "chrome.json"));
 			}
+			const helper = this.missingSandboxHelper(paths.chromium);
+			if (helper) await this.installSandboxHelper(helper, log, signal);
 			progress({ stage: "starting", message: "准备完成，正在启动远程浏览器…" });
 			return paths as BrowserRuntimePaths;
 		} finally {
