@@ -21,6 +21,11 @@ export interface UsageEntry {
 	cacheWrite: number;
 	/** Cost in US dollars, when the agent recorded it for every request counted here. */
 	cost?: number;
+	/**
+	 * Without `cost` (1.70): the cost in US dollars with the requests the agent recorded none for
+	 * priced at the model's official price (pi's model catalog), when every one of them could be.
+	 */
+	estimatedCost?: number;
 	/** Model requests (replies) counted. */
 	requests: number;
 }

@@ -1,4 +1,4 @@
-# Pier 协议 v1.69
+# Pier 协议 v1.70
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -556,7 +556,9 @@ Host 每秒检查计划。恢复后只补执行一个错过的周期；任务正
 |---|---|---|
 | `usage.stats` | `{ since?: "YYYY-MM-DD", timeZone? }` | `UsageStats`：这台电脑上所有工作区已保存会话的 token 用量，按会话、日期和模型汇总。对已配对设备开放 |
 
-`UsageStats = { timeZone, generatedAt, sessions: UsageSession[], errors?: UsageStatsError[] }`；`UsageSession = { sessionId, workspaceId, runtime, title?, archived?, modifiedAt, usage: UsageEntry[] }`，`title` 为会话名称，没有时取第一条提示词的开头；`UsageEntry = { day, model, provider?, input, output, cacheRead, cacheWrite, cost?, requests }`，按 `day` 和 `model` 升序。token 的口径与 pi 相同：`input` 不含从缓存读取（`cacheRead`）和写入缓存（`cacheWrite`）的提示词，一次请求的 token 为四者之和；Codex 的 `input_tokens` 包含缓存命中的部分，Host 会先减去。`requests` 为模型请求（回复）数。`cost` 为美元，只有这一项计入的每次请求都记录了费用时才返回；Agent 对没有价格的模型记为 0 的，视为未记录。
+`UsageStats = { timeZone, generatedAt, sessions: UsageSession[], errors?: UsageStatsError[] }`；`UsageSession = { sessionId, workspaceId, runtime, title?, archived?, modifiedAt, usage: UsageEntry[] }`，`title` 为会话名称，没有时取第一条提示词的开头；`UsageEntry = { day, model, provider?, input, output, cacheRead, cacheWrite, cost?, estimatedCost?, requests }`，按 `day` 和 `model` 升序。token 的口径与 pi 相同：`input` 不含从缓存读取（`cacheRead`）和写入缓存（`cacheWrite`）的提示词，一次请求的 token 为四者之和；Codex 的 `input_tokens` 包含缓存命中的部分，Host 会先减去。`requests` 为模型请求（回复）数。`cost` 为美元，只有这一项计入的每次请求都记录了费用时才返回；Agent 对没有价格的模型记为 0 的，视为未记录。
+
+没有 `cost` 时，`estimatedCost`（1.70）为按模型官方价格估算的费用（美元）：已记录费用的请求照计，未记录的请求按 pi 模型目录中该模型厂商自己的价格（Anthropic 的 Claude、OpenAI 的 GPT 等，不用 OpenRouter 等网关的价格）逐次计算。模型按 id 匹配，规则与给自定义模型补全能力时相同（忽略厂商前缀、日期后缀和 `-thinking` 等后缀）。计价方式与 pi 的 `calculateCost` 相同：一次请求的提示词 token 决定价格档位，保留 1 小时的缓存写入按输入价格的 2 倍计。只记录合计的请求（Hermes）按平均每次请求的提示词选档位；fast 模式的请求目录中没有价格，不估算。这一项有请求无法估算（模型不在目录中、fast 模式，或这台电脑没有加载 pi）时不返回。通过中转或订阅使用时，实际扣费可能与估算不同。
 
 `day` 按 `timeZone`（IANA 名称，省略时为 Host 所在电脑的时区；无法识别时 `BAD_REQUEST`）计算；`since` 省略更早的日期，这段时间里没有请求的会话不返回。只统计 Pier 工作区里列出的会话（与 `session.list` 相同，包括已归档的），已删除的会话和不在工作区里的会话不计入。Host 不打开会话，直接读取各 Agent 自己的记录：
 

@@ -16,6 +16,7 @@ import {
 } from "@pier/protocol";
 import type { PiEnvironment } from "./environment.ts";
 import { fillModelsJsonProviders, ModelCapabilityIndex } from "./model-capabilities.ts";
+import { ModelPriceIndex } from "./model-prices.ts";
 import {
 	loadModelsJson,
 	mergeCustomProvider,
@@ -210,6 +211,16 @@ export class ProviderManager {
 	private capabilityIndex(): ModelCapabilityIndex {
 		const runtime = this.runtime;
 		return new ModelCapabilityIndex([...this.builtinIds].flatMap((id) => runtime.getModels(id)));
+	}
+
+	/**
+	 * Official prices of the models in pi's catalog (for `usage.stats`, 1.70); undefined until pi
+	 * is loaded.
+	 */
+	priceIndex(): ModelPriceIndex | undefined {
+		if (!this.env.loaded) return undefined;
+		const runtime = this.runtime;
+		return new ModelPriceIndex([...this.builtinIds].flatMap((id) => runtime.getModels(id)));
 	}
 
 	/**

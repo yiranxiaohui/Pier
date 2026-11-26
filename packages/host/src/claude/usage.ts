@@ -30,6 +30,11 @@ export async function readClaudeUsage(path: string): Promise<UsageRecord[]> {
 			cacheWrite: tokens(usage.cache_creation_input_tokens),
 		};
 		if (record.input + record.output + record.cacheRead + record.cacheWrite === 0) continue;
+		// Only the price of a request depends on these.
+		const creation = usage.cache_creation as Record<string, unknown> | undefined;
+		const longWrite = Math.min(tokens(creation?.ephemeral_1h_input_tokens), record.cacheWrite);
+		if (longWrite > 0) record.cacheWrite1h = longWrite;
+		if (usage.speed === "fast") record.fast = true;
 		// Forks and resumed sessions copy replies with their `message.id`.
 		const id = typeof message.id === "string" && message.id ? message.id : undefined;
 		const key = id ?? `#${unnamed++}`;

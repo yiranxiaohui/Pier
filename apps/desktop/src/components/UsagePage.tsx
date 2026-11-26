@@ -1,11 +1,14 @@
 import {
 	agentRuntimeLabel,
 	summarizeUsage,
+	USAGE_ESTIMATE_HINT,
 	type UsageBucket,
 	type UsageGroup,
 	type UsageSessionGroup,
 	type UsageSource,
 	type UsageTotals,
+	usageCostNote,
+	usageCostText,
 	usageSince,
 } from "@pier/chat-state";
 import type { AgentRuntimeId } from "@pier/protocol";
@@ -46,10 +49,19 @@ function exact(n: number): string {
 	return n.toLocaleString();
 }
 
-/** Cost of the counted requests; “—” when no agent recorded any. */
+/** Cost of the counted requests; “—” when none has one, “≈” when it includes estimates. */
 function costText(totals: UsageTotals): string {
-	if (totals.requests > 0 && totals.uncostedRequests === totals.requests) return "—";
-	return formatCost(totals.cost);
+	return usageCostText(totals, formatCost);
+}
+
+/** A table cell with a cost; hovering it says what the cost estimates or leaves out. */
+function CostCell({ totals }: { totals: UsageTotals }) {
+	const note = usageCostNote(totals);
+	return (
+		<td className="num" {...(note ? { title: note } : {})}>
+			{costText(totals)}
+		</td>
+	);
 }
 
 function nodeNotice(computer: ComputerInfo, data: UsageNodeData | undefined): string | undefined {
@@ -273,12 +285,7 @@ export function UsagePage({ footer }: { footer?: ReactNode } = {}) {
 }
 
 function UsageTiles({ totals, cacheHitRate }: { totals: UsageTotals; cacheHitRate: number | undefined }) {
-	const costNote =
-		totals.uncostedRequests === 0
-			? `${exact(totals.requests)} 次请求`
-			: totals.uncostedRequests === totals.requests
-				? "这些 Agent 没有记录费用"
-				: `另有 ${exact(totals.uncostedRequests)} 次请求未记录费用`;
+	const costNote = usageCostNote(totals) ?? `${exact(totals.requests)} 次请求`;
 	return (
 		<section className="usage-tiles">
 			<div className="usage-tile hero">
@@ -320,7 +327,7 @@ function UsageTiles({ totals, cacheHitRate }: { totals: UsageTotals; cacheHitRat
 				</strong>
 				<span className="usage-tile-note">写入提示词缓存</span>
 			</div>
-			<div className="usage-tile">
+			<div className="usage-tile" {...(totals.estimatedRequests > 0 ? { title: USAGE_ESTIMATE_HINT } : {})}>
 				<span className="usage-tile-label">费用</span>
 				<strong className="usage-tile-value">{costText(totals)}</strong>
 				<span className="usage-tile-note">{costNote}</span>
@@ -502,7 +509,7 @@ function UsageTable({ groups, total, dimension }: { groups: UsageGroup[]; total:
 								</td>
 								<td className="num">{exact(group.requests)}</td>
 								<td className="num">{exact(group.sessions)}</td>
-								<td className="num">{costText(group)}</td>
+								<CostCell totals={group} />
 							</tr>
 						);
 					})}
@@ -556,7 +563,7 @@ function SessionTable({
 								{formatTokens(session.total)}
 							</td>
 							<td className="num">{exact(session.requests)}</td>
-							<td className="num">{costText(session)}</td>
+							<CostCell totals={session} />
 							<td className="num">{relativeTime(session.modifiedAt)}</td>
 						</tr>
 					))}

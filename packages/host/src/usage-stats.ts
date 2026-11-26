@@ -17,11 +17,19 @@ const CONCURRENCY = 4;
 /** Errors reported at most (an agent that cannot be reached fails for each of its sessions). */
 const MAX_ERRORS = 50;
 
+/** Prices requests whose agent recorded no cost (1.70). */
+export interface CostEstimator {
+	/** Cost in US dollars of the request at its model's official price; undefined when unknown. */
+	cost(record: UsageRecord): number | undefined;
+}
+
 export interface UsageStatsSource {
 	workspaces(): WorkspaceInfo[];
 	/** Every stored session of the workspace with the runtime that owns it. */
 	storedSessions(workspace: WorkspaceInfo): Promise<{ runtime: AgentRuntime; stored: StoredSession }[]>;
 	isArchived(sessionId: string): boolean;
+	/** Official model prices, when they are known (pi's model catalog). Asked once per collection. */
+	prices?: () => CostEstimator | undefined;
 	log?: (message: string) => void;
 }
 
@@ -73,9 +81,18 @@ async function eachLimited<T>(items: T[], limit: number, task: (item: T) => Prom
 	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-/** Sum the records into one entry per day and model. Records before `since` are left out. */
-export function usageEntries(records: UsageRecord[], dayOf: (at: number) => string, since?: string): UsageEntry[] {
-	const entries = new Map<string, UsageEntry & { costKnown: boolean }>();
+/**
+ * Sum the records into one entry per day and model. Records before `since` are left out. An
+ * entry has a `cost` when every request has a recorded one, else an `estimatedCost` when
+ * `prices` can price every request without one.
+ */
+export function usageEntries(
+	records: UsageRecord[],
+	dayOf: (at: number) => string,
+	since?: string,
+	prices?: CostEstimator,
+): UsageEntry[] {
+	const entries = new Map<string, UsageEntry & { usd: number; recorded: boolean; priced: boolean }>();
 	for (const record of records) {
 		const day = dayOf(record.at);
 		if (since && day < since) continue;
@@ -91,7 +108,9 @@ export function usageEntries(records: UsageRecord[], dayOf: (at: number) => stri
 				cacheRead: 0,
 				cacheWrite: 0,
 				requests: 0,
-				costKnown: true,
+				usd: 0,
+				recorded: true,
+				priced: true,
 			};
 			entries.set(key, entry);
 		}
@@ -100,13 +119,19 @@ export function usageEntries(records: UsageRecord[], dayOf: (at: number) => stri
 		entry.cacheRead += record.cacheRead;
 		entry.cacheWrite += record.cacheWrite;
 		entry.requests += record.requests ?? 1;
-		if (record.cost === undefined) entry.costKnown = false;
-		else entry.cost = (entry.cost ?? 0) + record.cost;
+		if (record.cost !== undefined) {
+			entry.usd += record.cost;
+			continue;
+		}
+		entry.recorded = false;
+		const estimate = entry.priced ? prices?.cost(record) : undefined;
+		if (estimate === undefined) entry.priced = false;
+		else entry.usd += estimate;
 	}
 	return [...entries.values()]
-		.map(({ costKnown, ...entry }) => {
-			if (!costKnown) delete entry.cost;
-			return entry;
+		.map(({ usd, recorded, priced, ...entry }): UsageEntry => {
+			if (recorded) return { ...entry, cost: usd };
+			return priced ? { ...entry, estimatedCost: usd } : entry;
 		})
 		.sort((a, b) => a.day.localeCompare(b.day) || a.model.localeCompare(b.model));
 }
@@ -120,6 +145,16 @@ export class UsageStatsCollector {
 	private readonly pending = new Map<string, Promise<UsageStats>>();
 
 	constructor(private readonly source: UsageStatsSource) {}
+
+	/** The official prices, if any; statistics without estimates beat none. */
+	private prices(): CostEstimator | undefined {
+		try {
+			return this.source.prices?.();
+		} catch (error) {
+			this.source.log?.(`reading model prices failed: ${message(error)}`);
+			return undefined;
+		}
+	}
 
 	stats(options: UsageStatsOptions = {}): Promise<UsageStats> {
 		const timeZone = options.timeZone ?? hostTimeZone();
@@ -160,6 +195,7 @@ export class UsageStatsCollector {
 		});
 		const seen = new Map<AgentRuntimeId, Set<string>>();
 		const sessions: UsageSession[] = [];
+		const prices = this.prices();
 		for (const item of found) {
 			const list = records.get(item);
 			if (!list?.length) continue;
@@ -171,7 +207,7 @@ export class UsageStatsCollector {
 				keys.add(record.key);
 				return true;
 			});
-			const usage = usageEntries(own, dayOf, since);
+			const usage = usageEntries(own, dayOf, since, prices);
 			if (usage.length === 0) continue;
 			const title = (item.stored.name?.trim() || stripTrailingImageHints(item.stored.firstMessage).trim()).slice(
 				0,

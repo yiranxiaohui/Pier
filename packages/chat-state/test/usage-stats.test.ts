@@ -1,6 +1,15 @@
 import type { UsageEntry, UsageStats } from "@pier/protocol";
 import { describe, expect, it } from "vitest";
-import { localDay, summarizeUsage, type UsageSource, usageSince } from "../src/usage-stats.ts";
+import {
+	emptyUsageTotals,
+	localDay,
+	summarizeUsage,
+	type UsageSource,
+	type UsageTotals,
+	usageCostNote,
+	usageCostText,
+	usageSince,
+} from "../src/usage-stats.ts";
 
 const entry = (day: string, model: string, tokens: number, extra: Partial<UsageEntry> = {}): UsageEntry => ({
 	day,
@@ -50,7 +59,7 @@ const sources = [
 			runtime: "codex",
 			archived: true,
 			modifiedAt: "2026-11-23T10:00:00Z",
-			usage: [entry("2026-11-23", "gpt-6.1-sol", 20, { provider: "openai" })],
+			usage: [entry("2026-11-23", "gpt-6.1-sol", 20, { provider: "openai", estimatedCost: 0.75 })],
 		},
 	]),
 ];
@@ -66,8 +75,11 @@ describe("summarizeUsage", () => {
 			total: 1800,
 			requests: 6,
 			sessions: 3,
-			cost: 2.5,
-			uncostedRequests: 2,
+			// Codex's estimate counts towards the cost; Claude Code's request has none.
+			cost: 3.25,
+			estimatedCost: 0.75,
+			estimatedRequests: 1,
+			uncostedRequests: 1,
 		});
 		expect(summary.cacheHitRate).toBeCloseTo(1440 / 1620);
 		expect(summary.byRuntime.map((g) => [g.key, g.label, g.total, g.sessions])).toEqual([
@@ -151,5 +163,28 @@ describe("summarizeUsage", () => {
 		expect(usageSince(1, now)).toBe("2026-11-25");
 		expect(usageSince(7, now)).toBe("2026-11-19");
 		expect(usageSince(30, now)).toBe("2026-10-27");
+	});
+});
+
+describe("usage cost text", () => {
+	const totals = (extra: Partial<UsageTotals>): UsageTotals => ({ ...emptyUsageTotals(), requests: 4, ...extra });
+	const usd = (n: number) => `$${n.toFixed(2)}`;
+
+	it("marks estimates and says what is left out", () => {
+		expect(usageCostText(totals({ cost: 1 }), usd)).toBe("$1.00");
+		expect(usageCostNote(totals({ cost: 1 }))).toBeUndefined();
+		expect(usageCostText(totals({ uncostedRequests: 4 }), usd)).toBe("—");
+		expect(usageCostNote(totals({ uncostedRequests: 4 }))).toBe("没有记录费用，也查不到官方价格");
+		const estimated = totals({ cost: 2, estimatedCost: 2, estimatedRequests: 4 });
+		expect(usageCostText(estimated, usd)).toBe("≈$2.00");
+		expect(usageCostNote(estimated)).toBe("按模型官方价格估算");
+		expect(usageCostNote(totals({ cost: 2, estimatedCost: 1, estimatedRequests: 3 }))).toBe(
+			"其中 3 次请求按官方价格估算",
+		);
+		expect(usageCostNote(totals({ cost: 2, estimatedCost: 1, estimatedRequests: 1, uncostedRequests: 2 }))).toBe(
+			"另有 2 次请求没有价格",
+		);
+		expect(usageCostText(emptyUsageTotals(), usd)).toBe("$0.00");
+		expect(usageCostNote(emptyUsageTotals())).toBeUndefined();
 	});
 });

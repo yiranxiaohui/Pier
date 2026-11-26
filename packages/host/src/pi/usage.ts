@@ -29,6 +29,8 @@ function piRecord(usage: Json, at: number, model: string, provider: string | und
 	const total = record.input + record.output + record.cacheRead + record.cacheWrite;
 	// Aborted or failed requests before any reply carry no usage.
 	if (total === 0) return undefined;
+	const longWrite = Math.min(tokens(usage.cacheWrite1h), record.cacheWrite);
+	if (longWrite > 0) record.cacheWrite1h = longWrite;
 	const cost = piCost(usage, total);
 	if (cost !== undefined) record.cost = cost;
 	return record;

@@ -1,10 +1,13 @@
 import {
 	agentRuntimeLabel,
 	summarizeUsage,
+	USAGE_ESTIMATE_HINT,
 	type UsageBucket,
 	type UsageGroup,
 	type UsageSource,
 	type UsageTotals,
+	usageCostNote,
+	usageCostText,
 	usageSince,
 } from "@pier/chat-state";
 import type { AgentRuntimeId } from "@pier/protocol";
@@ -40,8 +43,7 @@ type Dimension = "runtime" | "model" | "workspace" | "node";
 const ALL = "*";
 
 function costText(totals: UsageTotals): string {
-	if (totals.requests > 0 && totals.uncostedRequests === totals.requests) return "—";
-	return formatCost(totals.cost);
+	return usageCostText(totals, formatCost);
 }
 
 function Chips<T extends string>({
@@ -290,12 +292,7 @@ export default function UsageScreen() {
 		workspace: summary.byWorkspace,
 		node: summary.byNode,
 	}[dimension];
-	const costNote =
-		totals.uncostedRequests === 0
-			? undefined
-			: totals.uncostedRequests === totals.requests
-				? "这些 Agent 没有记录费用"
-				: `${totals.uncostedRequests.toLocaleString()} 次请求未记录费用`;
+	const costNote = usageCostNote(totals);
 
 	return (
 		<Screen safeBottom>
@@ -440,6 +437,7 @@ export default function UsageScreen() {
 						<Muted style={styles.footnote}>
 							统计各电脑 Pier 工作区中的会话（含 Subagent），已删除的会话不计入。Hermes
 							只记录每个会话的合计，计在最后活动的那天。
+							{totals.estimatedRequests > 0 ? `“≈”表示估算：${USAGE_ESTIMATE_HINT}` : ""}
 						</Muted>
 					</>
 				)}

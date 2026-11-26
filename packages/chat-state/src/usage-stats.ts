@@ -29,9 +29,13 @@ export interface UsageTotals {
 	total: number;
 	requests: number;
 	sessions: number;
-	/** Cost of the requests whose agent recorded one, in US dollars. */
+	/** Cost of the requests with a recorded or an estimated cost, in US dollars. */
 	cost: number;
-	/** Requests counted without a cost (their agent records none). */
+	/** The part of `cost` estimated from official model prices (`estimatedCost`, 1.70). */
+	estimatedCost: number;
+	/** Requests whose cost is estimated: their agent recorded none. */
+	estimatedRequests: number;
+	/** Requests counted without a cost: their agent recorded none and their price is unknown. */
 	uncostedRequests: number;
 }
 
@@ -88,6 +92,8 @@ export function emptyUsageTotals(): UsageTotals {
 		requests: 0,
 		sessions: 0,
 		cost: 0,
+		estimatedCost: 0,
+		estimatedRequests: 0,
 		uncostedRequests: 0,
 	};
 }
@@ -99,9 +105,33 @@ function addEntry(totals: UsageTotals, entry: UsageEntry): void {
 	totals.cacheWrite += entry.cacheWrite;
 	totals.total += entryTokens(entry);
 	totals.requests += entry.requests;
-	if (entry.cost === undefined) totals.uncostedRequests += entry.requests;
-	else totals.cost += entry.cost;
+	if (entry.cost !== undefined) totals.cost += entry.cost;
+	else if (entry.estimatedCost !== undefined) {
+		totals.cost += entry.estimatedCost;
+		totals.estimatedCost += entry.estimatedCost;
+		totals.estimatedRequests += entry.requests;
+	} else totals.uncostedRequests += entry.requests;
 }
+
+/** The cost of `totals` for display: “—” when no request has one, “≈” before estimated costs. */
+export function usageCostText(totals: UsageTotals, format: (usd: number) => string): string {
+	if (totals.requests > 0 && totals.uncostedRequests === totals.requests) return "—";
+	return `${totals.estimatedRequests > 0 ? "≈" : ""}${format(totals.cost)}`;
+}
+
+/** What the cost of `totals` estimates or leaves out; undefined when every request recorded one. */
+export function usageCostNote(totals: UsageTotals): string | undefined {
+	if (totals.requests === 0) return undefined;
+	if (totals.uncostedRequests === totals.requests) return "没有记录费用，也查不到官方价格";
+	if (totals.uncostedRequests > 0) return `另有 ${totals.uncostedRequests.toLocaleString()} 次请求没有价格`;
+	if (totals.estimatedRequests === totals.requests) return "按模型官方价格估算";
+	if (totals.estimatedRequests > 0) return `其中 ${totals.estimatedRequests.toLocaleString()} 次请求按官方价格估算`;
+	return undefined;
+}
+
+/** How estimated costs are calculated, for a tooltip or a footnote. */
+export const USAGE_ESTIMATE_HINT =
+	"Agent 没有记录费用的请求，按 pi 模型目录中模型厂商的官方价格估算；通过中转、订阅或优惠价使用时，实际扣费可能不同。";
 
 export function entryTokens(entry: Pick<UsageEntry, "input" | "output" | "cacheRead" | "cacheWrite">): number {
 	return entry.input + entry.output + entry.cacheRead + entry.cacheWrite;
@@ -253,6 +283,8 @@ export function summarizeUsage(
 			totals.total += own.total;
 			totals.requests += own.requests;
 			totals.cost += own.cost;
+			totals.estimatedCost += own.estimatedCost;
+			totals.estimatedRequests += own.estimatedRequests;
 			totals.uncostedRequests += own.uncostedRequests;
 		}
 	}

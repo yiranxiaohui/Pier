@@ -141,6 +141,29 @@ describe("Claude Code usage", () => {
 		]);
 	});
 
+	it("notes 1-hour cache writes and fast mode, which change the price", async () => {
+		const path = jsonl(join(dir, "p.jsonl"), [
+			line("msg_1", T0, {
+				input_tokens: 1,
+				output_tokens: 2,
+				cache_creation_input_tokens: 900,
+				cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 600 },
+				speed: "fast",
+			}),
+			line("msg_2", T0, {
+				input_tokens: 1,
+				output_tokens: 2,
+				cache_creation_input_tokens: 5,
+				cache_creation: { ephemeral_5m_input_tokens: 5, ephemeral_1h_input_tokens: 0 },
+				speed: "standard",
+			}),
+		]);
+		const [fast, standard] = await readClaudeUsage(path);
+		expect(fast).toMatchObject({ cacheWrite: 900, cacheWrite1h: 600, fast: true });
+		expect(standard).not.toHaveProperty("cacheWrite1h");
+		expect(standard).not.toHaveProperty("fast");
+	});
+
 	it("adds the transcripts of the session's subagents", async () => {
 		const path = jsonl(join(dir, "abc.jsonl"), [line("msg_1", T0, { input_tokens: 1, output_tokens: 1 })]);
 		jsonl(join(dir, "abc", "subagents", "agent-a1.jsonl"), [line("msg_s", T0, { input_tokens: 3, output_tokens: 4 })]);
@@ -493,6 +516,35 @@ describe("usage statistics", () => {
 		]);
 	});
 
+	it("estimates the cost of requests without one when every one of them has a price", () => {
+		const dayOf = dayFormatter("UTC");
+		const prices = { cost: (r: UsageRecord) => (r.model === "unpriced" || r.fast ? undefined : r.output / 100) };
+		const entries = usageEntries(
+			[
+				record(T0, 5, { cost: 0.1 }),
+				record(T0, 7),
+				record(T0, 50, { model: "m2", cost: 1 }),
+				record(T0, 3, { model: "unpriced" }),
+				record(T0, 4, { model: "m3" }),
+				record(T0, 4, { model: "m3", fast: true }),
+			],
+			dayOf,
+			undefined,
+			prices,
+		);
+		const byModel = Object.fromEntries(
+			entries.map(({ model, cost, estimatedCost }) => [model, { cost, estimatedCost }]),
+		);
+		expect(byModel).toEqual({
+			// Recorded costs count as they are, the rest at the official price.
+			m1: { cost: undefined, estimatedCost: expect.closeTo(0.17) },
+			m2: { cost: 1, estimatedCost: undefined },
+			// One request without a price leaves the whole entry without a cost.
+			unpriced: { cost: undefined, estimatedCost: undefined },
+			m3: { cost: undefined, estimatedCost: undefined },
+		});
+	});
+
 	it("collects every workspace, counts copied requests once and reports what failed", async () => {
 		const pi = runtime("pi", {
 			old: [record(T0, 5, { key: "r1" }), record(T0 + 1000, 6, { key: "r2" })],
@@ -538,6 +590,29 @@ describe("usage statistics", () => {
 
 		const later = await collector.stats({ timeZone: "UTC", since: "2026-11-25" });
 		expect(later.sessions).toEqual([]);
+	});
+
+	it("prices requests with the source's prices, and without them when they cannot be read", async () => {
+		const pi = runtime("pi", { s: [record(T0, 5)] });
+		const source = {
+			workspaces: () => [workspace("a")],
+			storedSessions: async () => [{ runtime: pi, stored: stored("s", T0) }],
+			isArchived: () => false,
+		};
+		const priced = await new UsageStatsCollector({ ...source, prices: () => ({ cost: () => 0.25 }) }).stats({
+			timeZone: "UTC",
+		});
+		expect(priced.sessions[0]?.usage).toEqual([expect.objectContaining({ estimatedCost: 0.25 })]);
+		const logs: string[] = [];
+		const broken = await new UsageStatsCollector({
+			...source,
+			prices: () => {
+				throw new Error("no catalog");
+			},
+			log: (line) => logs.push(line),
+		}).stats({ timeZone: "UTC" });
+		expect(broken.sessions[0]?.usage[0]).not.toHaveProperty("estimatedCost");
+		expect(logs).toEqual(["reading model prices failed: no catalog"]);
 	});
 
 	it("reads changed files again and unchanged ones from the cache", async () => {

@@ -712,6 +712,7 @@ export class PierHost implements RequestHandler {
 			workspaces: () => this.config.listWorkspaces(),
 			storedSessions: (workspace) => this.pool.storedSessions(workspace),
 			isArchived: (sessionId) => this.pool.isArchived(sessionId),
+			prices: () => this.providers.priceIndex(),
 			log,
 		});
 		this.tasks = new ScheduledTasks({

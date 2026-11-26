@@ -82,21 +82,23 @@ const PROVIDER_RANK = [
 	"vercel-ai-gateway",
 ];
 
-function rank(provider: string): number {
+/** How authoritative a provider's catalog entry for a model is; lower is better. */
+export function providerRank(provider: string): number {
 	const index = PROVIDER_RANK.indexOf(provider);
 	return index === -1 ? PROVIDER_RANK.length : index;
 }
 
 /**
  * Model vendors' own APIs. Gateways (OpenRouter, Vercel, OpenCode, ...) map thinking levels to
- * their own wire values (e.g. `off` → `none`), so only vendors' entries count as official.
+ * their own wire values (e.g. `off` → `none`) and set their own prices, so only vendors' entries
+ * count as official.
  */
-function firstParty(provider: string): boolean {
-	return rank(provider) < PROVIDER_RANK.indexOf("openrouter");
+export function firstParty(provider: string): boolean {
+	return providerRank(provider) < PROVIDER_RANK.indexOf("openrouter");
 }
 
 /** Lowercase id without a vendor path (`anthropic/…`, `models/…`) or a `:variant` tag. */
-function baseId(id: string): string {
+export function baseId(id: string): string {
 	let value = id.trim().toLowerCase();
 	const slash = value.lastIndexOf("/");
 	if (slash !== -1) value = value.slice(slash + 1);
@@ -109,8 +111,8 @@ const DATE_SUFFIX = /(?:[-@]\d{8}|-\d{4}-\d{2}-\d{2}|-\d{4}|-latest)$/;
 const THINKING_SUFFIX = /[-_](?:thinking|think|reasoning)$/;
 const NO_THINKING_SUFFIX = /[-_](?:no-?thinking|non-?thinking|nothink)$/;
 
-/** Ids to look up for `id`, most specific first. */
-function candidates(id: string): string[] {
+/** Catalog ids (see {@link baseId}) to look up for `id`, most specific first. */
+export function candidates(id: string): string[] {
 	const out: string[] = [];
 	const add = (value: string) => {
 		if (value && !out.includes(value)) out.push(value);
@@ -157,12 +159,13 @@ export class ModelCapabilityIndex {
 		for (const model of models) {
 			const key = baseId(model.id);
 			const current = this.byId.get(key);
-			if (!current || rank(model.provider) < rank(current.provider)) this.byId.set(key, model);
+			if (!current || providerRank(model.provider) < providerRank(current.provider)) this.byId.set(key, model);
 			const family = apiFamily(model.api);
 			if (family && model.reasoning === true && isObject(model.thinkingLevelMap) && firstParty(model.provider)) {
 				const thinkingKey = `${family}:${key}`;
 				const known = this.thinkingById.get(thinkingKey);
-				if (!known || rank(model.provider) < rank(known.provider)) this.thinkingById.set(thinkingKey, model);
+				if (!known || providerRank(model.provider) < providerRank(known.provider))
+					this.thinkingById.set(thinkingKey, model);
 			}
 		}
 	}

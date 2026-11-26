@@ -34,6 +34,10 @@ export interface UsageRecord {
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
+	/** Part of `cacheWrite` written with 1-hour retention (Anthropic), which costs more. */
+	cacheWrite1h?: number;
+	/** Served in fast mode, which costs more than the model's catalog prices. */
+	fast?: boolean;
 	/** Cost in US dollars, when the agent recorded it. */
 	cost?: number;
 	/** Model requests the record sums, for agents that keep totals only (default 1). */
