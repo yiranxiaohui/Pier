@@ -117,7 +117,7 @@ import {
 import { transferWorkspacePath } from "./workspace-path-transfers.ts";
 import { WorkspaceUploads } from "./workspace-uploads.ts";
 
-export const PIER_HOST_VERSION = "0.3.11";
+export const PIER_HOST_VERSION = "0.3.12";
 
 /** Methods that need the pi SDK: model providers, the default model and pi packages. */
 const PI_METHODS: ReadonlySet<MethodName> = new Set<MethodName>([
