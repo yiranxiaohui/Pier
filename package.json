@@ -15,6 +15,7 @@
 		"host": "tsx packages/host/src/main.ts",
 		"pier-cli": "tsx packages/client/src/cli.ts",
 		"faux-host": "tsx packages/host/scripts/faux-host.ts",
+		"update-prices": "tsx packages/host/scripts/update-official-prices.ts",
 		"desktop": "bun run --cwd apps/desktop dev",
 		"build:sidecar": "node packages/host/scripts/build-sidecar.mjs",
 		"relay": "tsx apps/relay/src/main.ts"

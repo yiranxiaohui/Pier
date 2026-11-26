@@ -5,13 +5,16 @@
  * models they have no prices for (relays and custom endpoints). pi's model catalog lists the
  * prices of its built-in providers per million tokens, and relays use the vendors' model ids, so
  * such a request is priced at its model vendor's own catalog entry (Anthropic for Claude, OpenAI
- * for GPT, ...). Gateways set their own prices, so their entries are not used.
+ * for GPT, ...). Gateways set their own prices, so their entries are not used. Computers without
+ * pi use the prices Pier bundles (`official-prices.generated.ts`, from the pi Pier is developed
+ * with), which also cover the models an older pi does not list.
  *
  * The price of a request follows pi's `calculateCost`: its prompt tokens choose the tier, and
  * cache writes with 1-hour retention cost twice the input price.
  */
 import type { UsageRecord } from "../runtimes/types.ts";
 import { baseId, candidates, firstParty, providerRank } from "./model-capabilities.ts";
+import { OFFICIAL_PRICES } from "./official-prices.generated.ts";
 
 /** US dollars per million tokens. */
 export interface ModelRates {
@@ -94,7 +97,11 @@ export function requestCost(
 export class ModelPriceIndex {
 	private readonly byId = new Map<string, { provider: string; price: ModelPrice }>();
 
-	constructor(models: Iterable<PricedCatalogModel>) {
+	/** `fallback` prices the models `models` do not list (an older pi's catalog). */
+	constructor(
+		models: Iterable<PricedCatalogModel>,
+		private readonly fallback?: ModelPriceIndex,
+	) {
 		for (const model of models) {
 			if (!firstParty(model.provider)) continue;
 			const price = modelPrice(model.cost);
@@ -106,6 +113,7 @@ export class ModelPriceIndex {
 		}
 	}
 
+	/** Models with a price, without the fallback's. */
 	get size(): number {
 		return this.byId.size;
 	}
@@ -113,9 +121,10 @@ export class ModelPriceIndex {
 	/** The official price of `model` (an id as an agent or a relay names it). */
 	price(model: string): ModelPrice | undefined {
 		if (!model) return undefined;
-		return candidates(model)
+		const own = candidates(model)
 			.map((key) => this.byId.get(key))
 			.find(Boolean)?.price;
+		return own ?? this.fallback?.price(model);
 	}
 
 	/**
@@ -127,4 +136,31 @@ export class ModelPriceIndex {
 		const price = this.price(record.model);
 		return price ? requestCost(price, record) : undefined;
 	}
+}
+
+/**
+ * The official prices in a catalog, as Pier bundles them (`official-prices.generated.ts`):
+ * model vendors' entries with a price, only the price fields, in a stable order.
+ */
+export function officialPriceSnapshot(models: Iterable<PricedCatalogModel>): PricedCatalogModel[] {
+	const out: PricedCatalogModel[] = [];
+	for (const model of models) {
+		if (!firstParty(model.provider)) continue;
+		const cost = modelPrice(model.cost);
+		if (cost) out.push({ provider: model.provider, id: model.id, cost });
+	}
+	return out.sort(
+		(a, b) => providerRank(a.provider) - providerRank(b.provider) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+	);
+}
+
+let bundled: ModelPriceIndex | undefined;
+
+/**
+ * The official prices Pier bundles, from the pi of its development dependencies: for computers
+ * without pi, and for models an older pi does not list.
+ */
+export function bundledPriceIndex(): ModelPriceIndex {
+	bundled ??= new ModelPriceIndex(OFFICIAL_PRICES);
+	return bundled;
 }
