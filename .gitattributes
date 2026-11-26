@@ -1,0 +1,2 @@
+# The model price files are compared byte for byte (`bun run update-prices`, model-price-sync.test.ts).
+packages/host/data/*.json text eol=lf
