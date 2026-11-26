@@ -7,12 +7,14 @@ import {
 	type ToolBlock,
 	type TranscriptItem,
 	thinkingHeadline,
+	unwrapFileRefs,
 	waitingForModelLabel,
 } from "@pier/chat-state";
 import type { UiRequest } from "@pier/protocol";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { splitMessageContexts } from "../lib/browser-context.ts";
 import { clockTime, formatTokens } from "../lib/format.ts";
+import { FileRefText } from "./FileRefText.tsx";
 import {
 	IconArrowDown,
 	IconBrain,
@@ -284,17 +286,26 @@ function MessageEditor({
 	);
 }
 
-/** A user message's text; browser picks in it fold into a line that opens to show them. */
+/**
+ * A user message's text: picked files show as chips, and browser picks fold into a line that opens
+ * to show them.
+ */
 function UserText({ text }: { text: string }) {
 	const parts = splitMessageContexts(text);
-	if (!parts.some((part) => part.type === "context")) return <div className="user-text">{text}</div>;
+	if (!parts.some((part) => part.type === "context")) {
+		return (
+			<div className="user-text">
+				<FileRefText text={text} />
+			</div>
+		);
+	}
 	return (
 		<div className="user-text">
 			{parts.map((part, i) =>
 				part.type === "text" ? (
 					// biome-ignore lint/suspicious/noArrayIndexKey: positional parts of one message.
 					<p key={i} className="user-text-part">
-						{part.text}
+						<FileRefText text={part.text} />
 					</p>
 				) : (
 					// biome-ignore lint/suspicious/noArrayIndexKey: positional parts of one message.
@@ -336,7 +347,7 @@ function UserMessage({ item, fromEnd, onEdit }: { item: UserItem; fromEnd: numbe
 			{item.text ? <UserText text={item.text} /> : null}
 			{/* Under the bubble on hover, as ChatGPT has them. */}
 			<div className="user-actions">
-				{item.text ? <CopyButton text={item.text} iconOnly label="复制消息" /> : null}
+				{item.text ? <CopyButton text={() => unwrapFileRefs(item.text)} iconOnly label="复制消息" /> : null}
 				{onEdit ? (
 					<button type="button" className="ghost icon" title="编辑消息" onClick={() => setEditing(true)}>
 						<IconPencil size={14} />

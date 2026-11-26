@@ -7,6 +7,7 @@ import { LOCAL_NODE, useAppState, useChatView, useStore } from "../lib/store.tsx
 import { BrowserButton } from "./BrowserPanel.tsx";
 import { Composer } from "./Composer.tsx";
 import { ContextLimitControl } from "./ContextLimit.tsx";
+import { FileRefText } from "./FileRefText.tsx";
 import { FilesPanelToggle } from "./FilesPanel.tsx";
 import {
 	IconAlert,
@@ -151,7 +152,7 @@ function Widgets({ chat, placement }: { chat: ChatState; placement: "aboveEditor
 	);
 }
 
-function Queue({ chat }: { chat: ChatState }) {
+function Queue({ chat, workspaceId }: { chat: ChatState; workspaceId: string }) {
 	const { steering, followUp } = chat.queue;
 	if (!steering.length && !followUp.length) return null;
 	return (
@@ -160,14 +161,14 @@ function Queue({ chat }: { chat: ChatState }) {
 				// biome-ignore lint/suspicious/noArrayIndexKey: queue entries are positional.
 				<div key={`s${i}`} className="queue-item">
 					<span className="badge">引导</span>
-					{text}
+					<FileRefText text={text} workspaceId={workspaceId} />
 				</div>
 			))}
 			{followUp.map((text, i) => (
 				// biome-ignore lint/suspicious/noArrayIndexKey: queue entries are positional.
 				<div key={`f${i}`} className="queue-item">
 					<span className="badge">排队</span>
-					{text}
+					<FileRefText text={text} workspaceId={workspaceId} />
 				</div>
 			))}
 		</div>
@@ -337,7 +338,7 @@ export function SessionView({ session }: { session: SessionSummary }) {
 				<Notices chat={chat} controller={controller} />
 				<PendingRequests requests={chat.pendingUi} respond={(id, r) => void controller.respond(id, r)} />
 				<Widgets chat={chat} placement="aboveEditor" />
-				<Queue chat={chat} />
+				<Queue chat={chat} workspaceId={session.workspaceId} />
 				<Composer key={chat.sessionId} chat={chat} controller={controller} workspace={workspace} />
 				<Widgets chat={chat} placement="belowEditor" />
 				<StatusBar chat={chat} controller={controller} />

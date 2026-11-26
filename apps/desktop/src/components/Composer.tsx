@@ -9,7 +9,7 @@ import {
 import type { WorkspaceInfo } from "@pier/protocol";
 import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef, useState } from "react";
 import { promptWithContexts } from "../lib/browser-context.ts";
-import { draftToPrompt } from "../lib/composer-text.ts";
+import { draftToMessage, draftToPrompt } from "../lib/composer-text.ts";
 import { attachToDraft, type Draft, useStore } from "../lib/store.tsx";
 import { useVoiceInput } from "../lib/use-voice-input.ts";
 import { ComposerInput, type ComposerInputHandle } from "./ComposerInput.tsx";
@@ -205,10 +205,16 @@ export function Composer({
 		// Browser picks go with messages; a command leaves them in the draft for the next one.
 		if (resolution.kind === "host" && contexts.length) cleared = { ...cleared, contexts };
 		setDraft(cleared);
+		// A message carries picked files as inline-code paths, which the transcript shows as chips again;
+		// a command gets plain paths.
 		const result =
 			resolution.kind === "host"
 				? await controller.sendCommand(text, images, mode)
-				: await controller.send(promptWithContexts(text, contexts), images, mode);
+				: await controller.send(
+						promptWithContexts(draftToMessage(override ?? draft.text).trim(), contexts),
+						images,
+						mode,
+					);
 		setSending(false);
 		if (result === undefined) setDraft(previous);
 		input.current?.focus();

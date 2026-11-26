@@ -5,8 +5,10 @@ import {
 	contentText,
 	editDiff,
 	editReplacements,
+	fileRefLabel,
 	formatThinking,
 	isWaitingForModel,
+	splitFileRefs,
 	summarizeToolCall,
 	type ToolBlock,
 	type TranscriptItem,
@@ -320,6 +322,25 @@ function Divider({ icon, text }: { icon: IconName; text: string }) {
 	);
 }
 
+/** A user message's text, with the files picked into it on the desktop shown by name. */
+function UserText({ text }: { text: string }) {
+	const p = usePalette();
+	return (
+		<>
+			{splitFileRefs(text).map((part, i) =>
+				part.type === "text" ? (
+					part.text
+				) : (
+					// biome-ignore lint/suspicious/noArrayIndexKey: positional parts of one message.
+					<Text key={i} style={[styles.fileRef, { backgroundColor: p.accentSoft, color: p.accentText }]}>
+						{fileRefLabel(part.path)}
+					</Text>
+				),
+			)}
+		</>
+	);
+}
+
 const TranscriptRow = memo(function TranscriptRow({ item }: { item: TranscriptItem }) {
 	const p = usePalette();
 	switch (item.kind) {
@@ -337,7 +358,7 @@ const TranscriptRow = memo(function TranscriptRow({ item }: { item: TranscriptIt
 					))}
 					{item.text ? (
 						<Text selectable style={[styles.userText, { color: p.text }]}>
-							{item.text}
+							<UserText text={item.text} />
 						</Text>
 					) : null}
 				</View>
@@ -417,6 +438,7 @@ const styles = StyleSheet.create({
 		gap: 6,
 	},
 	userText: { fontSize: 15.5, lineHeight: 22 },
+	fileRef: { fontFamily: MONO, fontSize: 13.5 },
 	userImage: { width: 160, height: 120, borderRadius: 12 },
 	assistant: { gap: 10 },
 	tool: { borderWidth: StyleSheet.hairlineWidth, borderRadius: RADIUS.md + 2, overflow: "hidden" },

@@ -1,3 +1,5 @@
+import { fileRefLabel, fileRefMarkdown } from "@pier/chat-state";
+
 /**
  * Composer drafts are plain strings in which a workspace file reference (shown as a chip in
  * the composer) is encoded as `FILE_OPEN + path + FILE_CLOSE`. The markers are private-use
@@ -36,17 +38,25 @@ export function splitDraft(draft: string): DraftPart[] {
 	return parts.filter((p) => p.type === "file" || p.text);
 }
 
-/** The text sent to the agent: each file reference becomes its workspace-relative path. */
+/**
+ * The draft's plain text: each file reference becomes its workspace-relative path. Slash commands
+ * are read (and sent) from this; copying a selection yields it.
+ */
 export function draftToPrompt(draft: string): string {
 	return splitDraft(draft)
 		.map((p) => (p.type === "file" ? p.path : p.text))
 		.join("");
 }
 
-/** Label shown on a chip: the last path segment (with "/" for directories). */
-export function fileChipLabel(path: string): string {
-	const directory = path.endsWith("/");
-	const trimmed = directory ? path.slice(0, -1) : path;
-	const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
-	return directory ? `${name}/` : name;
+/**
+ * The message sent to the agent: each file reference becomes its path as Markdown inline code, which
+ * the transcript shows as a chip again (see `@pier/chat-state`'s `file-refs.ts`).
+ */
+export function draftToMessage(draft: string): string {
+	return splitDraft(draft)
+		.map((p) => (p.type === "file" ? fileRefMarkdown(p.path) : p.text))
+		.join("");
 }
+
+/** Label shown on a chip: the last path segment (with "/" for directories). */
+export const fileChipLabel = fileRefLabel;

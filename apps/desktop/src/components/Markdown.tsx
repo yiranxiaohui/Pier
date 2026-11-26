@@ -32,6 +32,11 @@ export function MarkdownFiles({
 	return <FileContext.Provider value={value}>{children}</FileContext.Provider>;
 }
 
+/** The conversation whose files the surrounding `MarkdownFiles` resolves references against. */
+export function useMarkdownFiles(): { workspaceId: string; basePath?: string } | undefined {
+	return useContext(FileContext);
+}
+
 function textOf(node: ReactNode): string {
 	if (typeof node === "string" || typeof node === "number") return String(node);
 	if (Array.isArray(node)) return node.map(textOf).join("");

@@ -48,6 +48,43 @@
 	word-break: break-word;
 }
 
+/* A file picked into a sent message (FileRefText.tsx), drawn like the composer's chip. */
+.file-ref-chip,
+button.file-ref-chip,
+button.file-ref-chip:hover:not(:disabled) {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 260px;
+	margin: 0 1px;
+	padding: 0 6px;
+	border: 1px solid var(--border-strong);
+	border-radius: 6px;
+	background: var(--bg-active);
+	color: var(--text);
+	font-size: 13px;
+	font-weight: 400;
+	line-height: 20px;
+	vertical-align: 1px;
+	white-space: nowrap;
+}
+
+button.file-ref-chip:hover:not(:disabled) {
+	border-color: var(--accent-ring);
+	background: var(--accent-soft);
+}
+
+.file-ref-chip > .icon-svg {
+	flex-shrink: 0;
+	color: var(--accent-text);
+}
+
+.file-ref-chip-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-family: var(--mono);
+}
+
 /* Copy and edit under the bubble's right edge while the pointer is on it, as ChatGPT places them.
    The top padding bridges the gap, so the pointer keeps the bubble hovered on its way down. */
 .message.user {

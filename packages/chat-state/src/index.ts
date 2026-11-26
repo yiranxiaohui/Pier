@@ -11,6 +11,7 @@ export {
 } from "@pier/protocol";
 export * from "./browser-audio.ts";
 export * from "./controller.ts";
+export * from "./file-refs.ts";
 export * from "./messages.ts";
 export * from "./pcm-audio.ts";
 export * from "./reducer.ts";

@@ -1,4 +1,5 @@
 import type { SessionSummary } from "@pier/protocol";
+import { unwrapFileRefs } from "./file-refs.ts";
 import { stripTrailingImageHints } from "./messages.ts";
 
 const TITLE_LENGTH = 32;
@@ -8,8 +9,8 @@ export function sessionTitle(
 	session: Pick<SessionSummary, "name" | "firstMessage">,
 	options: { full?: boolean } = {},
 ): string {
-	// Older hosts send the first prompt with pi's image notes still attached.
-	const raw = session.firstMessage.replace(/\s+/g, " ").trim();
+	// Older hosts send the first prompt with pi's image notes still attached. Picked files read as paths.
+	const raw = unwrapFileRefs(session.firstMessage).replace(/\s+/g, " ").trim();
 	const title = session.name?.replace(/\s+/g, " ").trim() || stripTrailingImageHints(raw) || (raw ? "图片" : "新会话");
 	if (options.full) return title;
 	// Count Unicode code points so truncation never leaves half of a surrogate pair.
