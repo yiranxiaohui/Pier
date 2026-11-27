@@ -7,7 +7,7 @@ import {
 	stripImageHints,
 	usageSince,
 } from "@pier/chat-state";
-import { CLOSE_DEVICE_REVOKED, type ClientState, PierClient } from "@pier/client";
+import { CLOSE_DEVICE_REVOKED, type ClientState, PierClient, resourceRequestTimeoutMs } from "@pier/client";
 import type {
 	AgentConfigChangeResult,
 	AgentConfigResult,
@@ -2313,7 +2313,7 @@ export class PierStore {
 	async resourceRequest<M extends ResourceMethod>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
-		return client.request(method, params, { timeoutMs: method === "mcp.test" ? 60_000 : 45_000 });
+		return client.request(method, params, { timeoutMs: resourceRequestTimeoutMs(method) });
 	}
 
 	/** Set (or, without `value`, remove) settings in one file. Failures are reported as a toast. */

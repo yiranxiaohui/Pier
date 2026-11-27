@@ -7,6 +7,7 @@ import {
 	type PairingPhase,
 	PierClient,
 	pairWithHost,
+	resourceRequestTimeoutMs,
 } from "@pier/client";
 import { ChannelError, fromBase64Url, type KeyPair, PairingUriError, parsePairingUri, toBase64Url } from "@pier/crypto";
 import {
@@ -1226,7 +1227,7 @@ export class MobileStore {
 	}
 
 	async resourceRequest<M extends ResourceMethod>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
-		return this.requireClient().request(method, params, { timeoutMs: method === "mcp.test" ? 60_000 : 45_000 });
+		return this.requireClient().request(method, params, { timeoutMs: resourceRequestTimeoutMs(method) });
 	}
 
 	async setExtensionEnabled(resource: ExtensionResourceInfo, enabled: boolean, workspaceId?: string): Promise<void> {

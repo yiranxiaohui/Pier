@@ -54,10 +54,14 @@ export default function ResourcesScreen() {
 	const [tests, setTests] = useState<Record<string, McpTestResult>>({});
 	const [editor, setEditor] = useState<Editor>();
 	const [deleting, setDeleting] = useState<SkillInfo | McpServerInfo>();
+	const [uninstalling, setUninstalling] = useState<PluginInfo>();
+	const [keepPluginData, setKeepPluginData] = useState(false);
 	const target = { runtime, ...(workspaceId ? { workspaceId } : {}) };
 	// Claude Code plugins (protocol 1.74); other agents have no plugin tab.
 	const pluginsSupported =
 		runtime === "claude-code" && protocol && (protocol.major > 1 || (protocol.major === 1 && protocol.minor >= 74));
+	// Uninstalling a plugin with the Host's `claude` CLI (protocol 1.75).
+	const uninstallSupported = pluginsSupported && protocol && (protocol.major > 1 || protocol.minor >= 75);
 	const tab: ResourceTab = selectedTab === "plugins" && !pluginsSupported ? "skills" : selectedTab;
 	const tabs: ResourceTab[] = pluginsSupported ? ["skills", "mcp", "plugins"] : ["skills", "mcp"];
 	const loadId = useRef(0);
@@ -184,7 +188,7 @@ export default function ResourcesScreen() {
 						</View>
 						<Muted>
 							{tab === "plugins"
-								? "插件在 Claude Code 中用 /plugin 或 claude plugin install 安装。停用的插件不加载它的技能、命令、Agent、Hooks 与 MCP；修改后新建或重新打开会话。"
+								? `插件在 Claude Code 中用 /plugin 或 claude plugin install 安装。${uninstallSupported ? "卸载会在这台电脑上运行 claude plugin uninstall。" : ""}停用或卸载的插件不加载它的技能、命令、Agent、Hooks 与 MCP；修改后新建或重新打开会话。`
 								: runtime === "pi"
 									? "空闲会话自动重新加载，运行中的会话完成后执行 /reload。"
 									: "修改后新建或重新打开 Agent 会话。"}
@@ -328,6 +332,17 @@ export default function ResourcesScreen() {
 									<Muted>{pluginContentsLabel(plugin)}</Muted>
 									<Text style={[styles.path, { color: p.muted }]}>{plugin.path}</Text>
 									<View style={styles.row}>
+										{uninstallSupported ? (
+											<Button
+												title="卸载"
+												small
+												disabled={disabled}
+												onPress={() => {
+													setKeepPluginData(false);
+													setUninstalling(plugin);
+												}}
+											/>
+										) : null}
 										<Switch
 											accessibilityLabel={`启用 ${plugin.name}`}
 											value={plugin.enabled}
@@ -425,6 +440,43 @@ export default function ResourcesScreen() {
 										});
 									}
 									setDeleting(undefined);
+								})
+							}
+						/>
+					</View>
+				</Sheet>
+			) : null}
+			{uninstalling ? (
+				<Sheet onClose={() => !busy && setUninstalling(undefined)}>
+					<Text style={[styles.name, { color: p.text }]}>卸载 {uninstalling.name}</Text>
+					<Muted>
+						将在这台电脑上运行 claude plugin uninstall，从{RESOURCE_SCOPE_LABEL[uninstalling.scope]}
+						范围卸载这个插件，它的技能、命令、Agent、Hooks 与 MCP 不再加载。已打开的 Claude Code 会话需要重新打开。
+					</Muted>
+					<View style={styles.row}>
+						<Switch
+							accessibilityLabel="保留插件数据"
+							value={keepPluginData}
+							disabled={disabled}
+							onValueChange={setKeepPluginData}
+						/>
+						<Muted>保留插件数据（重新安装后可以继续使用）</Muted>
+					</View>
+					<View style={styles.row}>
+						<Button title="取消" disabled={disabled} onPress={() => setUninstalling(undefined)} />
+						<Button
+							title={busy ? "正在卸载…" : "确认卸载"}
+							variant="danger"
+							disabled={disabled}
+							onPress={() =>
+								void run(async () => {
+									await store.resourceRequest("plugins.uninstall", {
+										...target,
+										id: uninstalling.id,
+										keepData: keepPluginData,
+									});
+									store.toast("info", `已卸载 ${uninstalling.name}`);
+									setUninstalling(undefined);
 								})
 							}
 						/>

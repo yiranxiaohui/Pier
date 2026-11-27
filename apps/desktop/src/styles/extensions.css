@@ -13,6 +13,15 @@
 .resource-path {
 	overflow-wrap: anywhere;
 }
+.resource-check {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 12px 0 4px;
+	font-size: 13px;
+	cursor: pointer;
+	user-select: none;
+}
 .resource-form {
 	display: flex;
 	flex-direction: column;

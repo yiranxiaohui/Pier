@@ -250,6 +250,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"mcp.delete",
 	"mcp.test",
 	"plugins.setEnabled",
+	"plugins.uninstall",
 	"tunnel.open",
 	"browser.remoteOpen",
 	"browser.remoteClose",
@@ -367,6 +368,8 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 			return { runtime: params.runtime, scope: params.scope, name: params.name, workspaceId: params.workspaceId };
 		case "plugins.setEnabled":
 			return { runtime: params.runtime, id: params.id, enabled: params.enabled, workspaceId: params.workspaceId };
+		case "plugins.uninstall":
+			return { runtime: params.runtime, id: params.id, keepData: params.keepData, workspaceId: params.workspaceId };
 		case "tunnel.open":
 			return { host: params.host, port: params.port };
 		case "browser.remoteOpen":
@@ -803,7 +806,7 @@ export class PierHost implements RequestHandler {
 				options.agentConfigDirs?.opencode ??
 				opencodeConfigDir({ ...process.env, ...(agents.opencode ? agents.opencode.env : undefined) }),
 		});
-		this.claudePlugins = new ClaudePlugins(this.agentConfig);
+		this.claudePlugins = new ClaudePlugins(this.agentConfig, () => nativeRuntimes["claude-code"]?.executable());
 		this.skills = new SkillManager({
 			home: options.resourceHome ?? homedir(),
 			agentDir: env.agentDir,
@@ -1303,13 +1306,22 @@ export class PierHost implements RequestHandler {
 			"plugins.list": (_ctx, p) => {
 				if (p.runtime !== "claude-code") return { items: [], errors: [] };
 				const { plugins, errors } = this.claudePlugins.list(this.extensionTarget(p.workspaceId));
-				return { items: plugins.map(({ skills: _skills, mcpServers: _servers, ...info }) => info), errors };
+				return {
+					items: plugins.map(({ skills: _skills, mcpServers: _servers, managed: _managed, ...info }) => info),
+					errors,
+				};
 			},
 			"plugins.setEnabled": async (_ctx, p) => {
 				if (p.runtime !== "claude-code") throw new PierProtocolError("BAD_REQUEST", "只有 Claude Code 支持插件");
 				const result = this.claudePlugins.setEnabled(p.id, p.enabled, this.extensionTarget(p.workspaceId));
 				await this.applyResourceChange(p.runtime, p.workspaceId);
 				return result;
+			},
+			"plugins.uninstall": async (_ctx, p) => {
+				if (p.runtime !== "claude-code") throw new PierProtocolError("BAD_REQUEST", "只有 Claude Code 支持插件");
+				await this.claudePlugins.uninstall(p.id, p.keepData, this.extensionTarget(p.workspaceId));
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return { uninstalled: true };
 			},
 			"host.ports": () => this.ports.sample(),
 			"host.processes": () => this.processes.sample(),

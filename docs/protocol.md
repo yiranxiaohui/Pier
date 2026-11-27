@@ -1,4 +1,4 @@
-# Pier 协议 v1.74
+# Pier 协议 v1.75
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -762,9 +762,10 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 | `mcp.delete` | `{ runtime, workspaceId?, scope, name, expectedRevision }` | `{ deleted }`；只移除指定定义，保留其他服务器与应用配置 |
 | `mcp.test` | `{ runtime, workspaceId?, scope, name }` | `{ ok, tools: { name }[], message }`；显式建立 stdio / HTTP / Claude SSE 连接、发现工具并关闭连接；不调用业务工具、不启动 OAuth、不回传子进程日志或凭据。客户端建议 60 秒超时 |
 | `plugins.list`（1.74） | `{ runtime, workspaceId? }` | `{ items: PluginInfo[], errors: string[] }`；Claude Code 已安装的插件，其他运行时返回空列表。`PluginInfo = { runtime, id, name, marketplace, description, version?, author?, scope, path, enabled, contents: { skills, commands, agents, mcpServers, hooks } }`。读取 Claude 配置目录（或 `CLAUDE_CODE_PLUGIN_CACHE_DIR`）下 `plugins/installed_plugins.json` 记录的安装：`user` 范围的安装总是列出，`project` / `local` 范围的安装只在其 `projectPath` 为所选工作区时列出，同一插件取最具体的安装。`name`、`description`、`version`、`author` 取自插件的 `.claude-plugin/plugin.json`；`path` 为安装目录；`contents` 统计默认目录与清单中额外路径下的技能、命令与 Agent 文件、MCP 服务器数及是否有 Hooks。`enabled` 按 Claude Code 的规则取 `enabledPlugins[id]`：用户 < 项目 < 本地设置，最后一个写了该插件的文件决定，只有 `true` 表示启用（不读取托管策略）。安装目录缺失、清单或注册表无法解析时在 `errors` 中说明，不影响其他插件 |
-| `plugins.setEnabled`（1.74） | `{ runtime: "claude-code", workspaceId?, id, enabled }` | `{ changed }`；插件必须出现在同一范围的 `plugins.list` 中，否则返回 `NOT_FOUND`。写入 `enabledPlugins[id]`：写在已经决定该插件的最具体的设置文件中，没有时写入插件安装范围的设置文件（与 `claude plugin enable / disable` 相同），保留其他设置；设置文件无法解析时返回 `CONFLICT`。插件的安装、更新与卸载仍由 Claude Code 完成 |
+| `plugins.setEnabled`（1.74） | `{ runtime: "claude-code", workspaceId?, id, enabled }` | `{ changed }`；插件必须出现在同一范围的 `plugins.list` 中，否则返回 `NOT_FOUND`。写入 `enabledPlugins[id]`：写在已经决定该插件的最具体的设置文件中，没有时写入插件安装范围的设置文件（与 `claude plugin enable / disable` 相同），保留其他设置；设置文件无法解析时返回 `CONFLICT`。插件的安装与更新仍由 Claude Code 完成 |
+| `plugins.uninstall`（1.75） | `{ runtime: "claude-code", workspaceId?, id, keepData?(false) }` | `{ uninstalled }`；插件必须出现在同一范围的 `plugins.list` 中，否则返回 `NOT_FOUND`。Host 用 Claude Code 会话所用的 `claude` 可执行文件运行 `claude plugin uninstall <id> --scope <列表中的安装范围> --json`（`keepData` 时加 `--keep-data`），由 Claude Code 移除安装记录、各级设置中的 `enabledPlugins` 并删除插件数据目录（`plugins/data/<id>`，`keepData` 时保留）。用户范围在用户主目录运行，项目 / 本地范围在所选工作区运行；Pier 的 Claude 配置目录不是 CLI 默认目录时通过 `CLAUDE_CONFIG_DIR` 传入。同一 Host 上的卸载依次执行，60 秒内未完成返回 `TIMEOUT`。CLI 返回的失败原因原样附在错误消息中：未安装在该范围为 `NOT_FOUND`，其他失败为 `CONFLICT`；未找到 Claude Code、托管设置安装的插件、旧版 CLI 不支持 `--json` 返回 `CONFLICT`；ID 只能包含字母、数字与 `._+-@` 且以字母或数字开头，否则返回 `BAD_REQUEST`。客户端建议 90 秒超时 |
 
-变更广播 `resources.changed = { runtime, workspaceId? }`（`plugins.setEnabled` 同样广播），并通知相关扩展 / Agent 配置页面。pi 空闲会话重新加载，忙碌会话保持原运行并在结束后 `/reload`；Claude / Codex 原生配置在会话新建 / 重新打开时读取。审计只记录 runtime、scope、资源名称（`plugins.setEnabled` 为插件 ID 与开关）与工作区，不记录技能正文、MCP 配置、环境变量、请求头或凭据。
+变更广播 `resources.changed = { runtime, workspaceId? }`（`plugins.setEnabled` 与 `plugins.uninstall` 同样广播），并通知相关扩展 / Agent 配置页面。pi 空闲会话重新加载，忙碌会话保持原运行并在结束后 `/reload`；Claude / Codex 原生配置在会话新建 / 重新打开时读取。审计只记录 runtime、scope、资源名称（`plugins.setEnabled` 为插件 ID 与开关，`plugins.uninstall` 为插件 ID 与 `keepData`）与工作区，不记录技能正文、MCP 配置、环境变量、请求头或凭据。
 
 ## 主机进程管理（1.42）
 

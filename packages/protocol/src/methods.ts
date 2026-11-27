@@ -1076,6 +1076,7 @@ export interface MethodResults {
 	"mcp.test": McpTestResult;
 	"plugins.list": ResourceList<PluginInfo>;
 	"plugins.setEnabled": { changed: boolean };
+	"plugins.uninstall": { uninstalled: boolean };
 	"tunnel.open": { tunnelId: string };
 	"tunnel.read": { data: string; end: boolean };
 	"tunnel.write": { written: number };

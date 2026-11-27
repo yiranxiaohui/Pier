@@ -1,4 +1,5 @@
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -11,7 +12,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "@decimalturn/toml-patch";
@@ -741,5 +742,140 @@ describe("unified Skills and MCP", () => {
 				client.request("plugins.setEnabled", { runtime: "codex", id: `demo-kit@${mkt}`, enabled: true }),
 			).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		});
+
+		it("needs the claude CLI to uninstall", async () => {
+			// This Host runs without Claude Code, so there is no `claude` to uninstall with.
+			const registry = readFileSync(join(claude, "plugins", "installed_plugins.json"), "utf8");
+			await expect(
+				client.request("plugins.uninstall", { runtime: "claude-code", id: `demo-kit@${mkt}` }),
+			).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("未找到 Claude Code") });
+			await expect(
+				client.request("plugins.uninstall", { runtime: "claude-code", id: `other-kit@${mkt}` }),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await expect(
+				client.request("plugins.uninstall", { runtime: "codex", id: `demo-kit@${mkt}` }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(readFileSync(join(claude, "plugins", "installed_plugins.json"), "utf8")).toBe(registry);
+		});
+	});
+});
+
+describe.runIf(process.platform !== "win32")("uninstalling Claude Code plugins", () => {
+	const mkt = "local-mkt";
+	let root: string;
+	let claude: string;
+	let t: TestHost;
+	let client: PierClient;
+	let workspace: WorkspaceInfo;
+	/** What the fake `claude` does next: `ok`, `failed`, `plain` or `old`. */
+	const mode = (value: string) => writeFileSync(join(root, "mode"), value);
+	/** The fake's last call: its working directory, `CLAUDE_CONFIG_DIR` and arguments. */
+	const call = () => {
+		const [cwd, configDir, ...args] = readFileSync(join(root, "call.log"), "utf8").trimEnd().split("\n");
+		return { cwd, configDir, args };
+	};
+
+	beforeEach(async () => {
+		root = realpathSync(mkdtempSync(join(tmpdir(), "pier-plugin-uninstall-")));
+		claude = join(root, ".claude");
+		const fake = join(root, "bin", "claude");
+		mkdirSync(dirname(fake), { recursive: true });
+		// Like `claude plugin uninstall --json`: one result line on stdout, the message on stderr.
+		writeFileSync(
+			fake,
+			`#!/bin/sh
+if [ "$1" = "--version" ]; then echo "2.1.332 (Claude Code)"; exit 0; fi
+{ pwd -P; printf '%s\\n' "$CLAUDE_CONFIG_DIR"; printf '%s\\n' "$@"; } > "${root}/call.log"
+case "$(cat "${root}/mode")" in
+ok) echo '{"command":"uninstall","outcome":"ok","plugin":"'"$3"'","scope":"'"$5"'","message":"Successfully uninstalled"}' ;;
+failed)
+	echo '{"command":"uninstall","outcome":"failed","plugin":"'"$3"'","message":"Plugin is installed in user scope, not project.","failureCode":"not_installed_at_scope"}'
+	echo "Failed to uninstall plugin" >&2; exit 1 ;;
+plain) echo "Successfully uninstalled plugin" ;;
+old) echo "error: unknown option '--json'" >&2; exit 1 ;;
+esac
+`,
+		);
+		chmodSync(fake, 0o755);
+		t = await startTestHost({
+			fileSettings: true,
+			resourceHome: root,
+			agentConfigDirs: { "claude-code": claude },
+			agents: { claudeCode: { executable: fake, configDir: claude } },
+		});
+		client = await t.connect();
+		workspace = (await client.request("workspace.add", { path: t.workspaceDir })).workspace;
+		const kit = (name: string) => {
+			const dir = join(claude, "plugins", "cache", mkt, name, "1.0.0");
+			mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
+			writeFileSync(join(dir, ".claude-plugin", "plugin.json"), JSON.stringify({ name }));
+			return dir;
+		};
+		const plugins = {
+			[`demo-kit@${mkt}`]: [{ scope: "user", installPath: kit("demo-kit") }],
+			[`proj-kit@${mkt}`]: [{ scope: "project", installPath: kit("proj-kit"), projectPath: t.workspaceDir }],
+			[`org-kit@${mkt}`]: [{ scope: "managed", installPath: kit("org-kit") }],
+			[`-x@${mkt}`]: [{ scope: "user", installPath: kit("dash-kit") }],
+		};
+		writeFileSync(join(claude, "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins }));
+	});
+	afterEach(async () => {
+		await t.close();
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("runs `claude plugin uninstall` for the listed installation", async () => {
+		mode("ok");
+		const target = { runtime: "claude-code" as const, workspaceId: workspace.id };
+		expect(await client.request("plugins.uninstall", { runtime: "claude-code", id: `demo-kit@${mkt}` })).toEqual({
+			uninstalled: true,
+		});
+		// The user installation is removed from the home directory, in the configuration Pier lists.
+		expect(call()).toEqual({
+			cwd: realpathSync(homedir()),
+			configDir: claude,
+			args: ["plugin", "uninstall", `demo-kit@${mkt}`, "--scope", "user", "--json"],
+		});
+
+		// A project installation is found through the workspace; `keepData` keeps the plugin's data.
+		await client.request("plugins.uninstall", { ...target, id: `proj-kit@${mkt}`, keepData: true });
+		expect(call()).toMatchObject({
+			cwd: t.workspaceDir,
+			args: ["plugin", "uninstall", `proj-kit@${mkt}`, "--scope", "project", "--json", "--keep-data"],
+		});
+	});
+
+	it("reports what Claude Code says when it cannot uninstall", async () => {
+		mode("failed");
+		await expect(
+			client.request("plugins.uninstall", { runtime: "claude-code", id: `demo-kit@${mkt}` }),
+		).rejects.toMatchObject({
+			code: "NOT_FOUND",
+			message: "Claude Code 未能卸载 demo-kit：Plugin is installed in user scope, not project.",
+		});
+		mode("old");
+		await expect(
+			client.request("plugins.uninstall", { runtime: "claude-code", id: `demo-kit@${mkt}` }),
+		).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("请先更新 Claude Code") });
+		// Without `--json`, a Claude Code that exits cleanly has uninstalled the plugin.
+		mode("plain");
+		await expect(
+			client.request("plugins.uninstall", { runtime: "claude-code", id: `demo-kit@${mkt}` }),
+		).resolves.toEqual({ uninstalled: true });
+	});
+
+	it("does not run Claude Code for managed or unlisted plugins or unsafe IDs", async () => {
+		mode("ok");
+		await expect(
+			client.request("plugins.uninstall", { runtime: "claude-code", id: `org-kit@${mkt}` }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		// A project installation is only listed, and uninstalled, with its workspace.
+		await expect(
+			client.request("plugins.uninstall", { runtime: "claude-code", id: `proj-kit@${mkt}` }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			client.request("plugins.uninstall", { runtime: "claude-code", id: `-x@${mkt}` }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(existsSync(join(root, "call.log"))).toBe(false);
 	});
 });

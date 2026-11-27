@@ -121,5 +121,10 @@ export const ResourceMethodSchemas = {
 	/** Claude Code plugins (1.74); other runtimes have none. */
 	"plugins.list": z.object(Target),
 	"plugins.setEnabled": z.object({ ...Target, id: z.string().min(1).max(300), enabled: z.boolean() }),
+	/**
+	 * Runs `claude plugin uninstall` for the installation `plugins.list` shows (1.75). `keepData`
+	 * keeps the plugin's persistent data directory.
+	 */
+	"plugins.uninstall": z.object({ ...Target, id: z.string().min(1).max(300), keepData: z.boolean().default(false) }),
 } as const;
 export type ResourceMethod = keyof typeof ResourceMethodSchemas;

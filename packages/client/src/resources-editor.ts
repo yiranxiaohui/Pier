@@ -1,4 +1,4 @@
-import type { McpServerInfo, PluginInfo, ResourceRuntime, ResourceScope } from "@pier/protocol";
+import type { McpServerInfo, PluginInfo, ResourceMethod, ResourceRuntime, ResourceScope } from "@pier/protocol";
 
 export const RESOURCE_RUNTIME_LABEL: Record<ResourceRuntime, string> = {
 	pi: "pi",
@@ -10,6 +10,13 @@ export const RESOURCE_SCOPE_LABEL: Record<ResourceScope, string> = {
 	project: "项目",
 	local: "本地（当前项目）",
 };
+/**
+ * How long a client waits for a resource request: `mcp.test` connects to the server and
+ * `plugins.uninstall` runs the `claude` CLI, which the Host allows 60 seconds.
+ */
+export function resourceRequestTimeoutMs(method: ResourceMethod): number {
+	return method === "plugins.uninstall" ? 90_000 : method === "mcp.test" ? 60_000 : 45_000;
+}
 export const NEW_SKILL_TEXT = "---\nname: my-skill\ndescription: 描述这个技能的用途\n---\n\n在这里编写技能指令。\n";
 
 /** What a Claude Code plugin brings, e.g. "3 个技能 · 1 个 MCP 服务器 · Hooks". */
