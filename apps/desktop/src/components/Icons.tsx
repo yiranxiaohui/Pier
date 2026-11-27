@@ -533,82 +533,40 @@ export const IconLink = make(
 	</>,
 );
 
-// The Pier mark's geometry, copied from assets/brand/pier.svg. Each side is its face's outline swept 47
-// units right and down; the lit stops ([offset, opacity]) shade that wall across the sweep.
-const LOGO_P_FACE =
-	"M306 212L525 212A187 187 0 0 1 712 399A187 187 0 0 1 525 586L452 586A38 38 0 0 0 414 624L414 726A42 42 0 0 1 372 768L306 768A42 42 0 0 1 264 726L264 254A42 42 0 0 1 306 212ZM548.3 308.5A31 31 0 0 0 505.7 353.5L553.9 399L505.7 444.5A31 31 0 0 0 548.3 489.5L620.3 421.5A31 31 0 0 0 620.3 376.5L548.3 308.5Z";
-const LOGO_P_SIDE =
-	"M657.2 266.8A187 187 0 0 1 712 399A187 187 0 0 1 525 586L452 586A38 38 0 0 0 414 624L414 726A42 42 0 0 1 372 768L306 768A42 42 0 0 1 276.3 755.7L323.3 802.7A42 42 0 0 0 353 815L419 815A42 42 0 0 0 461 773L461 671A38 38 0 0 1 499 633L572 633A187 187 0 0 0 759 446A187 187 0 0 0 704.2 313.8Z";
-const LOGO_P_LIT = [
-	[0, 0.99],
-	[0.054, 0.84],
-	[0.199, 0.57],
-	[0.356, 0.32],
-	[0.518, 0.08],
-	[0.602, 0.08],
-	[0.646, 0.4],
-	[0.69, 0.78],
-	[0.807, 0.78],
-	[0.855, 0.4],
-	[0.903, 0.08],
-	[0.979, 0.08],
-	[1, 0.01],
-];
-const LOGO_PROMPT =
-	"M548.3 308.5L620.3 376.5A31 31 0 0 1 620.3 421.5L548.3 489.5A31 31 0 0 1 505.7 444.5L553.9 399L505.7 353.5A31 31 0 0 1 548.3 308.5Z";
-const LOGO_CURSOR_FACE =
-	"M517 682L686 682A26 26 0 0 1 712 708L712 742A26 26 0 0 1 686 768L517 768A26 26 0 0 1 491 742L491 708A26 26 0 0 1 517 682Z";
-const LOGO_CURSOR_SIDE =
-	"M704.4 689.6A26 26 0 0 1 712 708L712 742A26 26 0 0 1 686 768L517 768A26 26 0 0 1 498.6 760.4L545.6 807.4A26 26 0 0 0 564 815L733 815A26 26 0 0 0 759 789L759 755A26 26 0 0 0 751.4 736.6Z";
-const LOGO_CURSOR_LIT = [
-	[0, 0.99],
-	[0.013, 0.9],
-	[0.04, 0.78],
-	[0.163, 0.78],
-	[0.257, 0.4],
-	[0.351, 0.08],
-	[0.964, 0.08],
-	[1, 0.01],
-];
-
 /**
- * The brand mark from assets/brand/pier.svg without its tile and shade, inline so the --logo-* theme
- * tokens color it for light and dark surfaces. The view box is cropped to the mark.
+ * The brand mark from assets/brand/pier.svg without its tile, inline so the --logo-* theme tokens
+ * color it for light and dark surfaces. The view box is cropped to the mark.
  */
 export function Logo({ size = 28 }: { size?: number }) {
 	// Each instance needs its own gradient ids; React's ids may hold characters url() does not accept.
 	const id = useId().replace(/[^\w-]/g, "");
 	return (
-		<svg className="logo" width={size} height={size} viewBox="188 190 648 648" aria-hidden="true">
+		<svg className="logo" width={size} height={size} viewBox="234 241 560 560" aria-hidden="true">
 			<defs>
-				<linearGradient id={`${id}-ink`} x1="264" y1="212" x2="630" y2="768" gradientUnits="userSpaceOnUse">
+				<linearGradient id={`${id}-ink`} x1="356" y1="270" x2="670" y2="720" gradientUnits="userSpaceOnUse">
 					<stop style={{ stopColor: "var(--logo-ink-start)" }} />
 					<stop offset="1" style={{ stopColor: "var(--logo-ink-end)" }} />
 				</linearGradient>
-				<linearGradient id={`${id}-signal`} x1="491" y1="682" x2="712" y2="768" gradientUnits="userSpaceOnUse">
+				<linearGradient id={`${id}-signal`} x1="424" y1="390" x2="630" y2="751" gradientUnits="userSpaceOnUse">
 					<stop style={{ stopColor: "var(--logo-signal-start)" }} />
 					<stop offset="1" style={{ stopColor: "var(--logo-signal-end)" }} />
 				</linearGradient>
-				<linearGradient id={`${id}-ink-lit`} x1="707" y1="317" x2="272" y2="752" gradientUnits="userSpaceOnUse">
-					{LOGO_P_LIT.map(([offset, opacity]) => (
-						<stop key={offset} offset={offset} stopOpacity={opacity} style={{ stopColor: "var(--logo-ink-lit)" }} />
-					))}
-				</linearGradient>
-				<linearGradient id={`${id}-signal-lit`} x1="694" y1="679" x2="556" y2="817" gradientUnits="userSpaceOnUse">
-					{LOGO_CURSOR_LIT.map(([offset, opacity]) => (
-						<stop key={offset} offset={offset} stopOpacity={opacity} style={{ stopColor: "var(--logo-signal-lit)" }} />
-					))}
-				</linearGradient>
 			</defs>
-			<path d={LOGO_P_SIDE} style={{ fill: "var(--logo-ink-side)" }} />
-			<path d={LOGO_P_SIDE} fill={`url(#${id}-ink-lit)`} />
-			<path d={LOGO_CURSOR_SIDE} style={{ fill: "var(--logo-signal-side)" }} />
-			<path d={LOGO_CURSOR_SIDE} fill={`url(#${id}-signal-lit)`} />
-			{/* The prompt is cut out of the P's face; the same shape a little deeper is its floor. */}
-			<path d={LOGO_PROMPT} style={{ fill: "var(--logo-signal-side)" }} />
-			<path d={LOGO_PROMPT} transform="translate(13 13)" style={{ fill: "var(--logo-prompt)" }} />
-			<path d={LOGO_P_FACE} fillRule="evenodd" fill={`url(#${id}-ink)`} />
-			<path d={LOGO_CURSOR_FACE} fill={`url(#${id}-signal)`} />
+			<g
+				transform="translate(512 512) skewX(-5) translate(-512 -512)"
+				fill="none"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M338 713c74 47 156 51 224 18" stroke={`url(#${id}-signal)`} strokeWidth={28} />
+				<path
+					d="M338 751V315q0-23 23-23h162c113 0 185 61 185 159s-66 160-175 160H338"
+					stroke={`url(#${id}-ink)`}
+					strokeWidth={70}
+				/>
+				<path d="m449 401 65 50-65 50" stroke={`url(#${id}-signal)`} strokeWidth={34} />
+				<circle cx="608" cy="703" r="30" fill={`url(#${id}-signal)`} />
+			</g>
 		</svg>
 	);
 }
