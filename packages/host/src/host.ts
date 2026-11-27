@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { normalizeUpdateMirror } from "@pier/client";
@@ -86,6 +86,7 @@ import { PI_PATH_OVERRIDE, PiLoader } from "./pi/sdk.ts";
 import { PiSettingsFiles } from "./pi/settings-files.ts";
 import { LocalPortForwards } from "./ports/forwards.ts";
 import { HostPortSampler } from "./ports/listening.ts";
+import { realPathSync } from "./real-path.ts";
 import { RemoteAccess, type RemoteAccessOptions } from "./remote/remote-access.ts";
 import { AgentConfigFiles } from "./runtimes/agent-config.ts";
 import { AgentInstaller, type AgentInstallerOptions, type InstallableRuntime } from "./runtimes/installation.ts";
@@ -1488,7 +1489,7 @@ export class PierHost implements RequestHandler {
 				if (!existsSync(path) || !statSync(path).isDirectory()) {
 					throw new PierProtocolError("BAD_REQUEST", `Not a directory: ${path}`);
 				}
-				const real = realpathSync(path);
+				const real = realPathSync(path);
 				const workspace = this.config.addWorkspace({
 					path: real,
 					name: params.name ?? (basename(real) || real),

@@ -1,6 +1,7 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ApprovalPolicy, ApprovalSeverity } from "@pier/protocol";
+import { realPathSync } from "../real-path.ts";
 
 export type ApprovalVerdict =
 	| { action: "allow"; reason: string }
@@ -300,7 +301,7 @@ function realpathOfNearestAncestor(path: string): string {
 		current = parent;
 	}
 	try {
-		return resolve(realpathSync(current), ...suffix);
+		return resolve(realPathSync(current), ...suffix);
 	} catch {
 		return path;
 	}

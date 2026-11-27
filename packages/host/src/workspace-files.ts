@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
 	type WorkspaceFileWriteResult,
 	type WorkspacePathDeleteResult,
 } from "@pier/protocol";
+import { realPath } from "./real-path.ts";
 
 /** Most entries returned for one directory; the rest are dropped and `truncated` is set. */
 export const MAX_DIRECTORY_ENTRIES = 2000;
@@ -57,7 +58,7 @@ async function describe(root: string, dir: string, relDir: string, dirent: Diren
 			entry.symlink = true;
 			// Follow the link for display, but only offer to expand links that stay in the workspace.
 			const target = await stat(full);
-			const real = await realpath(full);
+			const real = await realPath(full);
 			if (target.isDirectory()) entry.kind = isInside(root, real) ? "directory" : "other";
 			else if (target.isFile()) {
 				entry.kind = "file";
@@ -81,7 +82,7 @@ async function describe(root: string, dir: string, relDir: string, dirent: Diren
 
 export async function workspaceRealRoot(workspaceRoot: string): Promise<string> {
 	try {
-		return await realpath(workspaceRoot);
+		return await realPath(workspaceRoot);
 	} catch {
 		throw new PierProtocolError("NOT_FOUND", `Workspace directory is missing: ${workspaceRoot}`);
 	}
@@ -92,7 +93,7 @@ export async function resolveInside(root: string, relPath: string, what: string)
 	const target = relPath ? join(root, ...relPath.split("/")) : root;
 	let real: string;
 	try {
-		real = await realpath(target);
+		real = await realPath(target);
 	} catch {
 		throw new PierProtocolError("NOT_FOUND", `No such ${what}: ${relPath || "."}`);
 	}
@@ -445,7 +446,7 @@ export async function previewWorkspaceFile(workspaceRoot: string, path: string):
 async function requirePreviewRoot(root: string, real: string, path: string): Promise<void> {
 	if (!isInside(root, real)) {
 		const directories = process.platform === "win32" ? [tmpdir()] : [tmpdir(), "/tmp", "/var/tmp"];
-		const temporaryRoots = await Promise.all(directories.map((dir) => realpath(dir).catch(() => undefined)));
+		const temporaryRoots = await Promise.all(directories.map((dir) => realPath(dir).catch(() => undefined)));
 		if (!isAbsolute(path) || !temporaryRoots.some((dir) => dir && isInside(dir, real))) {
 			throw new PierProtocolError("FORBIDDEN", "Preview path is outside the workspace and temporary directories", {
 				reason: "OUTSIDE_ALLOWED_ROOTS",
@@ -480,7 +481,7 @@ async function resolvePreviewPath(workspaceRoot: string, path: string): Promise<
 	const root = await workspaceRealRoot(workspaceRoot);
 	let real: string;
 	try {
-		real = await realpath(resolve(root, path));
+		real = await realPath(resolve(root, path));
 	} catch (error) {
 		fsError(error, path);
 	}
