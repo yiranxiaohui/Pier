@@ -55,7 +55,7 @@ Pier 是编码 Agent 的跨设备工作台：在同一个界面中使用内置�
 & ([scriptblock]::Create((Invoke-RestMethod 'https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pier/main/scripts/install.ps1'))) -Mirror ghfast
 ```
 
-脚本从 Release 获取 x64 安装程序，**先校验 SHA-256，再打开安装向导**。支持 `-Version v0.3.12`、`-Mirror auto|github|ghfast|gh-proxy|ghproxy`（或自定义 HTTPS 前缀）、`-Silent`（静默安装）、`-Help`；也支持 `PIER_VERSION` / `PIER_MIRROR` 环境变量。默认依次尝试 GitHub 与镜像，下载失败或持续过慢时自动换线并续传；指定线路时不换线。需要系统的 `curl.exe`（新版 Windows 10 / 11 自带），没有时请使用安装包。
+脚本从 Release 获取 x64 安装程序，**先校验 SHA-256，再打开安装向导**。支持 `-Version v0.3.13`、`-Mirror auto|github|ghfast|gh-proxy|ghproxy`（或自定义 HTTPS 前缀）、`-Silent`（静默安装）、`-Help`；也支持 `PIER_VERSION` / `PIER_MIRROR` 环境变量。默认依次尝试 GitHub 与镜像，下载失败或持续过慢时自动换线并续传；指定线路时不换线。需要系统的 `curl.exe`（新版 Windows 10 / 11 自带），没有时请使用安装包。
 
 更新前请从托盘**完整退出 Pier**；可在应用内更新，或再次运行脚本。脚本不强制结束 Agent 会话，不安装 Windows 服务，不修改 PowerShell 执行策略。卸载用「设置 → 应用 → 已安装的应用 → Pier」，保留用户数据时不要选择删除应用数据。
 
@@ -86,18 +86,18 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 Debian / Ubuntu 推荐下载对应架构的 `.deb`，在下载目录安装（示例版本请替换为实际版本）：
 
 ```bash
-sudo apt install ./pier-v0.3.12-linux-x64.deb
+sudo apt install ./pier-v0.3.13-linux-x64.deb
 pier
 ```
 
 其他发行版可使用 `.AppImage`：
 
 ```bash
-chmod +x ./pier-v0.3.12-linux-x64.AppImage
-./pier-v0.3.12-linux-x64.AppImage
+chmod +x ./pier-v0.3.13-linux-x64.AppImage
+./pier-v0.3.13-linux-x64.AppImage
 ```
 
-ARM64 将文件名中的 `linux-x64` 换成 `linux-arm64`。AppImage 需要 FUSE；缺少 FUSE 时可用 `./pier-v0.3.12-linux-x64.AppImage --appimage-extract-and-run`。仍需系统图形会话和 GTK / WebKit 等运行库，不支持直接在 Alpine / musl 环境运行。桌面端不要用 root 启动。也可以使用下面的一键脚本，检测到图形会话时默认只安装 `pier` 命令。
+ARM64 将文件名中的 `linux-x64` 换成 `linux-arm64`。AppImage 需要 FUSE；缺少 FUSE 时可用 `./pier-v0.3.13-linux-x64.AppImage --appimage-extract-and-run`。仍需系统图形会话和 GTK / WebKit 等运行库，不支持直接在 Alpine / musl 环境运行。桌面端不要用 root 启动。也可以使用下面的一键脚本，检测到图形会话时默认只安装 `pier` 命令。
 
 ### Linux 一键安装
 
@@ -144,7 +144,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/yiranxiaohui/Pie
 
 | 参数 | 说明 |
 |---|---|
-| `--version v0.3.12` | 安装指定版本，默认为最新正式版 |
+| `--version v0.3.13` | 安装指定版本，默认为最新正式版 |
 | `--app-dir <目录>` | 仅 macOS：指定 `Pier.app` 所在目录，或用 `PIER_APP_DIR` 设置 |
 | `--service` / `--portable` | 仅 Linux：安装后台服务和 `pier` 命令 / 只安装 `pier` 命令 |
 | `--user` / `--system` | 仅 Linux：服务范围，默认普通账号为用户服务、root 为系统服务 |
@@ -187,7 +187,7 @@ bunx expo run:ios --device
 
 ### 安装包
 
-从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的文件（`<版本>` 形如 `0.3.12`，可用 Release 中的 `SHA256SUMS.txt` 核对）：
+从 [GitHub Releases](https://github.com/yiranxiaohui/Pier/releases/latest) 下载对应平台的文件（`<版本>` 形如 `0.3.13`，可用 Release 中的 `SHA256SUMS.txt` 核对）：
 
 | 平台 | 文件 | 说明 |
 |---|---|---|
