@@ -185,10 +185,12 @@
 	display: inline-flex;
 }
 
+/* Laid out in the row before the hover actions, so the translucent badge never covers them or the name. */
 .files-copied {
-	position: absolute;
-	right: 6px;
+	flex: none;
+	margin: 0 6px 0 2px;
 	padding: 1px 6px;
+	white-space: nowrap;
 	border-radius: 999px;
 	font-size: 11px;
 	background: var(--accent-soft);

@@ -1724,6 +1724,7 @@ function FilesView({
 									<span className="files-name">{entry.name}</span>
 									{entry.symlink ? <IconLink size={11} className="files-link" /> : null}
 								</button>
+								{copied === entry.path ? <span className="files-copied">已复制</span> : null}
 								<span className="files-actions">
 									{isDir ? (
 										<button type="button" className="ghost icon" title="进入此文件夹" onClick={() => enter(entry)}>
@@ -1763,7 +1764,6 @@ function FilesView({
 										<IconMore size={13} />
 									</button>
 								</span>
-								{copied === entry.path ? <span className="files-copied">已复制</span> : null}
 							</div>
 							{open ? renderDir(entry.path, depth + 1) : null}
 						</div>
