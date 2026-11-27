@@ -527,6 +527,12 @@ export interface ModelInfo {
 	providerName?: string;
 	id: string;
 	name: string;
+	/**
+	 * What the runtime says about the model (1.71), e.g. Claude Code's `Use the default model
+	 * (currently Opus 5.5) · $4/$20 per Mtok` for `default`. Only runtimes that describe their
+	 * models send it (Claude Code, Codex's catalog); clients show the id without it.
+	 */
+	description?: string;
 	reasoning: boolean;
 	input: string[];
 	contextWindow?: number;

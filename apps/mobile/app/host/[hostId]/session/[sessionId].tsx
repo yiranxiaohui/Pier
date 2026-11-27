@@ -271,8 +271,9 @@ function ModelSheet({ chat, onClose }: { chat: ChatController; onClose: () => vo
 														<Text style={[styles.tag, { color: p.muted, backgroundColor: p.elevated }]}>推理</Text>
 													) : null}
 												</View>
-												<Muted style={styles.optionText} numberOfLines={1}>
-													{model.id}
+												{/* The description says which model it is (Claude Code's `default`, `fable`…). */}
+												<Muted style={styles.optionText} numberOfLines={model.description ? 2 : 1}>
+													{model.description || model.id}
 												</Muted>
 											</View>
 											{switching === key ? (

@@ -204,6 +204,23 @@ function chipName(model: ModelInfo): string {
 }
 
 /**
+ * The chip's tooltip: which model it is, then what the chip does. Claude Code's "Default" says nothing
+ * about the model it runs; its description does ("Use the default model (currently Opus 5.5) · …").
+ */
+function chipTitle(model: ModelInfo | undefined, fast: boolean): string {
+	const action = fast ? "切换模型、思考程度与 Fast 模式" : "切换模型与思考程度";
+	if (!model) return action;
+	const name = model.name || model.id;
+	return `${model.description ? `${name}：${model.description}` : name}\n${action}`;
+}
+
+/** Whether `model` matches what was typed in the list's search box: its id, name, provider or description. */
+export function modelMatches(model: ModelInfo, filter: string, names?: ReadonlyMap<string, string>): boolean {
+	const text = `${model.provider}/${model.id} ${model.name} ${providerLabel(model, names)} ${model.description ?? ""}`;
+	return text.toLowerCase().includes(filter.trim().toLowerCase());
+}
+
+/**
  * What a model's provider is called: the name the host sends (1.60), else its name in `names`
  * (older hosts send only the id), else the id. A 云链API group shows as `云链API · claude企业级`
  * rather than its id `yunlian-claude-11r9sb4`.
@@ -347,9 +364,7 @@ function ModelMenu({
 		setOpen(true);
 	};
 
-	const visible = (models ?? []).filter((m) =>
-		`${m.provider}/${m.id} ${m.name} ${providerLabel(m, names)}`.toLowerCase().includes(filter.trim().toLowerCase()),
-	);
+	const visible = (models ?? []).filter((m) => modelMatches(m, filter, names));
 	const groups = new Map<string, ModelInfo[]>();
 	for (const m of visible) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
 
@@ -377,7 +392,7 @@ function ModelMenu({
 				data-level={level}
 				disabled={disabled}
 				onClick={toggle}
-				title={onFast ? "切换模型、思考程度与 Fast 模式" : "切换模型与思考程度"}
+				title={chipTitle(model, !!onFast)}
 			>
 				<span className="composer-model-name">{model ? chipName(model) : loading ? "加载模型…" : "选择模型"}</span>
 				{model && canThink ? (
@@ -431,6 +446,11 @@ function ModelMenu({
 												<IconSparkles size={14} />
 												<span className="model-menu-current-text">
 													<span className="model-menu-current-name">{model.name || model.id}</span>
+													{model.description ? (
+														<span className="model-description" title={model.description}>
+															{model.description}
+														</span>
+													) : null}
 													<span className="muted">{providerLabel(model, names)}</span>
 												</span>
 											</span>
@@ -489,6 +509,7 @@ function ModelMenu({
 																	type="button"
 																	key={m.id}
 																	className={`dropdown-item${selected ? " selected" : ""}`}
+																	title={m.description ? `${m.id}\n${m.description}` : undefined}
 																	onClick={() => {
 																		go("main");
 																		if (!selected) onModel(m);
@@ -499,7 +520,13 @@ function ModelMenu({
 																			{m.name || m.id}
 																			{m.reasoning ? <span className="mini-tag">推理</span> : null}
 																		</span>
-																		<span className="muted">{m.id}</span>
+																		{/* The description says which model it is, as Claude Code's `/model` does;
+																		    the id (an alias like `default`) moves to the tooltip. */}
+																		{m.description ? (
+																			<span className="model-description">{m.description}</span>
+																		) : (
+																			<span className="muted">{m.id}</span>
+																		)}
 																	</span>
 																	{selected ? <IconCheck size={15} className="policy-check" /> : null}
 																</button>

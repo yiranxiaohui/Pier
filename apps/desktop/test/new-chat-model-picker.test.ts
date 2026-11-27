@@ -1,8 +1,8 @@
-import type { AgentRuntimeInfo, WorkspaceInfo } from "@pier/protocol";
+import type { AgentRuntimeInfo, ModelInfo, WorkspaceInfo } from "@pier/protocol";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NewChatModelPicker, providerLabel } from "../src/components/ModelPicker.tsx";
+import { modelMatches, NewChatModelPicker, providerLabel } from "../src/components/ModelPicker.tsx";
 import type { AppState } from "../src/lib/store.tsx";
 
 const { state, store } = vi.hoisted(() => ({
@@ -10,7 +10,7 @@ const { state, store } = vi.hoisted(() => ({
 		workspaceNodes: { workspace: "peer" },
 		nodes: { peer: { connection: "open" } },
 		newChatRuntime: { local: "pi", peer: "codex" },
-		newChatModel: { peer: { fastMode: false } },
+		newChatModel: { peer: { fastMode: false } as { fastMode: boolean; model?: ModelInfo } },
 	},
 	store: { listModels: vi.fn(), setNewChatModel: vi.fn() },
 }));
@@ -46,7 +46,17 @@ const render = (runtimes: AgentRuntimeInfo[]) =>
 beforeEach(() => {
 	state.newChatRuntime.peer = "codex";
 	state.newChatModel.peer.fastMode = false;
+	delete state.newChatModel.peer.model;
 });
+
+const claudeDefault: ModelInfo = {
+	provider: "claude-code",
+	id: "default",
+	name: "Default (recommended)",
+	description: "Use the default model (currently Opus 5.5) · $4/$20 per Mtok",
+	reasoning: true,
+	input: ["text", "image"],
+};
 
 describe("new-chat model picker", () => {
 	it("exposes Fast controls before a session exists when the workspace's computer supports them", () => {
@@ -66,6 +76,20 @@ describe("new-chat model picker", () => {
 		]) {
 			expect(render(runtimes)).not.toContain("Fast");
 		}
+	});
+
+	it("names the model the chip stands for in its tooltip, with its description", () => {
+		state.newChatRuntime.peer = "claude-code";
+		state.newChatModel.peer.model = claudeDefault;
+		const html = render([codex]);
+		// The chip says only "Default"; the tooltip says it runs Opus 5.5.
+		expect(html).toContain(">Default</span>");
+		expect(html).toContain(
+			'title="Default (recommended)：Use the default model (currently Opus 5.5) · $4/$20 per Mtok\n切换模型与思考程度"',
+		);
+		const { description: _, ...plain } = claudeDefault;
+		state.newChatModel.peer.model = plain;
+		expect(render([codex])).toContain('title="Default (recommended)\n切换模型与思考程度"');
 	});
 
 	it.each(["pi", "claude-code"])("does not reuse Codex controls when %s is selected", (runtime) => {
@@ -89,5 +113,17 @@ describe("model picker provider labels", () => {
 		expect(providerLabel({ provider: "yunlian-claude-11r9sb4" }, names)).toBe("云链API · claude旧名");
 		expect(providerLabel({ provider: "anthropic" })).toBe("anthropic");
 		expect(providerLabel({ provider: "codex" }, names)).toBe("codex");
+	});
+});
+
+describe("model picker search", () => {
+	it("matches a model's description as well as its id, name and provider", () => {
+		expect(modelMatches(claudeDefault, "opus 5.5")).toBe(true);
+		expect(modelMatches(claudeDefault, " DEFAULT ")).toBe(true);
+		expect(modelMatches(claudeDefault, "claude-code/default")).toBe(true);
+		expect(modelMatches(claudeDefault, "haiku")).toBe(false);
+		const { description: _, ...plain } = claudeDefault;
+		expect(modelMatches(plain, "opus")).toBe(false);
+		expect(modelMatches({ ...plain, provider: "yunlian" }, "云链", new Map([["yunlian", "云链API"]]))).toBe(true);
 	});
 });

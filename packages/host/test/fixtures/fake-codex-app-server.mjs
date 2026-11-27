@@ -97,6 +97,7 @@ const MODELS = [
 		id: "gpt-mini",
 		model: "gpt-mini",
 		displayName: "GPT Mini",
+		description: "Small and fast.",
 		hidden: false,
 		supportedReasoningEfforts: [{ reasoningEffort: "low" }],
 		defaultReasoningEffort: "low",

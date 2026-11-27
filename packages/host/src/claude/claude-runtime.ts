@@ -85,13 +85,16 @@ export function claudeProjectKey(cwd: string): string {
 	return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
-function toModelInfo(model: SDKControlInitializeResponse["models"][number]): ModelInfo {
+/** A model of Claude Code's catalog, with the description its `/model` picker shows. */
+export function claudeModelInfo(model: SDKControlInitializeResponse["models"][number]): ModelInfo {
 	const efforts = (model.supportedEffortLevels ?? []) as ThinkingLevel[];
 	const levels: ThinkingLevel[] = efforts.length ? ["off", ...efforts] : ["off"];
+	const description = typeof model.description === "string" ? model.description.trim() : "";
 	return {
 		provider: CLAUDE_PROVIDER,
 		id: model.value,
 		name: model.displayName || model.value,
+		...(description ? { description } : {}),
 		reasoning: model.supportsEffort === true || model.supportsAdaptiveThinking === true,
 		input: ["text", "image"],
 		...(/\[1m\]/i.test(model.value) || /\[1m\]/i.test(model.resolvedModel ?? "") ? { contextWindow: 1_000_000 } : {}),
@@ -366,7 +369,7 @@ export class ClaudeCodeRuntime implements AgentRuntime {
 				}),
 			]);
 			this.catalog = {
-				models: init.models.map(toModelInfo),
+				models: init.models.map(claudeModelInfo),
 				commands: init.commands
 					.filter((c) => !TERMINAL_COMMANDS.has(c.name))
 					.map((c) => ({

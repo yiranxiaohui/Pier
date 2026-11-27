@@ -698,7 +698,11 @@ describe("Codex runtime", () => {
 				thinkingLevel: "off",
 			});
 			// A model of Codex's catalog keeps its description.
-			expect(models.models[2]).toMatchObject({ id: "gpt-mini", thinkingLevels: ["low"] });
+			expect(models.models[2]).toMatchObject({
+				id: "gpt-mini",
+				description: "Small and fast.",
+				thinkingLevels: ["low"],
+			});
 			expect(requests).toEqual([{ url: "/v1/models?api-version=1", authorization: "Bearer sk-relay" }]);
 
 			const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });

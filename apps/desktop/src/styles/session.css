@@ -288,6 +288,18 @@
 	font-weight: 500;
 }
 
+/* What the runtime says about a model (Claude Code: "Fable 5.2 · Most capable for … · $8/$40 per Mtok"). */
+.model-description {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	font-size: 11.5px;
+	line-height: 1.45;
+	color: var(--text-muted);
+}
+
 .mini-tag {
 	font-size: 10.5px;
 	font-weight: 500;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { claudeModelInfo } from "../src/claude/claude-runtime.ts";
 import { convertTranscript, normalizeTool, promptText, structuredDiff } from "../src/claude/convert.ts";
 import { convertTurns, fileChangeDiff, toModelInfo, toolResultFor } from "../src/codex/convert.ts";
 import { hunksToDiff, parseUnifiedDiff } from "../src/runtimes/diff.ts";
@@ -109,15 +110,21 @@ describe("Codex conversions", () => {
 					{ reasoningEffort: "ultra" },
 				],
 				inputModalities: ["text", "image"],
+				description: " Frontier agentic coding model. ",
 			}),
 		).toEqual({
 			provider: "codex",
 			id: "gpt-x",
 			name: "GPT X",
+			description: "Frontier agentic coding model.",
 			reasoning: true,
 			input: ["text", "image"],
 			thinkingLevels: ["low", "high", "ultra"],
 		});
+	});
+
+	it("leaves out an empty description", () => {
+		expect(toModelInfo({ model: "gpt-y", displayName: "GPT Y", description: "  " })).not.toHaveProperty("description");
 	});
 
 	it("reports command results and file change diffs", () => {
@@ -170,5 +177,31 @@ describe("Codex conversions", () => {
 		});
 		expect(messages[2]).toMatchObject({ toolCallId: "i2", content: [{ type: "text", text: "hi\n" }], isError: false });
 		expect(messages[3]).toMatchObject({ content: [{ type: "text", text: "Done." }], stopReason: "stop" });
+	});
+});
+
+describe("Claude Code models", () => {
+	it("keeps the description Claude Code's /model picker shows", () => {
+		expect(
+			claudeModelInfo({
+				value: "default",
+				resolvedModel: "claude-opus-5-5",
+				displayName: "Default (recommended)",
+				description: "Use the default model (currently Opus 5.5) · $4/$20 per Mtok",
+				supportsEffort: true,
+				supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+			}),
+		).toEqual({
+			provider: "claude-code",
+			id: "default",
+			name: "Default (recommended)",
+			description: "Use the default model (currently Opus 5.5) · $4/$20 per Mtok",
+			reasoning: true,
+			input: ["text", "image"],
+			thinkingLevels: ["off", "low", "medium", "high", "xhigh", "max"],
+		});
+		const plain = claudeModelInfo({ value: "opus[1m]", displayName: "", description: "" });
+		expect(plain).toMatchObject({ id: "opus[1m]", name: "opus[1m]", contextWindow: 1_000_000 });
+		expect(plain).not.toHaveProperty("description");
 	});
 });

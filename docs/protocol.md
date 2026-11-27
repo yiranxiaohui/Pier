@@ -1,4 +1,4 @@
-# Pier 协议 v1.70
+# Pier 协议 v1.71
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -700,7 +700,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 
 `SessionSummary.runtime`（1.22）是会话的 Agent 运行时；旧版 Host 不返回该字段，视为 `pi`。
 
-`ModelInfo = { provider, providerName?, id, name, reasoning, input: string[], contextWindow?, thinkingLevels? }`。`providerName`（1.60）是服务商的显示名称，只在与 `provider` 不同时返回（例如 pi 自定义服务商 `yunlian-claude-11r9sb4` 的名称「云链API · claude企业级」），客户端分组和显示服务商时优先用它，旧版 Host 不返回时回退到 `provider`。`thinkingLevels`（1.19）是模型支持的思考等级，从低到高（`off`、`minimal`、`low`、`medium`、`high`，模型支持时还有 `xhigh`、`max`、`ultra`），不支持推理的模型为 `["off"]`；`thinking.set` 会把不支持的等级钳制到其中之一。`ultra` 自协议 1.34 起支持，只在运行时明确报告模型支持它时显示，并作为原生等级传给运行时。
+`ModelInfo = { provider, providerName?, id, name, description?, reasoning, input: string[], contextWindow?, thinkingLevels? }`。`providerName`（1.60）是服务商的显示名称，只在与 `provider` 不同时返回（例如 pi 自定义服务商 `yunlian-claude-11r9sb4` 的名称「云链API · claude企业级」），客户端分组和显示服务商时优先用它，旧版 Host 不返回时回退到 `provider`。`description`（1.71）是运行时自己对模型的说明，只有运行时提供时才返回：Claude Code 为它 `/model` 选择器中的说明（例如 `default` 的「Use the default model (currently Opus 5.5) · $4/$20 per Mtok」），Codex 为其模型目录中的说明（自定义服务商列出的模型没有）；客户端在模型列表中显示它，没有时显示 `id`。`thinkingLevels`（1.19）是模型支持的思考等级，从低到高（`off`、`minimal`、`low`、`medium`、`high`，模型支持时还有 `xhigh`、`max`、`ultra`），不支持推理的模型为 `["off"]`；`thinking.set` 会把不支持的等级钳制到其中之一。`ultra` 自协议 1.34 起支持，只在运行时明确报告模型支持它时显示，并作为原生等级传给运行时。
 
 `SessionContextInfo = { contextWindow?, contextTokens?, autoCompaction, compactionThreshold?, reserveTokens?, keepRecentTokens?, contextLimit? }`（1.45）。`contextLimit`（1.64）是会话的上下文上限（见 §3「上下文上限」），客户端用它与 `contextWindow` 中较小的一个计算上下文占比；没有上限时省略。`contextTokens`（1.58）是最近一次模型请求后的上下文 token 数，由不在每条回复上报告用量的运行时提供：Codex 在一轮中的每次请求（包括工具调用之间）之后更新，重新打开或分叉会话时也会从 Codex 回放的用量中恢复；客户端优先用它，没有时再用最近一次压缩（`compactionSummary`，按时间戳）之后最近一条带用量的回复：压缩前的回复量的是被替换掉的对话。`autoCompaction` 为 `configured` 时，`compactionThreshold` 是自动压缩触发的上下文 token 数，`reserveTokens` 是为回复预留的 token 数，`keepRecentTokens` 是压缩后原样保留的最近内容；`disabled` 表示自动压缩关闭；`runtime` 表示由 Claude Code / Codex 等运行时决定。字段是可选的，旧版 Host 不返回时客户端应隐藏或显示未知状态。
 

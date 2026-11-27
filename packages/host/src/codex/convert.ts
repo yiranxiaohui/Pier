@@ -77,10 +77,12 @@ export function toModelInfo(model: Json): ModelInfo {
 	const levels = order.filter((l) => efforts.includes(l));
 	const input = Array.isArray(model.inputModalities) ? (model.inputModalities as string[]) : ["text"];
 	const contextWindow = Number(model.contextWindow ?? model.context_window);
+	const description = str(model.description)?.trim();
 	return {
 		provider: CODEX_PROVIDER,
 		id: str(model.model) ?? str(model.id) ?? "",
 		name: str(model.displayName) ?? str(model.model) ?? "",
+		...(description ? { description } : {}),
 		reasoning: levels.length > 0,
 		input: input.filter((i) => i === "text" || i === "image"),
 		...(Number.isSafeInteger(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
