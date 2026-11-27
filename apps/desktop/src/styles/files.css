@@ -217,6 +217,138 @@
 	color: var(--text-faint);
 }
 
+/* The path bar of the files view: up, back to the workspace root, and the shown folder. */
+.files-path {
+	flex: none;
+	padding: 4px 6px;
+	border-bottom: 1px solid var(--border);
+}
+
+.files-path-bar {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+}
+
+.files-path-bar button.ghost.icon {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+}
+
+.files-crumbs {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	height: 26px;
+	padding: 0 4px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	border-radius: 6px;
+	cursor: text;
+	scrollbar-width: none;
+}
+
+.files-crumbs::-webkit-scrollbar {
+	display: none;
+}
+
+.files-crumbs:hover {
+	background: var(--bg-hover);
+}
+
+.files-crumb-part {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+}
+
+.files-crumb-sep {
+	flex: none;
+	color: var(--text-faint);
+}
+
+button.files-crumb {
+	height: 22px;
+	padding: 0 4px;
+	border: none;
+	border-radius: 5px;
+	background: transparent;
+	font-family: var(--mono);
+	font-size: 12px;
+	font-weight: 400;
+	color: var(--text-muted);
+}
+
+button.files-crumb:hover:not(:disabled) {
+	background: var(--bg-active);
+	color: var(--text);
+}
+
+button.files-crumb.workspace-root {
+	color: var(--accent-text);
+}
+
+button.files-crumb.current {
+	color: var(--text);
+	font-weight: 600;
+}
+
+input.files-path-input {
+	flex: 1;
+	min-width: 0;
+	height: 26px;
+	padding: 0 8px;
+	border-radius: 6px;
+	font-family: var(--mono);
+	font-size: 12px;
+}
+
+input.files-path-input.invalid {
+	border-color: var(--danger);
+}
+
+.files-path-error {
+	margin: 4px 4px 2px;
+	font-size: 11.5px;
+	color: var(--danger);
+}
+
+/* Actions on the selected entries, in place of the hint. */
+.files-selection {
+	display: flex;
+	align-items: center;
+	gap: 1px;
+	padding: 4px 6px 5px 14px;
+	border-top: 1px solid var(--border);
+	font-size: 11.5px;
+	color: var(--text-muted);
+}
+
+.files-selection-count {
+	flex: 1;
+	min-width: 0;
+	margin-right: 4px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.files-selection button.ghost.icon {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	border-radius: 6px;
+}
+
+.files-selection button.files-selection-delete:hover:not(:disabled) {
+	background: var(--danger-soft);
+	color: var(--danger);
+}
+
 .icon-chip.active {
 	background: var(--bg-active);
 	color: var(--text);

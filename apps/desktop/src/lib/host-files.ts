@@ -281,7 +281,8 @@ export function isCut(current: HostClipboard | undefined, scope: FileScope, path
 
 /**
  * Paste the clipboard into the shown directory of `destination`, one entry at a time, asking
- * `ask` about name conflicts. Moved entries leave the clipboard.
+ * `ask` about name conflicts. Moved entries leave the clipboard. Resolves with the source paths
+ * that were copied or moved.
  */
 export async function pasteHostEntries(
 	store: { toast(kind: "info" | "error", message: string): void; bumpFiles(key: string): void },
@@ -289,14 +290,14 @@ export async function pasteHostEntries(
 	snapshot: HostClipboard,
 	destination: FileScope,
 	ask: (question: PasteConflictQuestion) => Promise<PasteConflictAnswer>,
-): Promise<void> {
+): Promise<string[]> {
 	if (pasting) {
 		store.toast("info", "正在粘贴文件，请等待完成");
-		return;
+		return [];
 	}
 	if (!canPasteInto(snapshot, destination)) {
 		store.toast("error", "只能粘贴到同一台主机；跨主机请先下载再上传");
-		return;
+		return [];
 	}
 	pasting = true;
 	emit();
@@ -397,4 +398,33 @@ export async function pasteHostEntries(
 			"info",
 			`已${label} ${completed.length} 项${skipped ? `，跳过 ${skipped} 项` : ""}${stopped ? "，其余已取消" : ""}`,
 		);
+	return completed;
+}
+
+/**
+ * Workspace clipboard entries as host entries, so they can be pasted into a directory outside
+ * any workspace on the same computer (`host.transferPath` takes absolute directories).
+ */
+export function hostClipboardOfWorkspace(
+	clipboard: { mode: HostClipboard["mode"]; entries: readonly HostClipboardEntry[] },
+	node: string,
+	workspacePath: string,
+): HostClipboard {
+	return {
+		mode: clipboard.mode,
+		scope: { kind: "host", node, directory: workspacePath },
+		entries: clipboard.entries.map((entry) => ({ ...entry })),
+	};
+}
+
+/** Whether `path` (relative to `directory`) or a folder holding it is cut and waits for its paste. */
+export function isCutInDirectory(
+	current: HostClipboard | undefined,
+	node: string,
+	directory: string,
+	path: string,
+): boolean {
+	if (current?.mode !== "move" || current.scope.kind !== "host" || current.scope.node !== node) return false;
+	if (current.scope.directory !== directory) return false;
+	return current.entries.some((entry) => path === entry.path || path.startsWith(`${entry.path}/`));
 }
