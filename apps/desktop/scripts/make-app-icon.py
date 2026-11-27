@@ -19,6 +19,8 @@ ET.register_namespace("", SVG_NS)
 SIDEBAR_COLORS = {"#ffffff": "#294775", "#dcf4f7": "#183047", "#a2f4e6": "#1fa392", "#4edcc5": "#0e7368"}
 # The square of the 1024px canvas the desktop Logo component crops to (components/Icons.tsx).
 MARK_BOX = "234 241 560 560"
+# NSIS Modern UI's welcome and finish page bitmap size, which Windows stretches to the page at other DPIs.
+INSTALLER_SIDEBAR = (164, 314)
 
 
 def artwork(layer="all", monochrome=False, sidebar=False, scale=1, crop=False):
@@ -72,6 +74,35 @@ def tile(image, size, inset=0):
     return canvas.resize((size, size), Image.Resampling.LANCZOS)
 
 
+def installer_sidebar(mark_size=104, mark_center=0.42, scale=4):
+    """The icon's surface stretched over the Windows installer's sidebar, with the mark above center."""
+    width, height = INSTALLER_SIDEBAR
+    svg = ET.fromstring(SOURCE.read_bytes())
+    svg.set("width", str(width))
+    svg.set("height", str(height))
+    svg.set("viewBox", f"0 0 {width} {height}")
+    gradients = {gradient.get("id"): gradient for gradient in svg.find(f"{{{SVG_NS}}}defs")}
+    # The surface keeps its top-left-to-bottom-right direction; the tide still rises from the bottom-right corner.
+    gradients["surface"].attrib.update(x1="0", y1="0", x2=str(width * 0.6), y2=str(height))
+    gradients["tide"].attrib.update(cx=str(width), cy=str(height), r=str(height * 0.8))
+    for child in list(svg):
+        if child.get("id") == "background":
+            for layer in child:
+                layer.set("d", f"M0 0h{width}v{height}H0z")
+        elif child.get("id") == "mark":
+            box_x, box_y, box_size = (float(n) for n in MARK_BOX.split()[:3])
+            size = mark_size / box_size
+            x = width / 2 - (box_x + box_size / 2) * size
+            y = height * mark_center - (box_y + box_size / 2) * size
+            group = ET.Element(f"{{{SVG_NS}}}g", {"transform": f"translate({x} {y}) scale({size})"})
+            group.append(child)
+            svg.remove(child)
+            svg.append(group)
+    png = cairosvg.svg2png(bytestring=ET.tostring(svg), output_width=width * scale, output_height=height * scale)
+    # NSIS only loads 24-bit bitmaps without an alpha channel.
+    return Image.open(io.BytesIO(png)).convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
+
+
 def main():
     # iOS owns the launcher mask; its full-bleed source must have no alpha channel, so the mark sits on white.
     mobile = Image.new("RGBA", (1024, 1024), "white")
@@ -90,7 +121,8 @@ def main():
     (DESKTOP / "public/logo.svg").write_bytes(SOURCE.read_bytes())
     # The desktop app icon is the source artwork as it is, on Apple's 824px grid of a 1024px canvas.
     tile(render(artwork(), 1024), 1024, inset=100).save(DESKTOP / "src-tauri/app-icon.png")
-    print("Generated desktop, mobile, adaptive, themed, splash, and web artwork from assets/brand/pier.svg")
+    installer_sidebar().save(DESKTOP / "src-tauri/nsis/sidebar.bmp")
+    print("Generated desktop, mobile, adaptive, themed, splash, installer, and web artwork from assets/brand/pier.svg")
 
 
 if __name__ == "__main__":
