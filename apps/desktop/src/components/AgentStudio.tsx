@@ -1,9 +1,16 @@
 import { agentRuntimeLabel, sessionTitle } from "@pier/chat-state";
-import { DEFAULT_AGENT_RUNTIME, type SessionSummary, type SubagentInfo, type WorkspaceInfo } from "@pier/protocol";
+import {
+	type AgentRuntimeId,
+	DEFAULT_AGENT_RUNTIME,
+	type SessionSummary,
+	type SubagentInfo,
+	type WorkspaceInfo,
+} from "@pier/protocol";
 import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { type CatAccessory, catLook, type StudioMood, sessionActivity, studioActivity } from "../lib/agent-activity.ts";
 import { relativeTime } from "../lib/format.ts";
 import { LOCAL_NODE, useAppState, useStore } from "../lib/store.tsx";
+import { AgentIcon } from "./AgentIcons.tsx";
 import {
 	IconAlert,
 	IconBrain,
@@ -281,7 +288,7 @@ function Desk({ agent, cheering }: { agent: StudioAgent; cheering: boolean }) {
 				{detail ? <span className="studio-bubble-detail">{detail}</span> : null}
 			</span>
 			<span className="studio-scene">
-				<CatFigure mood={mood} accessory={look.accessory} seat="desk" />
+				<CatFigure mood={mood} accessory={look.accessory} runtime={runtime} seat="desk" />
 				<Floaters mood={mood} />
 				{mood === "thinking" ? <ThoughtCloud /> : null}
 				{mood === "waiting" ? <span className="studio-alert">!</span> : null}
@@ -291,7 +298,10 @@ function Desk({ agent, cheering }: { agent: StudioAgent; cheering: boolean }) {
 			</span>
 			<span className="studio-plate">
 				<span className="studio-nick">{look.name}</span>
-				<span className={`session-agent agent-${runtime}`}>{runtimeLabel}</span>
+				<span className={`session-agent agent-${runtime} studio-agent-badge`}>
+					<AgentIcon runtime={runtime} size={11} />
+					{runtimeLabel}
+				</span>
 			</span>
 			<span className="studio-title">{title}</span>
 			<span className="studio-location">{model ? `${location} · ${model}` : location}</span>
@@ -319,11 +329,14 @@ function LoungeSpot({ agent }: { agent: StudioAgent }) {
 			aria-label={`${look.name}（${agentRuntimeLabel(runtime)}）${activity.label}。会话：${title}`}
 		>
 			<span className="studio-scene">
-				<CatFigure mood={mood} accessory={look.accessory} seat="cushion" />
+				<CatFigure mood={mood} accessory={look.accessory} runtime={runtime} seat="cushion" />
 				<Floaters mood={mood} />
 			</span>
 			<span className="studio-spot-text">
-				<span className="studio-nick">{look.name}</span>
+				<span className="studio-nick">
+					<AgentIcon runtime={runtime} size={12} />
+					{look.name}
+				</span>
 				<span className="studio-title">{title}</span>
 				<span className="studio-location">
 					{mood === "error" ? "上次出错了 · " : ""}
@@ -542,9 +555,19 @@ function Accessory({ kind }: { kind: CatAccessory }) {
 
 /**
  * A cat at its desk (behind a laptop) or curled on a cushion in the lounge. CSS animates it by the
- * `mood-*` class of the desk and colours it by the `runtime-*` class.
+ * `mood-*` class of the desk and colours it by the `runtime-*` class; the agent's mark is on the laptop.
  */
-function CatFigure({ mood, accessory, seat }: { mood: DeskMood; accessory: CatAccessory; seat: "desk" | "cushion" }) {
+function CatFigure({
+	mood,
+	accessory,
+	runtime,
+	seat,
+}: {
+	mood: DeskMood;
+	accessory: CatAccessory;
+	runtime: AgentRuntimeId;
+	seat: "desk" | "cushion";
+}) {
 	const desk = seat === "desk";
 	return (
 		<svg viewBox="0 0 200 150" className={`studio-cat seat-${seat}`} aria-hidden="true">
@@ -575,7 +598,10 @@ function CatFigure({ mood, accessory, seat }: { mood: DeskMood; accessory: CatAc
 					<rect className="studio-desk-top" x="26" y="116" width="148" height="10" rx="5" />
 					<rect className="studio-desk-front" x="36" y="126" width="128" height="14" rx="3" />
 					<rect className="studio-laptop" x="77" y="93" width="46" height="24" rx="4" />
-					<circle className="studio-laptop-logo" cx="100" cy="105" r="3.6" />
+					{/* The agent's own mark on the lid, where a laptop maker's logo would be. */}
+					<g className="studio-laptop-mark" transform="translate(92.5 97.5)">
+						<AgentIcon runtime={runtime} size={15} />
+					</g>
 					<rect className="studio-laptop-base" x="70" y="114.5" width="60" height="4" rx="2" />
 					<g className="cat-paws">
 						<ellipse className="cat-fill cat-paw left" cx="66" cy="116" rx="9.5" ry="6.5" />

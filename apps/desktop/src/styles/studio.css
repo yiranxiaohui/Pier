@@ -289,6 +289,13 @@
 	font-weight: 650;
 }
 
+.studio-agent-badge,
+.studio-spot .studio-nick {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
 .studio-title,
 .studio-location {
 	display: block;
@@ -470,6 +477,12 @@
 	opacity: 0.45;
 }
 
+/* The agent's mark on the lid; one-colour marks print dark on the silver. */
+.studio-laptop-mark {
+	color: #33363c;
+	opacity: 0.9;
+}
+
 .studio-screen-glow {
 	fill: var(--cat-glow);
 	opacity: 0;
@@ -561,7 +574,7 @@
 	animation: studio-glow 1.4s ease-in-out infinite;
 }
 
-.studio-desk:not(.mood-resting, .mood-error) .studio-laptop-logo {
+.studio-desk:not(.mood-resting, .mood-error) .studio-laptop-mark {
 	animation: studio-logo 1.8s ease-in-out infinite;
 }
 
@@ -1051,7 +1064,7 @@
 @keyframes studio-logo {
 	0%,
 	100% {
-		opacity: 0.4;
+		opacity: 0.6;
 	}
 	50% {
 		opacity: 1;
