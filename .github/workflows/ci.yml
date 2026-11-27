@@ -145,6 +145,15 @@ jobs:
       - name: Prepare sidecar
         run: bun run --filter @pier/desktop sidecar
 
+      # Bun stamps the sidecar's icon and version resource only when it builds on Windows; make sure
+      # it did and that the stamped executable still runs.
+      - name: Windows sidecar resources
+        if: runner.os == 'Windows'
+        run: |
+          exe=$(ls apps/desktop/src-tauri/binaries/pier-host-*.exe)
+          pwsh -NoProfile -Command '$v = (Get-Item $args[0]).VersionInfo; $v | Format-List FileDescription, ProductName, CompanyName, FileVersion, OriginalFilename; if ($v.FileDescription -ne "Pier Host" -or $v.CompanyName -ne "Pier") { exit 1 }' "$exe"
+          node packages/host/scripts/smoke-sidecar.mjs "$exe"
+
       - name: Build web UI
         run: bun run --filter @pier/desktop build:web
 

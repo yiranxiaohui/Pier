@@ -4,6 +4,8 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## Unreleased
 
+- **Windows 安装目录里的 `pier-host.exe` 改用 Pier 图标**：Pier Host 用 Bun 打包成单个可执行文件，此前 `pier-host.exe` 沿用了 Bun 的图标（一个小面包），和旁边的 `pier-desktop.exe` 不一致，文件属性里的公司和版本也是 Bun 的（Oven、1.4.2）。现在它和 `pier-desktop.exe` 一样显示 Pier 图标，文件说明和产品名称为「Pier Host」，公司为 Pier，文件版本与 Pier 版本一致。只需更新桌面端。
+
 - **「Skills 与 MCP」显示 Claude Code 插件**：此前选择 Claude Code 后只能看到 `~/.claude/skills` 和项目 `.claude/skills` 里的技能，以及配置文件里手写的 MCP 服务器；用 `/plugin` 或 `claude plugin install` 安装的插件，以及插件自带的技能和 MCP 服务器都不显示，看起来像是没有搜到。现在 Claude Code 多了「插件」页，列出已安装的插件，显示版本、安装范围、插件市场、作者、包含多少技能 / 命令 / Agent / MCP 服务器、是否有 Hooks 和安装目录，并能直接启用或停用（与 `claude plugin enable / disable` 写入同一处设置，修改后新建或重新打开 Claude Code 会话生效）；全局安装的插件总是显示，安装在项目 / 本地范围的插件在「查看范围」选中对应工作区时显示。已启用插件的技能以「插件名:技能名」出现在 Skills 里，可以查看和停用；插件的 MCP 服务器以 `plugin:插件名:服务器名` 出现在 MCP 里，标有「插件」，随插件启用或停用。插件的安装、更新与卸载仍在 Claude Code 中完成。同时修复：切换 Agent 或 Skills / MCP 页时，上一页的错误（例如 pi 页的「未找到 pi」）会一直留在新页面上，直到新列表读取完。桌面端和手机端都已更新；需要更新 Agent 所在电脑的 Host（协议 1.74），旧版 Host 不显示「插件」页。
 
 ## v0.3.13 — 2026-11-27

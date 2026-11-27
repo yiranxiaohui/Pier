@@ -52,7 +52,16 @@ rmSync(staging, { recursive: true, force: true });
 try {
 	execFileSync(
 		process.execPath,
-		[join(repoRoot, "packages/host/scripts/build-sidecar.mjs"), "--outdir", staging, "--target", bunTarget],
+		[
+			join(repoRoot, "packages/host/scripts/build-sidecar.mjs"),
+			"--outdir",
+			staging,
+			"--target",
+			bunTarget,
+			// Give the Windows sidecar the app's icon instead of Bun's.
+			"--windows-icon",
+			join(tauriDir, "icons/icon.ico"),
+		],
 		{ stdio: "inherit" },
 	);
 
