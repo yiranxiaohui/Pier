@@ -316,7 +316,7 @@ function SessionItem({
 				onClick={() => store.selectSession(session)}
 			>
 				<span
-					className="session-row-agent"
+					className={`session-row-agent${running ? " live" : ""}`}
 					role="img"
 					aria-label={agentRuntimeLabel(runtime)}
 					title={agentRuntimeLabel(runtime)}

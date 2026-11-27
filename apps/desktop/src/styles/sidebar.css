@@ -874,7 +874,14 @@ button.sidebar-update-action {
 	color: var(--text-faint);
 }
 
-/* In one color like the other icons: the marks' own colors would outshout the titles. */
-.session-row-agent .agent-icon path {
+/* Idle sessions show their mark in one color like the other icons: the marks' own colors would
+ * outshout the titles. A session that runs (or waits for the user) keeps its brand colors, so the
+ * busy ones stand out in the list. */
+.session-row-agent:not(.live) .agent-icon path {
 	fill: currentColor;
+}
+
+/* Marks without colors of their own (Codex, OpenCode, Hermes) take the full text color instead. */
+.session-row-agent.live {
+	color: var(--text);
 }
