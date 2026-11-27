@@ -1,17 +1,29 @@
 /* Agent studio (AgentStudio.tsx): every agent is a cat at a desk, animated by what it does. */
 
 .studio-page {
-	--studio-wall: #1e1c19;
-	--studio-floor: #25221e;
-	--studio-wood: #8a6a4d;
-	--studio-wood-dark: #6c523b;
-	--studio-laptop: #b9c0ca;
-	--studio-laptop-dark: #8b939f;
-	--studio-shadow: rgba(0, 0, 0, 0.32);
+	--studio-wall: #211f1c;
+	--studio-floor: #2c2822;
+	--studio-baseboard: rgba(255, 255, 255, 0.05);
+	/* The lamp's light on the wall behind each cat. */
+	--studio-lamp: #ffd9a6;
+	--studio-lamp-strength: 0.16;
+	/* Frames, shelves and sills: a tone above the wall. */
+	--studio-decor: #3a3530;
+	--studio-decor-ink: #524b43;
+	--studio-paper: #d6cebf;
+	--studio-wood: #9a7653;
+	--studio-wood-dark: #74583f;
+	--studio-wood-deep: #5a4330;
+	--studio-laptop: #b4bcc8;
+	--studio-laptop-hi: #d3d9e1;
+	--studio-laptop-dark: #858e9b;
+	--studio-shadow: rgba(0, 0, 0, 0.34);
 	--studio-cushion: #5f5280;
 	--studio-lounge: #1c1b18;
 	--studio-mug: #e98a6b;
-	--cat-ink: #2d2723;
+	--studio-screen: #1b1e2c;
+	--studio-glass: rgba(255, 255, 255, 0.5);
+	--cat-ink: #2a2320;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: minmax(0, 1fr) auto;
@@ -21,16 +33,26 @@
 }
 
 :root[data-theme="light"] .studio-page {
-	--studio-wall: #fcf8f1;
-	--studio-floor: #f3eadb;
-	--studio-wood: #d9b58b;
-	--studio-wood-dark: #c29a6c;
-	--studio-laptop: #c5ccd5;
-	--studio-laptop-dark: #a3acb8;
-	--studio-shadow: rgba(90, 60, 30, 0.13);
+	--studio-wall: #fdf8ef;
+	--studio-floor: #f1e6d4;
+	--studio-baseboard: rgba(120, 90, 50, 0.1);
+	--studio-lamp: #ffc987;
+	--studio-lamp-strength: 0.28;
+	--studio-decor: #efe3cf;
+	--studio-decor-ink: #d8c7a9;
+	--studio-paper: #fffdf8;
+	--studio-wood: #dfbd93;
+	--studio-wood-dark: #c79f72;
+	--studio-wood-deep: #ad8556;
+	--studio-laptop: #c3cad4;
+	--studio-laptop-hi: #e3e7ed;
+	--studio-laptop-dark: #9fa8b5;
+	--studio-shadow: rgba(90, 60, 30, 0.14);
 	--studio-cushion: #cbbbec;
 	--studio-lounge: #faf6ef;
 	--studio-mug: #ef8f70;
+	--studio-screen: #262a3c;
+	--studio-glass: rgba(120, 150, 175, 0.6);
 }
 
 .studio-page > .statusbar {
@@ -120,59 +142,77 @@
 
 .studio-floor {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(244px, 1fr));
 	gap: 16px;
 }
 
-/* Agent colours: a soft fur for each runtime, with its badge colour for the laptop's light. */
+/*
+ * A cat's colours. Every runtime has a fur (`--cat-base`) and a light (`--cat-glow`); a tint shifts
+ * the fur a little, so a team of one agent is not all one colour. The outline, the markings and the
+ * shading derive from the fur in OKLCH, which keeps its hue as they darken or lighten.
+ */
 .studio-desk,
 .studio-spot {
-	--cat-fur: #d6cfc4;
+	--cat-base: #d6cfc4;
 	--cat-glow: #8a867f;
-	/* Derived from the fur on the element itself, so the runtime classes below recolour them. */
-	/* Mixed in OKLCH, which keeps the fur's hue as they darken or lighten. */
+	--cat-fur: var(--cat-base);
 	--cat-line: color-mix(in oklch, var(--cat-fur) 50%, #121218);
-	--cat-dark: color-mix(in oklch, var(--cat-fur) 74%, #24243c);
-	--cat-light: color-mix(in oklch, var(--cat-fur) 26%, #fffaf3);
+	--cat-dark: color-mix(in oklch, var(--cat-fur) 72%, #24243c);
+	--cat-light: color-mix(in oklch, var(--cat-fur) 24%, #fffaf3);
+	--cat-fur-hi: color-mix(in oklch, var(--cat-fur) 60%, #ffffff);
+	--cat-fur-lo: color-mix(in oklch, var(--cat-fur) 88%, #3a2f6b);
+	--studio-rug: color-mix(in oklch, var(--cat-glow) 30%, var(--studio-floor));
+	/* How far the cat turns to the pointer: less while it is busy. */
+	--gaze-amt: 1;
 }
 
 .runtime-pi {
-	--cat-fur: #7fd8cc;
+	--cat-base: #7fd8cc;
 	--cat-glow: #0d9488;
 }
 
 .runtime-claude-code {
-	--cat-fur: #f6aa84;
+	--cat-base: #f6aa84;
 	--cat-glow: #c96442;
 }
 
 .runtime-codex {
-	--cat-fur: #9fc0f8;
+	--cat-base: #9fc0f8;
 	--cat-glow: #3b82f6;
 }
 
 .runtime-opencode {
-	--cat-fur: #f5c86f;
+	--cat-base: #f5c86f;
 	--cat-glow: #d28e05;
 }
 
 .runtime-hermes {
-	--cat-fur: #f5a6c6;
+	--cat-base: #f5a6c6;
 	--cat-glow: #e24d8b;
+}
+
+/* Mixed with white and grey, which have no hue of their own, so the agent's colour stays its own. */
+.tint-milk {
+	--cat-fur: color-mix(in oklch, var(--cat-base) 62%, #ffffff);
+}
+
+.tint-dusk {
+	--cat-fur: color-mix(in oklch, var(--cat-base) 84%, #454545);
 }
 
 .studio-desk {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	align-items: center;
+	align-items: stretch;
 	justify-content: flex-start;
-	gap: 4px;
+	gap: 0;
 	min-width: 0;
-	padding: 14px 14px 16px;
+	padding: 0;
+	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 18px;
-	background: linear-gradient(180deg, var(--studio-wall) 0, var(--studio-wall) 62%, var(--studio-floor) 62%);
+	border-radius: 20px;
+	background: var(--studio-floor);
 	box-shadow: var(--highlight);
 	text-align: center;
 	white-space: normal;
@@ -180,18 +220,23 @@
 		transform 0.18s ease,
 		box-shadow 0.18s ease,
 		border-color 0.18s ease;
+	animation: studio-card-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+	animation-delay: var(--enter-delay, 0ms);
 }
 
 .studio-floor .studio-desk:hover {
-	background: linear-gradient(180deg, var(--studio-wall) 0, var(--studio-wall) 62%, var(--studio-floor) 62%);
+	background: var(--studio-floor);
 	border-color: var(--border-strong);
 	box-shadow: var(--shadow-md);
-	transform: translateY(-2px);
+	transform: translateY(-3px);
 }
 
 .studio-desk.mood-waiting {
 	border-color: var(--warning-line);
-	animation: studio-ring 1.6s ease-in-out infinite;
+	animation:
+		studio-card-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) both,
+		studio-ring 1.6s ease-in-out infinite;
+	animation-delay: var(--enter-delay, 0ms), 0s;
 }
 
 .studio-desk.mood-done {
@@ -202,6 +247,16 @@
 	border-color: var(--danger-line);
 }
 
+/* The wall: the speech bubble hangs on it, above the scene. */
+.studio-room {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	padding-top: 12px;
+	background: var(--studio-wall);
+}
+
 /* The speech bubble: what the cat does, popping up whenever that changes. */
 .studio-bubble {
 	position: relative;
@@ -209,7 +264,7 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	max-width: 100%;
+	max-width: calc(100% - 24px);
 	min-width: 0;
 	min-height: 30px;
 	padding: 5px 12px;
@@ -271,8 +326,7 @@
 	position: relative;
 	display: block;
 	width: 100%;
-	max-width: 232px;
-	aspect-ratio: 200 / 150;
+	aspect-ratio: 240 / 174;
 }
 
 .studio-cat {
@@ -282,11 +336,20 @@
 	overflow: visible;
 }
 
+/* The floor: the scene's floor band runs on under the names. */
+.studio-info {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	min-width: 0;
+	padding: 6px 14px 14px;
+}
+
 .studio-plate {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	margin-top: 2px;
 }
 
 .studio-nick {
@@ -319,14 +382,140 @@
 	font-size: 11.5px;
 }
 
-/* ---- the cat ---------------------------------------------------------------------------- */
+/* ---- paint: gradients ------------------------------------------------------------------- */
 
-/* A sticker look: soft fur, a darker outline of the same hue, a pale muzzle. */
-.cat-fill {
-	fill: var(--cat-fur);
+.fur-hi {
+	stop-color: var(--cat-fur-hi);
+}
+
+.fur-mid {
+	stop-color: var(--cat-fur);
+}
+
+.fur-lo {
+	stop-color: var(--cat-fur-lo);
+}
+
+.blush-core {
+	stop-color: #ff7f9a;
+	stop-opacity: 0.62;
+}
+
+.blush-edge {
+	stop-color: #ff7f9a;
+	stop-opacity: 0;
+}
+
+/* Eyes like gems: dark at the top, the cat's eye colour glowing at the bottom. */
+.iris-top {
+	stop-color: #231b18;
+}
+
+.iris-mid {
+	stop-color: color-mix(in srgb, var(--cat-iris, #ffb43a) 58%, #231b18);
+}
+
+.iris-bottom {
+	stop-color: var(--cat-iris, #ffb43a);
+}
+
+.ear-top {
+	stop-color: #ffb9c8;
+}
+
+.ear-bottom {
+	stop-color: #ff8ea8;
+}
+
+.mask-core {
+	stop-color: var(--cat-dark);
+	stop-opacity: 0.72;
+}
+
+.mask-edge {
+	stop-color: var(--cat-dark);
+	stop-opacity: 0;
+}
+
+.glow-core {
+	stop-color: var(--studio-lamp);
+	stop-opacity: var(--studio-lamp-strength);
+}
+
+.glow-edge {
+	stop-color: var(--studio-lamp);
+	stop-opacity: 0;
+}
+
+.screen-core {
+	stop-color: var(--cat-glow);
+	stop-opacity: 0.5;
+}
+
+.screen-edge {
+	stop-color: var(--cat-glow);
+	stop-opacity: 0;
+}
+
+.wood-top {
+	stop-color: var(--studio-wood);
+}
+
+.wood-bottom {
+	stop-color: var(--studio-wood-dark);
+}
+
+.lid-top {
+	stop-color: var(--studio-laptop-hi);
+}
+
+.lid-bottom {
+	stop-color: var(--studio-laptop);
+}
+
+.sky-day .sky-top {
+	stop-color: #74c0ff;
+}
+
+.sky-day .sky-bottom {
+	stop-color: #d9f2ff;
+}
+
+.sky-dawn .sky-top {
+	stop-color: #8fb1ff;
+}
+
+.sky-dawn .sky-bottom {
+	stop-color: #ffd3c0;
+}
+
+.sky-dusk .sky-top {
+	stop-color: #6a63c9;
+}
+
+.sky-dusk .sky-bottom {
+	stop-color: #ffac78;
+}
+
+.sky-night .sky-top {
+	stop-color: #131938;
+}
+
+.sky-night .sky-bottom {
+	stop-color: #37428c;
+}
+
+/* ---- paint: the cat --------------------------------------------------------------------- */
+
+/* A sticker look: soft shaded fur, an outline of the same hue, a pale muzzle. */
+.cat-furry {
 	stroke: var(--cat-line);
 	stroke-width: 2.2;
 	stroke-linejoin: round;
+}
+
+.cat-flat {
+	fill: var(--cat-fur);
 }
 
 .cat-light-fill {
@@ -335,9 +524,15 @@
 
 .cat-dark-fill {
 	fill: var(--cat-dark);
+	opacity: 0.92;
 }
 
-.coat-patch .cat-ear.right {
+.coat-points .cat-ear-shell,
+.coat-points .cat-paw-pad {
+	fill: var(--cat-dark);
+}
+
+.coat-patch .cat-ear.right .cat-ear-shell {
 	fill: var(--cat-dark);
 }
 
@@ -345,22 +540,26 @@
 	fill: var(--cat-light);
 }
 
-.cat-ear-inner {
-	fill: color-mix(in srgb, #ff9db2 72%, var(--cat-fur));
+.cat-ear-fluff {
+	fill: none;
+	stroke: var(--cat-light);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	opacity: 0.9;
 }
 
 .cat-muzzle {
 	fill: var(--cat-light);
 }
 
-.cat-shine-soft {
+.cat-gloss {
 	fill: #fff;
-	opacity: 0.32;
+	opacity: 0.22;
 }
 
 .cat-shade {
 	fill: var(--cat-line);
-	opacity: 0.13;
+	opacity: 0.12;
 }
 
 .cat-stripes {
@@ -368,16 +567,6 @@
 	stroke: var(--cat-dark);
 	stroke-width: 2.6;
 	stroke-linecap: round;
-}
-
-.cat-blush-core {
-	stop-color: #ff7f9a;
-	stop-opacity: 0.6;
-}
-
-.cat-blush-edge {
-	stop-color: #ff7f9a;
-	stop-opacity: 0;
 }
 
 .cat-cheek-mini {
@@ -388,12 +577,18 @@
 .cat-whisker {
 	fill: none;
 	stroke: var(--cat-line);
-	stroke-width: 1.3;
+	stroke-width: 1.2;
 	stroke-linecap: round;
-	opacity: 0.55;
+	opacity: 0.6;
 }
 
-.cat-tail-line,
+.cat-brow {
+	fill: none;
+	stroke: var(--cat-line);
+	stroke-width: 2.3;
+	stroke-linecap: round;
+}
+
 .cat-limb-line {
 	fill: none;
 	stroke: var(--cat-line);
@@ -401,7 +596,6 @@
 	stroke-linecap: round;
 }
 
-.cat-tail-fur,
 .cat-limb-fur {
 	fill: none;
 	stroke: var(--cat-fur);
@@ -413,7 +607,21 @@
 	fill: none;
 	stroke: var(--cat-dark);
 	stroke-width: 8;
-	stroke-dasharray: 3.5 6.5;
+	stroke-dasharray: 3.4 7;
+}
+
+/* The last third of the tail (its path length is set to 100). */
+.cat-tail-tip {
+	fill: none;
+	stroke: var(--cat-dark);
+	stroke-width: 8;
+	stroke-linecap: round;
+	stroke-dasharray: 30 70;
+	stroke-dashoffset: 30;
+}
+
+.coat-tuxedo .cat-tail-tip {
+	stroke: var(--cat-light);
 }
 
 .cat-toe {
@@ -423,15 +631,23 @@
 	stroke-linecap: round;
 }
 
-.cat-ink {
+.cat-bean {
+	fill: #ff9db4;
+}
+
+.eye-base {
 	fill: var(--cat-ink);
 }
 
-.cat-shine {
+.eye-pupil {
+	fill: #130f0d;
+}
+
+.eye-shine {
 	fill: #fff;
 }
 
-.cat-line {
+.cat-ink-line {
 	fill: none;
 	stroke: var(--cat-ink);
 	stroke-width: 1.7;
@@ -439,16 +655,16 @@
 	stroke-linejoin: round;
 }
 
-.cat-line.thick {
-	stroke-width: 2.6;
+.cat-ink-line.thick {
+	stroke-width: 2.7;
 }
 
-.cat-line.thin {
+.cat-ink-line.thin {
 	stroke-width: 1;
 }
 
 .cat-nose {
-	fill: #ef7f95;
+	fill: #f0859b;
 }
 
 .cat-mouth-open {
@@ -462,6 +678,8 @@
 	fill: #ff9fb0;
 }
 
+/* accessories */
+
 .acc-stem {
 	fill: none;
 	stroke: #4f9d52;
@@ -470,7 +688,7 @@
 }
 
 .acc-leaf {
-	fill: #6cc070;
+	fill: #72c676;
 	stroke: #4f9d52;
 	stroke-width: 1;
 	stroke-linejoin: round;
@@ -478,9 +696,16 @@
 
 .acc-bow {
 	fill: #ff6f91;
-	stroke: #e2557a;
-	stroke-width: 1.6;
+	stroke: #d94d74;
+	stroke-width: 1.4;
 	stroke-linejoin: round;
+}
+
+.acc-bow-tail {
+	fill: none;
+	stroke: #f0607f;
+	stroke-width: 3.2;
+	stroke-linecap: round;
 }
 
 .acc-bow-knot {
@@ -490,14 +715,27 @@
 .acc-band {
 	fill: none;
 	stroke: #3d3a46;
-	stroke-width: 4;
+	stroke-width: 4.4;
 	stroke-linecap: round;
 }
 
 .acc-cup {
 	fill: #4c4958;
-	stroke: #3d3a46;
+	stroke: #33303b;
 	stroke-width: 1.4;
+}
+
+.acc-cup-shine {
+	fill: none;
+	stroke: #7c7890;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+}
+
+.acc-lens {
+	fill: rgba(255, 255, 255, 0.14);
+	stroke: #3a3530;
+	stroke-width: 2.2;
 }
 
 .acc-frame {
@@ -505,6 +743,14 @@
 	stroke: #3a3530;
 	stroke-width: 2.2;
 	stroke-linecap: round;
+}
+
+.acc-glint {
+	fill: none;
+	stroke: #fff;
+	stroke-width: 1.4;
+	stroke-linecap: round;
+	opacity: 0.8;
 }
 
 .acc-petal {
@@ -519,14 +765,21 @@
 
 .acc-cap {
 	fill: #5b8def;
-	stroke: #4570c8;
+	stroke: #3f68c0;
 	stroke-width: 1.4;
 	stroke-linejoin: round;
 }
 
+.acc-cap-seam {
+	fill: none;
+	stroke: #3f68c0;
+	stroke-width: 1;
+	opacity: 0.7;
+}
+
 .acc-brim {
 	fill: #4a78d4;
-	stroke: #3d63b3;
+	stroke: #3a5fae;
 	stroke-width: 1.2;
 	stroke-linejoin: round;
 }
@@ -535,49 +788,249 @@
 	fill: #f5f5f5;
 }
 
-/* furniture */
+/* things the cat holds */
+
+.lens-handle {
+	fill: none;
+	stroke: #8a5a3c;
+	stroke-width: 4.6;
+	stroke-linecap: round;
+}
+
+.lens-glass {
+	fill: rgba(205, 236, 255, 0.5);
+}
+
+.lens-ring {
+	fill: none;
+	stroke: #e0a93b;
+	stroke-width: 2.8;
+}
+
+.lens-glint {
+	fill: none;
+	stroke: #fff;
+	stroke-width: 1.7;
+	stroke-linecap: round;
+	opacity: 0.9;
+}
+
+.paper-page {
+	fill: var(--studio-paper);
+	stroke: color-mix(in srgb, var(--studio-paper) 70%, #6b5a40);
+	stroke-width: 1.2;
+}
+
+.paper-lines {
+	fill: none;
+	stroke: color-mix(in srgb, var(--studio-paper) 55%, #6b6253);
+	stroke-width: 1.7;
+	stroke-linecap: round;
+}
+
+.paper-scan {
+	fill: color-mix(in srgb, var(--cat-glow) 38%, transparent);
+	animation: studio-scan 2.5s steps(5, jump-none) infinite;
+}
+
+/* ---- paint: the room -------------------------------------------------------------------- */
+
+.studio-floor-band {
+	fill: var(--studio-floor);
+}
+
+.studio-baseboard {
+	fill: var(--studio-baseboard);
+}
+
+.studio-rug {
+	fill: var(--studio-rug);
+}
+
+.studio-rug-ring {
+	fill: none;
+	stroke: color-mix(in oklch, var(--cat-glow) 55%, var(--studio-floor));
+	stroke-width: 1.2;
+	stroke-dasharray: 3 3;
+	opacity: 0.75;
+}
 
 .studio-shadow {
 	fill: var(--studio-shadow);
 }
 
-.studio-cushion {
-	fill: var(--studio-cushion);
-	stroke: color-mix(in srgb, var(--studio-cushion) 70%, #000);
-	stroke-width: 1.6;
+.decor-frame {
+	fill: var(--studio-decor);
+	stroke: var(--studio-decor-ink);
+	stroke-width: 1;
+	stroke-linejoin: round;
 }
 
-.studio-cushion-shine {
+.decor-bars {
+	fill: none;
+	stroke: var(--studio-decor);
+	stroke-width: 2.4;
+}
+
+.sky-moon {
+	fill: #ffe9a8;
+}
+
+.sky-moon-bite {
+	fill: #18204a;
+}
+
+.sky-star {
 	fill: #fff;
-	opacity: 0.14;
+	animation: studio-twinkle 2.6s ease-in-out infinite;
 }
 
-.studio-desk-top {
-	fill: var(--studio-wood);
+.sky-sun {
+	fill: #ffe27a;
+}
+
+.sky-sun-halo {
+	fill: #ffe27a;
+	opacity: 0.32;
+}
+
+.sky-dusk .sky-sun,
+.sky-dusk .sky-sun-halo {
+	fill: #ff8358;
+}
+
+.sky-dawn .sky-sun,
+.sky-dawn .sky-sun-halo {
+	fill: #ffd27a;
+}
+
+.sky-cloud {
+	fill: #fff;
+	opacity: 0.92;
+	animation: studio-drift 28s linear infinite;
+}
+
+.sky-cloud.far {
+	opacity: 0.7;
+	animation-duration: 44s;
+	animation-delay: -18s;
+}
+
+.sky-dusk .sky-cloud {
+	fill: #ffd2c4;
+}
+
+.clock-face {
+	fill: var(--studio-paper);
+}
+
+.clock-ticks {
+	fill: none;
+	stroke: var(--studio-decor-ink);
+	stroke-width: 1.3;
+	stroke-linecap: round;
+}
+
+.clock-hand {
+	fill: none;
+	stroke: var(--cat-ink);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+}
+
+.clock-hand.hour {
+	stroke-width: 2.2;
+}
+
+.clock-pin {
+	fill: var(--cat-glow);
+}
+
+.poster-paper {
+	fill: var(--studio-paper);
+	stroke: var(--studio-decor-ink);
+	stroke-width: 1;
+}
+
+.poster-ink {
+	fill: color-mix(in oklch, var(--cat-glow) 62%, var(--studio-paper));
+}
+
+.poster-line {
+	fill: none;
+	stroke: color-mix(in srgb, var(--studio-paper) 60%, #6b6253);
+	stroke-width: 1.7;
+	stroke-linecap: round;
+}
+
+.poster-pin {
+	fill: #ff6b6b;
+}
+
+.shelf-book.b0 {
+	fill: #df8b7c;
+}
+
+.shelf-book.b1 {
+	fill: #7fb0e0;
+}
+
+.shelf-book.b2 {
+	fill: #ecc270;
+}
+
+.shelf-book.b3 {
+	fill: #98c98c;
+}
+
+.shelf-cactus {
+	fill: #6cbf73;
+	stroke: #4c9a54;
+	stroke-width: 1;
+}
+
+.shelf-flower {
+	fill: #ff8fb0;
+}
+
+.shelf-pot {
+	fill: #d98b62;
+}
+
+/* furniture */
+
+.studio-screen-glow {
+	opacity: 0;
 }
 
 .studio-desk-shine {
 	fill: #fff;
-	opacity: 0.2;
+	opacity: 0.22;
 }
 
 .studio-desk-front {
 	fill: var(--studio-wood-dark);
 }
 
-.studio-desk-handle {
-	fill: color-mix(in srgb, var(--studio-wood-dark) 65%, #000);
+.studio-desk-drawer {
+	fill: none;
+	stroke: var(--studio-wood-deep);
+	stroke-width: 1.2;
+	opacity: 0.8;
+}
+
+.studio-desk-knob {
+	fill: var(--studio-wood-deep);
 }
 
 .studio-laptop {
-	fill: var(--studio-laptop);
 	stroke: var(--studio-laptop-dark);
 	stroke-width: 1.2;
 }
 
 .studio-laptop-shine {
 	fill: #fff;
-	opacity: 0.4;
+	opacity: 0.5;
 }
 
 .studio-laptop-base {
@@ -593,11 +1046,6 @@
 .studio-laptop-mark {
 	color: #33363c;
 	opacity: 0.9;
-}
-
-.studio-screen-glow {
-	fill: var(--cat-glow);
-	opacity: 0;
 }
 
 .studio-mug {
@@ -647,341 +1095,306 @@
 	fill: #c4744d;
 }
 
-.cat-wave {
-	display: none;
+.duck-body {
+	fill: #ffd24d;
+	stroke: #dba62c;
+	stroke-width: 1.1;
+	stroke-linejoin: round;
 }
 
-/* ---- idle motion every cat has (offset per cat by --cat-phase) -------------------------- */
-
-.cat-body {
-	transform-origin: 100px 120px;
-	animation: studio-breathe 3.2s ease-in-out infinite;
-	animation-delay: var(--cat-phase, 0s);
+.duck-beak {
+	fill: #ff8f3a;
 }
 
-.cat-eye {
+.duck-eye {
+	fill: var(--cat-ink);
+}
+
+.duck-wing {
+	fill: none;
+	stroke: #dba62c;
+	stroke-width: 1.2;
+	stroke-linecap: round;
+}
+
+.studio-duck {
+	transform-origin: 40px 118px;
+	animation: studio-plant 3s ease-in-out infinite alternate;
+}
+
+/* ---- the little screen beside the cat ----------------------------------------------------- */
+
+.screen-beam {
+	fill: var(--cat-glow);
+	opacity: 0.14;
+}
+
+.screen-float {
+	animation: studio-hover 3.2s ease-in-out infinite;
+}
+
+.studio-screen {
 	transform-box: fill-box;
-	transform-origin: center;
-	animation: studio-blink 4.8s infinite;
-	animation-delay: var(--cat-phase, 0s);
+	transform-origin: 100% 100%;
+	animation: studio-screen-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.cat-tail {
-	transform-origin: 128px 115px;
-	animation: studio-tail 2.6s ease-in-out infinite alternate;
-	animation-delay: var(--cat-phase, 0s);
+.screen-frame {
+	fill: var(--studio-screen);
+	stroke: color-mix(in srgb, var(--cat-glow) 70%, transparent);
+	stroke-width: 1.2;
 }
 
-.seat-cushion .cat-tail {
-	transform-origin: 128px 124px;
-	animation-duration: 4s;
+.screen-light.red {
+	fill: #ff6b6b;
 }
 
-/* ---- what each mood does ---------------------------------------------------------------- */
-
-/* Busy at the keyboard: paws tap and the screen light flickers. */
-.mood-writing .cat-paw,
-.mood-editing .cat-paw,
-.mood-command .cat-paw,
-.mood-tool .cat-paw,
-.mood-browsing .cat-paw {
-	animation: studio-tap 0.32s ease-in-out infinite;
+.screen-light.yellow {
+	fill: #ffc94d;
 }
 
-.mood-writing .cat-paw.right,
-.mood-editing .cat-paw.right,
-.mood-command .cat-paw.right,
-.mood-tool .cat-paw.right,
-.mood-browsing .cat-paw.right {
-	animation-delay: 0.16s;
+.screen-light.green {
+	fill: #4cd787;
 }
 
-.mood-browsing .cat-paw {
-	animation-duration: 0.7s;
+.screen-token.kw {
+	fill: #c792ea;
 }
 
-.mood-browsing .cat-paw.right {
-	animation-delay: 0.35s;
+.screen-token.fn {
+	fill: #82aaff;
 }
 
-.mood-writing .studio-screen-glow,
-.mood-editing .studio-screen-glow,
-.mood-command .studio-screen-glow,
-.mood-tool .studio-screen-glow,
-.mood-browsing .studio-screen-glow,
-.mood-reading .studio-screen-glow,
-.mood-searching .studio-screen-glow,
-.mood-working .studio-screen-glow {
-	animation: studio-glow 1.4s ease-in-out infinite;
+.screen-token.str {
+	fill: #c3e88d;
 }
 
-.studio-desk:not(.mood-resting, .mood-error) .studio-laptop-mark {
-	animation: studio-logo 1.8s ease-in-out infinite;
+.screen-token.num {
+	fill: #f78c6c;
 }
 
-/* Reading: the eyes run along the lines. */
-.mood-reading .cat-eyes {
-	animation: studio-read 2.4s linear infinite;
+.screen-token.txt {
+	fill: #d6deeb;
 }
 
-/* Searching: the eyes dart about and the head tilts. */
-.mood-searching .cat-eyes {
-	animation: studio-dart 0.9s ease-in-out infinite alternate;
+.screen-token.dim {
+	fill: #6f7a94;
 }
 
-.mood-searching .cat-body {
-	animation: studio-tilt 1.8s ease-in-out infinite alternate;
+.screen-added {
+	fill: none;
+	stroke: #4cd787;
+	stroke-width: 1.6;
+	stroke-linecap: round;
 }
 
-/* Thinking: eyes up, swaying. */
-.mood-thinking .cat-eyes {
-	transform: translate(2px, -3px);
+.screen-prompt {
+	fill: none;
+	stroke: #4cd787;
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 }
 
-.mood-thinking .cat-body {
-	animation: studio-sway 3s ease-in-out infinite;
+.screen-stroke {
+	fill: none;
+	stroke: #82aaff;
+	stroke-width: 1.3;
+	stroke-linecap: round;
+	stroke-linejoin: round;
 }
 
-/* Delegating: looking at its helpers, bouncing along. */
-.mood-delegating .cat-eyes {
-	transform: translateX(-3.5px);
+.screen-stroke.thick {
+	stroke-width: 2.2;
 }
 
-.mood-delegating .cat-body {
-	animation: studio-bob 0.9s ease-in-out infinite;
+/* Eight teeth: the dashes of a thick ring. */
+.screen-gear {
+	fill: none;
+	stroke: #f78c6c;
+	stroke-width: 4.4;
+	stroke-dasharray: 3.3 2.51;
 }
 
-/* Waiting for the user: hopping and waving. */
-.mood-waiting .cat-body {
-	animation: studio-hop 0.8s ease-in-out infinite;
-}
-
-.mood-waiting .cat-paw.right {
-	display: none;
-}
-
-.mood-waiting .cat-wave {
-	display: inline;
-	transform-origin: 126px 104px;
-	animation: studio-wave 0.5s ease-in-out infinite alternate;
-}
-
-.mood-compacting .cat-body {
-	animation: studio-squash 0.8s ease-in-out infinite alternate;
-}
-
-.mood-retrying .cat-body {
-	animation: studio-wobble 0.5s ease-in-out infinite alternate;
-}
-
-.mood-working .cat-body {
-	animation: studio-bob 1.2s ease-in-out infinite;
-}
-
-.mood-resting .cat-body {
-	animation: studio-breathe-deep 4.5s ease-in-out infinite;
-	animation-delay: var(--cat-phase, 0s);
-}
-
-.mood-resting .cat-tail {
-	animation-duration: 4.5s;
-}
-
-.mood-error .cat-body {
-	animation: none;
-	transform: translateY(3px) scale(0.98);
-}
-
-.mood-error .cat-tail {
-	animation: none;
-	transform: rotate(18deg);
-}
-
-.mood-done .cat-body {
-	animation: studio-jump 0.65s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
-}
-
-.mood-done .cat-tail {
-	animation-duration: 0.35s;
-}
-
-/* ---- floating extras -------------------------------------------------------------------- */
-
-.studio-floaters {
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-}
-
-.studio-floater {
-	--dx: 0px;
-	position: absolute;
-	left: 50%;
-	top: 54%;
-	display: inline-flex;
-	align-items: center;
-	padding: 1px 5px;
-	border: 1px solid color-mix(in srgb, var(--cat-glow) 45%, transparent);
-	border-radius: 6px;
-	background: var(--bg-raised);
-	box-shadow: var(--shadow-sm);
-	color: color-mix(in srgb, var(--cat-glow) 70%, var(--text));
-	font-family: var(--mono);
-	font-size: 11px;
-	font-weight: 700;
-	line-height: 15px;
-	opacity: 0;
-	animation: studio-float 2.4s ease-out infinite;
-}
-
-/* They rise beside the cat, clear of its face. */
-.studio-floater.f0 {
-	left: 22%;
-	--dx: -12px;
-}
-
-.studio-floater.f1 {
-	left: 78%;
-	--dx: 12px;
-	animation-delay: 0.8s;
-}
-
-.studio-floater.f2 {
-	left: 28%;
-	--dx: -26px;
-	animation-delay: 1.6s;
-}
-
-/* Sleep's z's float bare, without the chip. */
-.mood-resting .studio-floater {
-	left: 62%;
-	top: 34%;
-	padding: 0;
-	border: none;
-	background: none;
-	box-shadow: none;
-	color: var(--text-muted);
-	animation-duration: 3.6s;
-}
-
-.mood-resting .studio-floater.f0 {
-	--dx: 10px;
-}
-
-.mood-resting .studio-floater.f1 {
-	--dx: 24px;
-	font-size: 15px;
-	animation-delay: 1.2s;
-}
-
-.mood-resting .studio-floater.f2 {
-	--dx: 36px;
-	animation-delay: 2.4s;
-}
-
-.studio-thought {
-	position: absolute;
-	left: 68%;
-	top: 2%;
-	pointer-events: none;
-}
-
-.studio-thought-trail::before,
-.studio-thought-trail::after {
-	content: "";
-	position: absolute;
-	border: 1px solid var(--border-strong);
-	border-radius: 50%;
-	background: var(--bg-raised);
-}
-
-.studio-thought-trail::before {
-	left: -8px;
-	top: 34px;
-	width: 6px;
-	height: 6px;
-}
-
-.studio-thought-trail::after {
-	left: -2px;
-	top: 24px;
-	width: 9px;
-	height: 9px;
-}
-
-.studio-thought-cloud {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	padding: 6px 9px;
-	border: 1px solid var(--border-strong);
-	border-radius: 999px;
-	background: var(--bg-raised);
-	box-shadow: var(--shadow-sm);
-}
-
-.studio-thought-cloud i {
-	width: 5px;
-	height: 5px;
-	border-radius: 50%;
-	background: var(--cat-glow);
+.screen-dot-big {
+	fill: #82aaff;
 	animation: studio-dot 1.2s ease-in-out infinite;
 }
 
-.studio-thought-cloud i:nth-child(2) {
+.screen-dot-big:nth-of-type(2) {
 	animation-delay: 0.2s;
 }
 
-.studio-thought-cloud i:nth-child(3) {
+.screen-dot-big:nth-of-type(3) {
 	animation-delay: 0.4s;
 }
 
-.studio-alert {
-	position: absolute;
-	left: 70%;
-	top: 0;
-	display: grid;
-	place-items: center;
-	width: 22px;
-	height: 22px;
-	border-radius: 50%;
-	background: var(--warning);
-	color: #1c1b19;
-	font-size: 14px;
-	font-weight: 800;
-	box-shadow: 0 0 0 4px var(--warning-soft);
+/* Lines type themselves in, one after another, then the screen clears. */
+.screen-line {
+	transform-box: fill-box;
+	transform-origin: 0 50%;
+	animation: studio-type 3.6s linear infinite both;
+}
+
+.screen-cursor {
+	fill: #fff;
+	animation: studio-cursor 1s steps(2, jump-none) infinite;
+}
+
+.screen-cursor.block {
+	fill: #4cd787;
+}
+
+.screen-output {
+	animation: studio-output 3.2s steps(1, end) infinite;
+}
+
+.screen-meridian {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: studio-meridian 2.4s linear infinite;
+}
+
+.screen-spin {
+	animation: spin 3.2s linear infinite;
+}
+
+.screen-layer.top {
+	animation: studio-squeeze-down 0.9s ease-in-out infinite alternate;
+}
+
+.screen-layer.bottom {
+	animation: studio-squeeze-up 0.9s ease-in-out infinite alternate;
+}
+
+/* ---- things in the air -------------------------------------------------------------------- */
+
+.thought-rim {
+	fill: var(--bg-raised);
+	stroke: color-mix(in srgb, var(--text) 30%, transparent);
+	stroke-width: 2;
+}
+
+.thought-fill {
+	fill: var(--bg-raised);
+}
+
+.thought-puff {
+	fill: var(--bg-raised);
+	stroke: color-mix(in srgb, var(--text) 30%, transparent);
+	stroke-width: 1;
+	animation: studio-puff 1.8s ease-in-out infinite;
+}
+
+.thought-puff:nth-of-type(2) {
+	animation-delay: 0.3s;
+}
+
+.thought-cloud {
+	animation: studio-hover 3.4s ease-in-out infinite;
+}
+
+.thought-dot {
+	fill: var(--cat-glow);
+	animation: studio-dot 1.2s ease-in-out infinite;
+}
+
+.thought-dot:nth-of-type(7) {
+	animation-delay: 0.2s;
+}
+
+.thought-dot:nth-of-type(8) {
+	animation-delay: 0.4s;
+}
+
+.studio-alert-mark {
 	animation: studio-hop 0.8s ease-in-out infinite;
 }
 
-.studio-sweat {
-	position: absolute;
-	left: 64%;
-	top: 26%;
-	width: 9px;
-	height: 9px;
-	border-radius: 0 50% 50% 50%;
-	background: #8cc8ff;
-	transform: rotate(45deg);
+.alert-halo {
+	fill: var(--warning-soft);
+}
+
+.alert-disc {
+	fill: var(--warning);
+}
+
+.alert-bang {
+	fill: none;
+	stroke: #1c1b19;
+	stroke-width: 2.8;
+	stroke-linecap: round;
+}
+
+.alert-bang-dot {
+	fill: #1c1b19;
+}
+
+.gloom-cloud {
+	fill: #8b93a1;
+	stroke: #6b7280;
+	stroke-width: 1.2;
+	stroke-linejoin: round;
+}
+
+.gloom-rain {
+	fill: none;
+	stroke: #7fb4ff;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	animation: studio-rain 0.9s linear infinite;
+}
+
+.studio-gloom {
+	animation: studio-hover 4s ease-in-out infinite;
+}
+
+.studio-sweat-drop {
+	fill: #8cc8ff;
 	animation: studio-sweat 1.8s ease-in infinite;
 }
 
-.studio-confetti {
-	position: absolute;
-	left: 50%;
-	top: 18%;
-	pointer-events: none;
-}
-
-.studio-confetti i {
-	position: absolute;
-	width: 6px;
-	height: 10px;
-	border-radius: 2px;
-	background: var(--c);
+.confetti {
+	transform-box: fill-box;
+	transform-origin: center;
 	opacity: 0;
-	animation: studio-confetti 1.4s ease-in infinite;
+	animation: studio-confetti 1.5s ease-in infinite;
 }
 
+.confetti.tone-a {
+	fill: #ff8fa3;
+}
+
+.confetti.tone-b {
+	fill: #ffd36e;
+}
+
+.confetti.tone-c {
+	fill: #7fd8cc;
+}
+
+.confetti.tone-d {
+	fill: #93b8f7;
+}
+
+.confetti.tone-e {
+	fill: #c79bf5;
+}
+
+.sparkle {
+	fill: #ffd76a;
+	animation: studio-sparkle 1.1s ease-in-out infinite;
+}
+
+.key-sparks {
+	fill: none;
+	stroke: var(--cat-glow);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	animation: studio-keys 0.42s steps(2, jump-none) infinite;
+}
+
+/* Subagents: kittens on the floor at the ends of the desk. */
 .studio-helpers {
 	position: absolute;
 	inset: 0;
@@ -996,26 +1409,26 @@
 }
 
 .studio-helper.h0 {
-	left: 0;
-	top: 44%;
+	left: 2%;
+	bottom: 3%;
 }
 
 .studio-helper.h1 {
-	right: 0;
-	top: 6%;
+	right: 2%;
+	bottom: 3%;
 	animation-delay: 0.2s;
 }
 
 .studio-helper.h2 {
-	left: 3%;
-	top: 10%;
+	left: 10%;
+	bottom: 12%;
 	animation-delay: 0.4s;
 }
 
 .studio-helper-more {
 	position: absolute;
-	left: 20%;
-	top: 6%;
+	right: 14%;
+	bottom: 15%;
 	padding: 0 5px;
 	border-radius: 999px;
 	background: var(--bg-raised);
@@ -1028,8 +1441,258 @@
 	overflow: visible;
 }
 
-.studio-minicat .cat-fill {
+.studio-minicat .cat-furry {
 	stroke-width: 1.8;
+}
+
+/* ---- motion every cat has (offset per cat by --cat-phase) -------------------------------- */
+
+/* The cat comes up from behind its desk when its card appears. */
+.cat-rise {
+	animation: studio-rise 0.75s cubic-bezier(0.3, 1.35, 0.5, 1) both;
+	animation-delay: calc(var(--enter-delay, 0ms) + 120ms);
+}
+
+.cat-front {
+	animation: studio-fade 0.25s ease-out both;
+	animation-delay: calc(var(--enter-delay, 0ms) + 520ms);
+}
+
+.cat-body {
+	transform-origin: 100px 124px;
+	animation: studio-breathe 3.4s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.cat-eye {
+	animation: studio-blink 5.2s infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.cat-ear {
+	transform-origin: 78px 56px;
+	animation: studio-ear 6.4s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.cat-ear.right {
+	animation-delay: calc(var(--cat-phase, 0s) - 2.7s);
+}
+
+.cat-accessory.sprout {
+	transform-origin: 100px 40px;
+	animation: studio-tilt 2.8s ease-in-out infinite alternate;
+}
+
+.cat-arm {
+	animation: studio-fade 0.2s ease-out both;
+}
+
+/*
+ * Looking at the pointer: the head leans and the eyes shift by `--gaze-x` / `--gaze-y` (from -1 to
+ * 1, set by AgentStudio.tsx on each cat). They sit on wrappers of their own, so the moods' animations
+ * of the body and the eyes add to them.
+ */
+.cat-look {
+	transform-origin: 100px 104px;
+	transform: translate(
+			calc(var(--gaze-x, 0) * var(--gaze-amt, 1) * 1.6px),
+			calc(var(--gaze-y, 0) * var(--gaze-amt, 1) * 1px)
+		)
+		rotate(calc(var(--gaze-x, 0) * var(--gaze-amt, 1) * 2.4deg));
+	transition: transform 0.24s ease-out;
+}
+
+.cat-gaze {
+	transform: translate(
+		calc(var(--gaze-x, 0) * var(--gaze-amt, 1) * 2.6px),
+		calc(var(--gaze-y, 0) * var(--gaze-amt, 1) * 2px)
+	);
+	transition: transform 0.18s ease-out;
+}
+
+.cat-pupil {
+	transform: translate(
+		calc(var(--gaze-x, 0) * var(--gaze-amt, 1) * 1.1px),
+		calc(var(--gaze-y, 0) * var(--gaze-amt, 1) * 0.9px)
+	);
+	transition: transform 0.18s ease-out;
+}
+
+/* ---- what each mood does ---------------------------------------------------------------- */
+
+/* At the keyboard: paws tap, keys spark, the screen lights the cat, the eyes are on the work. */
+.mood-writing,
+.mood-editing,
+.mood-command,
+.mood-tool,
+.mood-browsing,
+.mood-working {
+	--gaze-amt: 0.55;
+}
+
+.mood-writing .cat-paw,
+.mood-editing .cat-paw,
+.mood-command .cat-paw,
+.mood-tool .cat-paw,
+.mood-working .cat-paw {
+	animation: studio-tap 0.32s ease-in-out infinite;
+}
+
+.mood-writing .cat-paw.right,
+.mood-editing .cat-paw.right,
+.mood-command .cat-paw.right,
+.mood-tool .cat-paw.right,
+.mood-working .cat-paw.right {
+	animation-delay: 0.16s;
+}
+
+.mood-browsing .cat-paw {
+	animation: studio-tap 0.8s ease-in-out infinite;
+}
+
+.mood-browsing .cat-paw.right {
+	animation-delay: 0.4s;
+}
+
+.mood-browsing .key-sparks {
+	animation-duration: 0.8s;
+}
+
+.mood-writing .cat-eyes,
+.mood-editing .cat-eyes,
+.mood-command .cat-eyes,
+.mood-tool .cat-eyes,
+.mood-browsing .cat-eyes,
+.mood-working .cat-eyes {
+	transform: translateY(1.6px);
+}
+
+.mood-writing .cat-pose,
+.mood-editing .cat-pose,
+.mood-command .cat-pose,
+.mood-tool .cat-pose,
+.mood-working .cat-pose {
+	transform-origin: 100px 104px;
+	animation: studio-nod 0.64s ease-in-out infinite;
+}
+
+.studio-desk:not(.mood-resting, .mood-error, .mood-done) .studio-screen-glow {
+	animation: studio-glow 1.6s ease-in-out infinite;
+}
+
+.studio-desk:not(.mood-resting, .mood-error) .studio-laptop-mark {
+	animation: studio-logo 1.8s ease-in-out infinite;
+}
+
+/* Reading: the head leans to the sheet and the eyes run along its lines. */
+.mood-reading {
+	--gaze-amt: 0.4;
+}
+
+.mood-reading .cat-pose {
+	transform-origin: 100px 104px;
+	transform: rotate(-4deg);
+}
+
+.mood-reading .cat-eyes {
+	animation: studio-read 2.5s linear infinite;
+}
+
+/* Searching: the magnifier sways and the free eye darts about. */
+.mood-searching {
+	--gaze-amt: 0.4;
+}
+
+.mood-searching .cat-arm.magnify {
+	transform-origin: 139.8px 97.6px;
+	animation:
+		studio-fade 0.2s ease-out both,
+		studio-lens 1.8s ease-in-out infinite alternate;
+}
+
+.mood-searching .cat-eyes {
+	animation: studio-dart 0.9s ease-in-out infinite alternate;
+}
+
+.mood-searching .cat-pose {
+	transform-origin: 100px 104px;
+	animation: studio-tilt 2.2s ease-in-out infinite alternate;
+}
+
+/* Thinking: eyes up at the thought, the head swaying, one paw drumming on the desk. */
+.mood-thinking {
+	--gaze-amt: 0.4;
+}
+
+.mood-thinking .cat-eyes {
+	transform: translate(-2.6px, -3px);
+}
+
+.mood-thinking .cat-pose {
+	transform-origin: 100px 104px;
+	animation: studio-ponder 4s ease-in-out infinite;
+}
+
+.mood-thinking .cat-paw.right {
+	animation: studio-tap 0.9s ease-in-out infinite;
+}
+
+/* Delegating: bouncing along, glancing at its helpers on both sides. */
+.mood-delegating .cat-eyes {
+	animation: studio-dart 1.6s ease-in-out infinite alternate;
+}
+
+.mood-delegating .cat-body {
+	animation: studio-bob 0.9s ease-in-out infinite;
+}
+
+/* Waiting for the user: hopping and waving. */
+.mood-waiting .cat-body {
+	animation: studio-hop 0.8s ease-in-out infinite;
+}
+
+.mood-waiting .cat-arm.wave {
+	transform-origin: 129px 108px;
+	animation:
+		studio-fade 0.2s ease-out both,
+		studio-wave 0.5s ease-in-out infinite alternate;
+}
+
+.mood-compacting .cat-body {
+	animation: studio-squash 0.8s ease-in-out infinite alternate;
+}
+
+.mood-retrying .cat-body {
+	animation: studio-wobble 0.5s ease-in-out infinite alternate;
+}
+
+/* A failed run: slumped, ears down. */
+.mood-error .cat-body {
+	animation: none;
+	transform: translateY(3px) scale(0.98);
+}
+
+.mood-error .cat-ear,
+.lounge-upset .cat-ear {
+	animation: none;
+	transform: rotate(-16deg);
+}
+
+/* Done: jumping with both paws in the air. */
+.mood-done .cat-body {
+	animation: studio-jump 0.65s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+}
+
+.mood-done .cat-arm.cheer {
+	transform-origin: 129px 108px;
+	animation:
+		studio-fade 0.2s ease-out both,
+		studio-cheer 0.4s ease-in-out infinite alternate;
+}
+
+.mood-done .cat-arm.cheer.other {
+	animation-delay: 0s, 0.2s;
 }
 
 /* ---- empty floor ------------------------------------------------------------------------ */
@@ -1042,13 +1705,13 @@
 	gap: 12px;
 	padding: 28px 24px 32px;
 	border: 1px dashed var(--border-strong);
-	border-radius: 18px;
+	border-radius: 20px;
 	background: var(--studio-wall);
 	text-align: center;
 }
 
 .studio-empty-desk {
-	width: 220px;
+	width: 250px;
 	height: auto;
 }
 
@@ -1066,6 +1729,54 @@
 	font-weight: 600;
 }
 
+/* The fish in its bowl: 摸鱼. */
+.bowl-water {
+	fill: rgba(120, 190, 255, 0.36);
+}
+
+.bowl-glass,
+.bowl-rim {
+	fill: none;
+	stroke: var(--studio-glass);
+	stroke-width: 1.6;
+	stroke-linecap: round;
+}
+
+.bowl-rim {
+	stroke-width: 2.6;
+}
+
+.bowl-glint {
+	fill: none;
+	stroke: #fff;
+	stroke-width: 1.4;
+	stroke-linecap: round;
+	opacity: 0.7;
+}
+
+.fish-body {
+	fill: #ff9a4d;
+}
+
+.fish-eye {
+	fill: var(--cat-ink);
+}
+
+.bowl-fish {
+	animation: studio-swim 5s ease-in-out infinite alternate;
+}
+
+.bowl-fish-turn {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: studio-turn 10s steps(1, end) infinite;
+}
+
+.bowl-bubble {
+	fill: rgba(255, 255, 255, 0.85);
+	animation: studio-bubble-rise 2.2s ease-in infinite;
+}
+
 /* ---- lounge ----------------------------------------------------------------------------- */
 
 .studio-lounge h3 {
@@ -1077,7 +1788,7 @@
 
 .studio-lounge-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
 	gap: 12px;
 }
 
@@ -1087,12 +1798,14 @@
 	align-items: center;
 	gap: 2px;
 	min-width: 0;
-	padding: 10px 10px 12px;
+	padding: 12px 10px 12px;
 	border: 1px dashed var(--border-strong);
-	border-radius: 16px;
+	border-radius: 18px;
 	background: var(--studio-lounge);
 	text-align: center;
 	white-space: normal;
+	animation: studio-card-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+	animation-delay: var(--enter-delay, 0ms);
 }
 
 .studio-lounge .studio-spot:hover {
@@ -1101,7 +1814,8 @@
 }
 
 .studio-spot .studio-scene {
-	max-width: 128px;
+	max-width: 152px;
+	aspect-ratio: 160 / 116;
 }
 
 .studio-spot-text {
@@ -1113,7 +1827,165 @@
 	min-width: 0;
 }
 
+.studio-cushion {
+	fill: var(--studio-cushion);
+	stroke: color-mix(in srgb, var(--studio-cushion) 70%, #000);
+	stroke-width: 1.6;
+}
+
+.studio-cushion-shine {
+	fill: #fff;
+	opacity: 0.14;
+}
+
+.studio-cushion-seam {
+	fill: none;
+	stroke: color-mix(in srgb, var(--studio-cushion) 60%, #fff);
+	stroke-width: 1.2;
+	stroke-dasharray: 3 3.4;
+	stroke-linecap: round;
+	opacity: 0.7;
+}
+
+/* Asleep: the chin on the paws, the back rising and falling, a bubble at the nose. */
+.lounge-asleep {
+	--gaze-amt: 0;
+}
+
+.lounge-body {
+	transform-origin: 100px 95px;
+	animation: studio-doze-body 4.6s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.lounge-head {
+	transform-origin: 62px 92px;
+	transform: translateY(2px) rotate(-7deg);
+	transition: transform 0.4s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+.lounge-breath {
+	animation: studio-doze 4.6s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.lounge-asleep .cat-ear,
+.lounge-asleep .cat-eye {
+	animation-duration: 9s;
+}
+
+.lounge-snot {
+	transform-origin: 102.4px 88.4px;
+	animation: studio-snot 4.6s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.snot-bubble {
+	fill: rgba(170, 220, 255, 0.5);
+	stroke: #9fd0ff;
+	stroke-width: 1;
+}
+
+.snot-glint {
+	fill: none;
+	stroke: #fff;
+	stroke-width: 1.1;
+	stroke-linecap: round;
+}
+
+.zzz {
+	fill: none;
+	stroke: var(--text-muted);
+	stroke-width: 1.9;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	opacity: 0;
+	animation: studio-zzz 3.6s ease-out infinite;
+}
+
+.zzz.z1 {
+	animation-delay: 1.2s;
+}
+
+.zzz.z2 {
+	animation-delay: 2.4s;
+}
+
+/* Woken by the pointer: the head comes up and the cat looks at it. */
+.lounge-awake .lounge-head {
+	transform: translateY(-5px);
+}
+
+.lounge-awake .lounge-breath,
+.lounge-upset .lounge-breath {
+	animation: none;
+}
+
+.lounge-notice {
+	fill: none;
+	stroke: var(--warning);
+	stroke-width: 2;
+	stroke-linecap: round;
+	animation: studio-notice 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/*
+ * Less motion: base.css cuts every animation to its last frame, where these would have faded
+ * away, so they stay as drawn instead.
+ */
+@media (prefers-reduced-motion: reduce) {
+	.screen-line,
+	.confetti,
+	.sparkle,
+	.zzz,
+	.studio-sweat-drop,
+	.gloom-rain {
+		opacity: 1;
+		animation: none;
+	}
+}
+
 /* ---- keyframes -------------------------------------------------------------------------- */
+
+@keyframes studio-card-in {
+	from {
+		opacity: 0;
+		transform: translateY(14px) scale(0.96);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes studio-rise {
+	from {
+		transform: translateY(84px);
+	}
+	to {
+		transform: none;
+	}
+}
+
+@keyframes studio-fade {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes studio-screen-in {
+	from {
+		opacity: 0;
+		transform: scale(0.4);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
 
 @keyframes studio-pop {
 	from {
@@ -1152,33 +2024,31 @@
 	}
 }
 
-@keyframes studio-breathe-deep {
-	0%,
-	100% {
-		transform: none;
-	}
-	50% {
-		transform: scale(1.03, 0.97);
-	}
-}
-
 @keyframes studio-blink {
 	0%,
-	92%,
+	93%,
 	100% {
 		transform: none;
 	}
-	95% {
-		transform: scaleY(0.1);
+	96% {
+		transform: scaleY(0.08);
 	}
 }
 
-@keyframes studio-tail {
-	from {
-		transform: rotate(-7deg);
+@keyframes studio-ear {
+	0%,
+	88%,
+	100% {
+		transform: none;
 	}
-	to {
-		transform: rotate(9deg);
+	91% {
+		transform: rotate(-9deg);
+	}
+	94% {
+		transform: rotate(4deg);
+	}
+	97% {
+		transform: rotate(-4deg);
 	}
 }
 
@@ -1188,17 +2058,36 @@
 		transform: none;
 	}
 	50% {
-		transform: translateY(-3.5px);
+		transform: translateY(-3.6px);
+	}
+}
+
+@keyframes studio-keys {
+	from {
+		opacity: 0.15;
+	}
+	to {
+		opacity: 0.9;
+	}
+}
+
+@keyframes studio-nod {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: translateY(0.9px) rotate(0.6deg);
 	}
 }
 
 @keyframes studio-glow {
 	0%,
 	100% {
-		opacity: 0.12;
+		opacity: 0.45;
 	}
 	50% {
-		opacity: 0.3;
+		opacity: 1;
 	}
 }
 
@@ -1212,30 +2101,49 @@
 	}
 }
 
+/* Two lines of the sheet on the left: along one, back, along the next. */
 @keyframes studio-read {
 	0% {
-		transform: translate(-3px, -1px);
+		transform: translate(-4.2px, -0.8px);
 	}
 	45% {
-		transform: translate(3px, -1px);
+		transform: translate(-1.6px, -0.8px);
 	}
 	50% {
-		transform: translate(-3px, 1.5px);
+		transform: translate(-4.2px, 1.4px);
 	}
 	95% {
-		transform: translate(3px, 1.5px);
+		transform: translate(-1.6px, 1.4px);
 	}
 	100% {
-		transform: translate(-3px, -1px);
+		transform: translate(-4.2px, -0.8px);
+	}
+}
+
+@keyframes studio-scan {
+	from {
+		transform: translateY(0);
+	}
+	to {
+		transform: translateY(25.6px);
 	}
 }
 
 @keyframes studio-dart {
 	from {
-		transform: translateX(-3.5px);
+		transform: translateX(-3.4px);
 	}
 	to {
-		transform: translateX(3.5px);
+		transform: translateX(3.4px);
+	}
+}
+
+@keyframes studio-lens {
+	from {
+		transform: rotate(-4deg);
+	}
+	to {
+		transform: rotate(3deg);
 	}
 }
 
@@ -1248,10 +2156,10 @@
 	}
 }
 
-@keyframes studio-sway {
+@keyframes studio-ponder {
 	0%,
 	100% {
-		transform: rotate(-2deg);
+		transform: rotate(-5deg);
 	}
 	50% {
 		transform: rotate(2deg);
@@ -1264,7 +2172,7 @@
 		transform: none;
 	}
 	50% {
-		transform: translateY(-2.5px);
+		transform: translateY(-2.6px);
 	}
 }
 
@@ -1278,12 +2186,31 @@
 	}
 }
 
+@keyframes studio-hover {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: translateY(-2.4px);
+	}
+}
+
 @keyframes studio-wave {
 	from {
-		transform: rotate(8deg);
+		transform: rotate(7deg);
 	}
 	to {
-		transform: rotate(-22deg);
+		transform: rotate(-12deg);
+	}
+}
+
+@keyframes studio-cheer {
+	from {
+		transform: rotate(4deg);
+	}
+	to {
+		transform: rotate(-9deg);
 	}
 }
 
@@ -1298,10 +2225,10 @@
 
 @keyframes studio-wobble {
 	from {
-		transform: rotate(-5deg);
+		transform: rotate(-4deg);
 	}
 	to {
-		transform: rotate(5deg);
+		transform: rotate(4deg);
 	}
 }
 
@@ -1314,21 +2241,7 @@
 		transform: scale(1.06, 0.92);
 	}
 	50% {
-		transform: translateY(-14px) scale(0.97, 1.04);
-	}
-}
-
-@keyframes studio-float {
-	0% {
-		opacity: 0;
-		transform: translate(-50%, 0) scale(0.7);
-	}
-	20% {
-		opacity: 1;
-	}
-	100% {
-		opacity: 0;
-		transform: translate(calc(-50% + var(--dx)), -46px) scale(1.05);
+		transform: translateY(-13px) scale(0.97, 1.04);
 	}
 }
 
@@ -1340,21 +2253,42 @@
 	}
 	40% {
 		opacity: 1;
-		transform: translateY(-3px);
+		transform: translateY(-2.4px);
+	}
+}
+
+@keyframes studio-puff {
+	0%,
+	100% {
+		opacity: 0.55;
+	}
+	50% {
+		opacity: 1;
 	}
 }
 
 @keyframes studio-sweat {
 	0% {
 		opacity: 0;
-		transform: translateY(-4px) rotate(45deg);
+		transform: translateY(-4px);
 	}
 	30% {
 		opacity: 1;
 	}
 	100% {
 		opacity: 0;
-		transform: translateY(10px) rotate(45deg);
+		transform: translateY(12px);
+	}
+}
+
+@keyframes studio-rain {
+	from {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	to {
+		opacity: 0;
+		transform: translateY(7px);
 	}
 }
 
@@ -1365,7 +2299,96 @@
 	}
 	100% {
 		opacity: 0;
-		transform: translate(var(--x), 110px) rotate(var(--r));
+		transform: translate(var(--drift), 150px) rotate(var(--turn));
+	}
+}
+
+@keyframes studio-sparkle {
+	0%,
+	100% {
+		opacity: 0;
+		transform: scale(0.2) rotate(0deg);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1) rotate(45deg);
+	}
+}
+
+@keyframes studio-type {
+	0% {
+		opacity: 1;
+		transform: scaleX(0);
+		animation-timing-function: steps(7, end);
+	}
+	16%,
+	86% {
+		opacity: 1;
+		transform: none;
+	}
+	94%,
+	100% {
+		opacity: 0;
+		transform: none;
+	}
+}
+
+@keyframes studio-cursor {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+
+@keyframes studio-output {
+	0% {
+		opacity: 0;
+	}
+	30% {
+		opacity: 1;
+	}
+}
+
+@keyframes studio-meridian {
+	0%,
+	100% {
+		transform: scaleX(1);
+	}
+	50% {
+		transform: scaleX(0.02);
+	}
+}
+
+@keyframes studio-squeeze-down {
+	to {
+		transform: translateY(4.4px);
+	}
+}
+
+@keyframes studio-squeeze-up {
+	to {
+		transform: translateY(-4.4px);
+	}
+}
+
+@keyframes studio-twinkle {
+	0%,
+	100% {
+		opacity: 0.25;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes studio-drift {
+	from {
+		transform: translateX(-26px);
+	}
+	to {
+		transform: translateX(40px);
 	}
 }
 
@@ -1387,5 +2410,92 @@
 	50% {
 		opacity: 0.8;
 		transform: translateY(-2px);
+	}
+}
+
+@keyframes studio-swim {
+	from {
+		transform: translateX(-7px);
+	}
+	to {
+		transform: translateX(5px);
+	}
+}
+
+@keyframes studio-turn {
+	0% {
+		transform: scaleX(1);
+	}
+	50% {
+		transform: scaleX(-1);
+	}
+}
+
+@keyframes studio-bubble-rise {
+	0% {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	30% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+		transform: translateY(-5px);
+	}
+}
+
+@keyframes studio-doze-body {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: scale(1.02, 1.05);
+	}
+}
+
+@keyframes studio-doze {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: translateY(-1.2px);
+	}
+}
+
+@keyframes studio-snot {
+	0%,
+	100% {
+		transform: scale(0.25);
+	}
+	50% {
+		transform: scale(1);
+	}
+}
+
+@keyframes studio-zzz {
+	0% {
+		opacity: 0;
+		transform: translate(-4px, 6px) scale(0.8);
+	}
+	30% {
+		opacity: 0.9;
+	}
+	100% {
+		opacity: 0;
+		transform: translate(6px, -8px) scale(1.1);
+	}
+}
+
+@keyframes studio-notice {
+	from {
+		opacity: 0;
+		transform: scale(0.5);
+	}
+	to {
+		opacity: 1;
+		transform: none;
 	}
 }

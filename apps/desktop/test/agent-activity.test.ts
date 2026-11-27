@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 import {
 	CAT_ACCESSORIES,
 	CAT_COATS,
+	CAT_EYES,
+	CAT_TINTS,
 	catLook,
 	DESK_ITEMS,
+	ROOM_DECORS,
+	skyPhase,
 	studioActivity,
 	toolActivity,
 } from "../src/lib/agent-activity.ts";
@@ -193,25 +197,57 @@ describe("catLook", () => {
 		expect(look.name.length).toBeGreaterThan(0);
 		expect(CAT_ACCESSORIES).toContain(look.accessory);
 		expect(CAT_COATS).toContain(look.coat);
+		expect(CAT_EYES).toContain(look.eyes);
+		expect(CAT_TINTS).toContain(look.tint);
 		expect(DESK_ITEMS).toContain(look.deskItem);
+		expect(ROOM_DECORS).toContain(look.decor);
 		expect(look.phase).toBeGreaterThanOrEqual(0);
 		expect(look.phase).toBeLessThan(4);
 	});
 
 	it("varies between sessions", () => {
 		const looks = new Set(Array.from({ length: 40 }, (_, i) => JSON.stringify(catLook(`session-${i}`))));
-		expect(looks.size).toBeGreaterThan(20);
+		expect(looks.size).toBeGreaterThan(30);
 	});
 
-	it("varies between ids that differ only at the end, as sequential ones do", () => {
+	it("varies every trait between ids that differ only at the end, as sequential ones do", () => {
 		const ids = Array.from(
-			{ length: 24 },
+			{ length: 60 },
 			(_, i) => `019ac3f2-7b1e-7d40-9a51-3c8e2f6b10${i.toString(16).padStart(2, "0")}`,
 		);
 		const looks = ids.map(catLook);
-		expect(new Set(looks.map((look) => look.coat)).size).toBe(CAT_COATS.length);
-		expect(new Set(looks.map((look) => look.deskItem)).size).toBe(DESK_ITEMS.length);
-		expect(new Set(looks.map((look) => look.accessory)).size).toBeGreaterThanOrEqual(5);
-		expect(new Set(looks.map((look) => look.name)).size).toBeGreaterThanOrEqual(10);
+		const seen = (trait: keyof ReturnType<typeof catLook>) => new Set(looks.map((look) => look[trait])).size;
+		expect(seen("coat")).toBe(CAT_COATS.length);
+		expect(seen("eyes")).toBe(CAT_EYES.length);
+		expect(seen("tint")).toBe(CAT_TINTS.length);
+		expect(seen("deskItem")).toBe(DESK_ITEMS.length);
+		expect(seen("decor")).toBe(ROOM_DECORS.length);
+		expect(seen("accessory")).toBe(CAT_ACCESSORIES.length);
+		expect(seen("name")).toBeGreaterThanOrEqual(16);
+	});
+
+	it("picks the traits independently of each other", () => {
+		// Every coat turns up with every eye colour: neither decides the other.
+		const pairs = new Set<string>();
+		for (let i = 0; i < 600; i++) {
+			const look = catLook(`session-${i}`);
+			pairs.add(`${look.coat}/${look.eyes}`);
+		}
+		expect(pairs.size).toBe(CAT_COATS.length * CAT_EYES.length);
+	});
+});
+
+describe("skyPhase", () => {
+	it("follows the local hour", () => {
+		expect(skyPhase(0)).toBe("night");
+		expect(skyPhase(4)).toBe("night");
+		expect(skyPhase(5)).toBe("dawn");
+		expect(skyPhase(7)).toBe("dawn");
+		expect(skyPhase(8)).toBe("day");
+		expect(skyPhase(16)).toBe("day");
+		expect(skyPhase(17)).toBe("dusk");
+		expect(skyPhase(19)).toBe("dusk");
+		expect(skyPhase(20)).toBe("night");
+		expect(skyPhase(23)).toBe("night");
 	});
 });

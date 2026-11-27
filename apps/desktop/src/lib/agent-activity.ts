@@ -201,13 +201,38 @@ export function studioActivity(chat: ChatState | undefined, session: SessionSumm
 export const CAT_ACCESSORIES = ["sprout", "bow", "headphones", "glasses", "flower", "cap", "none"] as const;
 export type CatAccessory = (typeof CAT_ACCESSORIES)[number];
 
-/** Coat patterns: one colour, tabby stripes, a patch over one eye, or a white bib and paws. */
-export const CAT_COATS = ["plain", "tabby", "patch", "tuxedo"] as const;
+/**
+ * Coat patterns: one colour, tabby stripes, a patch over one eye, a white blaze and paws, or dark
+ * points (ears, mask, paws and tail tip).
+ */
+export const CAT_COATS = ["plain", "tabby", "patch", "tuxedo", "points"] as const;
 export type CatCoat = (typeof CAT_COATS)[number];
 
+/** Eye colours. */
+export const CAT_EYES = ["amber", "emerald", "sky", "violet", "rose", "honey"] as const;
+export type CatEyes = (typeof CAT_EYES)[number];
+
+/** Shades of the agent's fur colour, so a team of one agent is not all one colour. */
+export const CAT_TINTS = ["base", "milk", "dusk"] as const;
+export type CatTint = (typeof CAT_TINTS)[number];
+
 /** What stands on the cat's desk besides its laptop. */
-export const DESK_ITEMS = ["mug", "plant", "none"] as const;
+export const DESK_ITEMS = ["mug", "plant", "duck", "none"] as const;
 export type DeskItem = (typeof DESK_ITEMS)[number];
+
+/** What hangs on the wall behind the desk. */
+export const ROOM_DECORS = ["window", "shelf", "clock", "poster"] as const;
+export type RoomDecor = (typeof ROOM_DECORS)[number];
+
+/** The sky in the studio's windows, by the local hour. */
+export type SkyPhase = "dawn" | "day" | "dusk" | "night";
+
+export function skyPhase(hour: number): SkyPhase {
+	if (hour >= 5 && hour < 8) return "dawn";
+	if (hour >= 8 && hour < 17) return "day";
+	if (hour >= 17 && hour < 20) return "dusk";
+	return "night";
+}
 
 const CAT_NAMES = [
 	"团子",
@@ -240,7 +265,10 @@ export interface CatLook {
 	name: string;
 	accessory: CatAccessory;
 	coat: CatCoat;
+	eyes: CatEyes;
+	tint: CatTint;
 	deskItem: DeskItem;
+	decor: RoomDecor;
 	/** Seconds to offset its idle animations by, so the cats do not blink and sway in step. */
 	phase: number;
 }
@@ -263,14 +291,23 @@ function hash(text: string): number {
 	return h >>> 0;
 }
 
-/** The look of a session's cat: the same session always gets the same name, coat and accessory. */
+/** The look of a session's cat: the same session always gets the same name, coat, eyes and room. */
 export function catLook(sessionId: string): CatLook {
-	const h = hash(sessionId);
+	// Each trait takes its own digits of the hash, so the traits vary independently.
+	let rest = hash(sessionId);
+	const pick = <T>(list: readonly T[], fallback: T): T => {
+		const item = list[rest % list.length] ?? fallback;
+		rest = Math.floor(rest / list.length);
+		return item;
+	};
 	return {
-		name: CAT_NAMES[h % CAT_NAMES.length] ?? "团子",
-		accessory: CAT_ACCESSORIES[(h >>> 8) % CAT_ACCESSORIES.length] ?? "none",
-		coat: CAT_COATS[(h >>> 12) % CAT_COATS.length] ?? "plain",
-		deskItem: DESK_ITEMS[(h >>> 24) % DESK_ITEMS.length] ?? "none",
-		phase: ((h >>> 16) % 40) / 10,
+		name: pick(CAT_NAMES, "团子"),
+		accessory: pick(CAT_ACCESSORIES, "none"),
+		coat: pick(CAT_COATS, "plain"),
+		eyes: pick(CAT_EYES, "amber"),
+		tint: pick(CAT_TINTS, "base"),
+		deskItem: pick(DESK_ITEMS, "none"),
+		decor: pick(ROOM_DECORS, "window"),
+		phase: (rest % 40) / 10,
 	};
 }
