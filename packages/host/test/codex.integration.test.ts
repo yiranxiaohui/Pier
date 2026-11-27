@@ -494,6 +494,46 @@ describe("Codex runtime", () => {
 		expect(compacted).toEqual({ summary: "", tokensBefore: 0 });
 	});
 
+	it("rewinds a thread in place with thread/revert (1.72)", async () => {
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const { rec, state } = await open(session);
+		const users = () =>
+			buildTranscript(state())
+				.filter((i) => i.kind === "user")
+				.map((i) => (i.kind === "user" ? i.text : ""));
+		const send = async (text: string) => {
+			const mark = rec.mark();
+			await client.request("session.prompt", { sessionId: session.id, text });
+			await rec.waitFor((f) => f.event.type === "session.status" && f.event.state === "idle", mark);
+		};
+		await send("one");
+		await send("two");
+		const { points } = await client.request("session.forkPoints", { sessionId: session.id });
+		expect(points.map((p) => p.text)).toEqual(["one", "two"]);
+
+		const rewound = await client.request("session.rewind", {
+			sessionId: session.id,
+			entryId: points[1]?.entryId ?? "",
+		});
+		expect(rewound.session.id).toBe(session.id);
+		await expect.poll(users).toEqual(["one"]);
+		const stored = await runtime().server().request<{ data: unknown[] }>("thread/turns/list", { threadId: session.id });
+		expect(stored.data).toHaveLength(1);
+		await send("two again");
+		expect(users()).toEqual(["one", "two again"]);
+		expect(rec.text()).toContain("Reply to two again");
+		const after = await client.request("session.forkPoints", { sessionId: session.id });
+		expect(after.points.map((p) => p.text)).toEqual(["one", "two again"]);
+
+		await client.request("session.rewind", { sessionId: session.id, entryId: after.points[0]?.entryId ?? "" });
+		await expect.poll(users).toEqual([]);
+		await send("fresh");
+		expect(users()).toEqual(["fresh"]);
+		await expect(
+			client.request("session.rewind", { sessionId: session.id, entryId: "turn-missing" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
 	it("keeps activity visible after commentary completes, including a fresh snapshot", async () => {
 		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
 		const { rec, state } = await open(session);

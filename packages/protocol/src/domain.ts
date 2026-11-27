@@ -424,6 +424,8 @@ export interface AgentRuntimeCapabilities {
 	compact: boolean;
 	/** `session.forkPoints` / `session.fork`. */
 	fork: boolean;
+	/** `session.rewind` (1.72). Absent from older hosts: unsupported. */
+	rewind?: boolean;
 	/** `session.rename`. */
 	rename: boolean;
 	/** `model.set`. */

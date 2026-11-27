@@ -129,6 +129,17 @@ button.file-ref-chip:hover:not(:disabled) {
 	box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.message.user-edit.dragging {
+	border-style: dashed;
+	border-color: var(--accent);
+	background: var(--accent-soft);
+}
+
+/* The message's images (Composer's DraftAttachments), each with a remove button. */
+.user-edit .composer-images {
+	padding: 4px 0 0;
+}
+
 .user-edit textarea,
 .user-edit textarea:focus {
 	width: 100%;
@@ -154,6 +165,13 @@ button.file-ref-chip:hover:not(:disabled) {
 	padding: 0 16px;
 	border-radius: 999px;
 	font-size: 13.5px;
+}
+
+/* Adding an image sits on the left, away from cancel and send. */
+.user-edit-actions button.user-edit-attach {
+	width: 34px;
+	margin-right: auto;
+	padding: 0;
 }
 
 /* Send in the theme's inverse, like ChatGPT's black button: black on light, near white on dark. */

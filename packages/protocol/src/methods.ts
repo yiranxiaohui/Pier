@@ -568,6 +568,11 @@ export const MethodParamsSchemas = {
 	}),
 	"session.forkPoints": z.object(SessionRef),
 	"session.fork": z.object({ ...SessionRef, entryId: Id, position: z.enum(["before", "at"]).optional() }),
+	/**
+	 * Go back in the session itself to just before a user message from `session.forkPoints` (1.72):
+	 * the message and everything after it leave the conversation, and the next prompt continues there.
+	 */
+	"session.rewind": z.object({ ...SessionRef, entryId: Id }),
 	"session.rename": z.object({ ...SessionRef, name: z.string().min(1).max(200) }),
 	"session.subscribe": z.object({
 		...SessionRef,
@@ -1165,6 +1170,7 @@ export interface MethodResults {
 	"session.cleanup": SessionCleanupResult;
 	"session.forkPoints": { points: ForkPoint[] };
 	"session.fork": { session: SessionSummary; selectedText?: string };
+	"session.rewind": { session: SessionSummary };
 	"session.rename": { session: SessionSummary };
 	"session.subscribe": SubscribeResult;
 	"session.unsubscribe": { unsubscribed: boolean };

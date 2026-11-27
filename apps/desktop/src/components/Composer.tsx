@@ -10,7 +10,7 @@ import type { WorkspaceInfo } from "@pier/protocol";
 import { type Dispatch, type RefObject, type SetStateAction, useEffect, useRef, useState } from "react";
 import { promptWithContexts } from "../lib/browser-context.ts";
 import { draftToMessage, draftToPrompt } from "../lib/composer-text.ts";
-import { attachToDraft, type Draft, useStore } from "../lib/store.tsx";
+import { attachToDraft, type Draft, restoreToDraft, useStore } from "../lib/store.tsx";
 import { useVoiceInput } from "../lib/use-voice-input.ts";
 import { ComposerInput, type ComposerInputHandle } from "./ComposerInput.tsx";
 import { IconArrowUp, IconImage, IconMousePointer, IconScan, IconStop, IconX } from "./Icons.tsx";
@@ -48,8 +48,9 @@ function readImage(file: File): Promise<Draft["images"][number]> {
 }
 
 /**
- * Let the file panel insert file chips at the cursor of this composer, and the workspace browser
- * attach what was picked on a page. `key` is the draft key (a session id, or the new-chat draft).
+ * Let the file panel insert file chips at the cursor of this composer, the workspace browser
+ * attach what was picked on a page, and an edited message that could not be sent come back here.
+ * `key` is the draft key (a session id, or the new-chat draft).
  */
 export function useComposerInsert(
 	key: string,
@@ -63,6 +64,10 @@ export function useComposerInsert(
 				insertFile: (path, directory) => input.current?.insertFile(path, directory),
 				attach: (attachment) => {
 					setDraft((draft) => attachToDraft(draft, attachment));
+					input.current?.focus();
+				},
+				restore: (restored) => {
+					setDraft((draft) => restoreToDraft(draft, restored));
 					input.current?.focus();
 				},
 			}),

@@ -14,12 +14,15 @@ import type { UiRequest } from "@pier/protocol";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { splitMessageContexts } from "../lib/browser-context.ts";
 import { clockTime, formatTokens } from "../lib/format.ts";
+import { type Draft, useStore } from "../lib/store.tsx";
+import { DraftAttachments, readImages } from "./Composer.tsx";
 import { FileRefText } from "./FileRefText.tsx";
 import {
 	IconArrowDown,
 	IconBrain,
 	IconChevronRight,
 	IconClock,
+	IconImage,
 	IconLayers,
 	IconMousePointer,
 	IconPencil,
@@ -212,22 +215,41 @@ const AssistantMessageView = memo(
 
 type UserItem = Extract<TranscriptItem, { kind: "user" }>;
 
-/** Sends an edited copy of a user message; `fromEnd` counts the user messages after it. */
-export type EditMessage = (item: UserItem, fromEnd: number, text: string) => Promise<boolean>;
+/** What an edited message sends: its text and the images it keeps or gains. */
+export interface EditedMessage {
+	text: string;
+	images: Draft["images"];
+}
 
-/** The editor a sent message turns into, as in ChatGPT: Enter sends, Shift+Enter breaks the line, Esc cancels. */
+/**
+ * Sends an edited version of a user message; `fromEnd` counts the user messages after it.
+ * Resolves to whether it was sent.
+ */
+export type EditMessage = (item: UserItem, fromEnd: number, edit: EditedMessage) => Promise<boolean>;
+
+/**
+ * The editor a sent message turns into, as in ChatGPT: Enter sends, Shift+Enter breaks the line,
+ * Esc cancels. The message's images show above the text and can be removed; more can be pasted,
+ * dropped or picked.
+ */
 function MessageEditor({
 	initial,
+	inPlace,
 	onCancel,
 	onSend,
 }: {
-	initial: string;
+	initial: EditedMessage;
+	/** Whether sending replaces the message in this session (`session.rewind`) rather than forking it. */
+	inPlace: boolean;
 	onCancel(): void;
-	onSend(text: string): Promise<boolean>;
+	onSend(edit: EditedMessage): Promise<boolean>;
 }) {
-	const [text, setText] = useState(initial);
+	const store = useStore();
+	const [draft, setDraft] = useState<Draft>(initial);
 	const [sending, setSending] = useState(false);
+	const [dragging, setDragging] = useState(false);
 	const field = useRef<HTMLTextAreaElement>(null);
+	const fileInput = useRef<HTMLInputElement>(null);
 
 	// Start with the caret after the text.
 	useEffect(() => {
@@ -242,24 +264,56 @@ function MessageEditor({
 		if (!el) return;
 		el.style.height = "auto";
 		el.style.height = `${el.scrollHeight}px`;
-	}, [text]);
+	}, [draft.text]);
 
+	const text = draft.text.trim();
+	const canSend = !sending && (text.length > 0 || draft.images.length > 0);
 	const send = async () => {
-		if (!text.trim() || sending) return;
+		if (!canSend) return;
 		setSending(true);
-		// On success the fork opens in place of this session, so there is nothing to reset.
-		if (!(await onSend(text.trim()))) setSending(false);
+		// Once sent, the message is replaced (or its fork opens); otherwise keep editing.
+		if (await onSend({ text, images: draft.images })) onCancel();
+		else setSending(false);
+	};
+	const addFiles = async (files: Iterable<File>) => {
+		const images = await readImages(files, (message) => store.toast("warning", message));
+		if (images.length) setDraft((d) => ({ ...d, images: [...d.images, ...images].slice(0, 16) }));
 	};
 
 	return (
-		<div className="message user-edit">
+		// biome-ignore lint/a11y/noStaticElementInteractions: drop target for dragged images.
+		<div
+			className={`message user-edit${dragging ? " dragging" : ""}`}
+			onDragOver={(event) => {
+				if (sending || ![...event.dataTransfer.items].some((i) => i.type.startsWith("image/"))) return;
+				event.preventDefault();
+				setDragging(true);
+			}}
+			onDragLeave={() => setDragging(false)}
+			onDrop={(event) => {
+				setDragging(false);
+				if (sending || !event.dataTransfer.files.length) return;
+				event.preventDefault();
+				void addFiles(event.dataTransfer.files);
+			}}
+		>
+			<DraftAttachments draft={draft} setDraft={setDraft} />
 			<textarea
 				ref={field}
 				rows={1}
-				value={text}
+				value={draft.text}
 				disabled={sending}
 				aria-label="编辑消息"
-				onChange={(event) => setText(event.target.value)}
+				onChange={(event) => {
+					const value = event.target.value;
+					setDraft((d) => ({ ...d, text: value }));
+				}}
+				onPaste={(event) => {
+					const files = [...event.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+					if (!files.length) return;
+					event.preventDefault();
+					void addFiles(files);
+				}}
 				onKeyDown={(event) => {
 					if (event.key === "Escape") onCancel();
 					else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -269,14 +323,40 @@ function MessageEditor({
 				}}
 			/>
 			<div className="user-edit-actions">
+				<button
+					type="button"
+					className="ghost icon user-edit-attach"
+					title="添加图片（也可以粘贴或拖入）"
+					aria-label="添加图片"
+					disabled={sending}
+					onClick={() => fileInput.current?.click()}
+				>
+					<IconImage size={16} />
+				</button>
+				<input
+					ref={fileInput}
+					type="file"
+					accept="image/*"
+					multiple
+					hidden
+					onChange={(event) => {
+						const files = [...(event.target.files ?? [])];
+						event.target.value = "";
+						void addFiles(files);
+					}}
+				/>
 				<button type="button" className="user-edit-cancel" disabled={sending} onClick={onCancel}>
 					取消
 				</button>
 				<button
 					type="button"
 					className="user-edit-send"
-					disabled={sending || !text.trim()}
-					title="从这条消息分叉出新会话并发送，原会话保持不变"
+					disabled={!canSend}
+					title={
+						inPlace
+							? "用修改后的消息替换这条消息并重新发送，之后的对话会被丢弃（Agent 改过的文件不会还原）"
+							: "从这条消息分叉出新会话并发送，原会话保持不变"
+					}
 					onClick={() => void send()}
 				>
 					{sending ? "发送中…" : "发送"}
@@ -323,14 +403,32 @@ function UserText({ text }: { text: string }) {
 	);
 }
 
-function UserMessage({ item, fromEnd, onEdit }: { item: UserItem; fromEnd: number; onEdit?: EditMessage }) {
+function UserMessage({
+	item,
+	fromEnd,
+	onEdit,
+	editInPlace,
+}: {
+	item: UserItem;
+	fromEnd: number;
+	onEdit?: EditMessage;
+	editInPlace: boolean;
+}) {
 	const [editing, setEditing] = useState(false);
 	if (editing && onEdit) {
 		return (
 			<MessageEditor
-				initial={item.text}
+				initial={{
+					text: item.text,
+					images: item.images.map((image, i) => ({
+						data: image.data,
+						mimeType: image.mimeType,
+						name: `图片 ${i + 1}`,
+					})),
+				}}
+				inPlace={editInPlace}
 				onCancel={() => setEditing(false)}
-				onSend={(text) => onEdit(item, fromEnd, text)}
+				onSend={(edit) => onEdit(item, fromEnd, edit)}
 			/>
 		);
 	}
@@ -364,6 +462,7 @@ const ItemView = memo(function ItemView({
 	fromEnd,
 	endsTurn,
 	onEdit,
+	editInPlace,
 }: {
 	item: TranscriptItem;
 	approvals: Map<string, UiRequest>;
@@ -371,10 +470,11 @@ const ItemView = memo(function ItemView({
 	/** Whether an assistant message is its turn's last: only that one gets the footer. */
 	endsTurn: boolean;
 	onEdit?: EditMessage | undefined;
+	editInPlace: boolean;
 }) {
 	switch (item.kind) {
 		case "user":
-			return <UserMessage item={item} fromEnd={fromEnd} {...(onEdit ? { onEdit } : {})} />;
+			return <UserMessage item={item} fromEnd={fromEnd} editInPlace={editInPlace} {...(onEdit ? { onEdit } : {})} />;
 		case "assistant":
 			return <AssistantMessageView item={item} approvals={approvals} endsTurn={endsTurn} />;
 		case "bash":
@@ -449,6 +549,7 @@ export function Transcript({
 	scope,
 	emptyText,
 	onEdit,
+	editInPlace = false,
 }: {
 	chat: ChatState;
 	workspaceId: string;
@@ -458,6 +559,8 @@ export function Transcript({
 	emptyText?: string;
 	/** Present when the user's messages can be edited and sent again. */
 	onEdit?: EditMessage | undefined;
+	/** Whether an edit replaces the message in the session itself (1.72) rather than forking it. */
+	editInPlace?: boolean;
 }) {
 	const items = useMemo(() => buildTranscript(chat), [chat]);
 	// How many user messages follow each one, which places it among the session's fork points.
@@ -526,6 +629,7 @@ export function Transcript({
 								fromEnd={userFromEnd.get(item.key) ?? 0}
 								endsTurn={endsTurn(shown, i, running)}
 								onEdit={onEdit}
+								editInPlace={editInPlace}
 							/>
 						))}
 						{waitingForModel ? (

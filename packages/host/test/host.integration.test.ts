@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { PierClient } from "@pier/client";
 import {
@@ -467,6 +467,61 @@ describe("sessions end to end", () => {
 		// The original stays open and unchanged.
 		const original = await client.request("session.snapshot", { sessionId: session.id });
 		expect((original.messages as Array<{ role: string }>).filter((m) => m.role === "user")).toHaveLength(2);
+	});
+
+	it("rewinds a session in place before a user message (1.72)", async () => {
+		t.faux.setResponses([
+			fauxAssistantMessage("answer one"),
+			fauxAssistantMessage("answer two"),
+			fauxAssistantMessage("answer edited"),
+			fauxAssistantMessage("answer restarted"),
+		]);
+		const { session, rec } = await newSession();
+		const userTexts = (messages: unknown[]) =>
+			(messages as Array<{ role: string; content: unknown }>)
+				.filter((m) => m.role === "user")
+				.map((m) => JSON.stringify(m.content));
+		await client.request("session.prompt", { sessionId: session.id, text: "first question" });
+		await rec.waitForType("agent_settled");
+		let from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "second question" });
+		await rec.waitForType("agent_settled", from);
+		const { points } = await client.request("session.forkPoints", { sessionId: session.id });
+
+		from = rec.mark();
+		const rewound = await client.request("session.rewind", {
+			sessionId: session.id,
+			entryId: points[1]?.entryId ?? "",
+		});
+		expect(rewound.session).toMatchObject({ id: session.id, messageCount: 2 });
+		// Subscribers get the shorter conversation as a snapshot with a new event log.
+		const frame = await rec.waitFor((f) => f.event.type === "session.snapshot", from);
+		const snapshot = (frame.event as unknown as { snapshot: SessionSnapshot }).snapshot;
+		expect(userTexts(snapshot.messages)).toEqual([JSON.stringify([{ type: "text", text: "first question" }])]);
+		expect(snapshot.seq).toBe(0);
+
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "edited question" });
+		await rec.waitForType("agent_settled", from);
+		const after = await client.request("session.forkPoints", { sessionId: session.id });
+		// Only the current branch: the replaced message stays in the file, but not in the list.
+		expect(after.points.map((p) => p.text)).toEqual(["first question", "edited question"]);
+		expect(readFileSync(session.path ?? "", "utf8")).toContain("second question");
+		const current = await client.request("session.snapshot", { sessionId: session.id });
+		expect(rec.text()).toContain("answer edited");
+		const roles = (messages: unknown[]) =>
+			(messages as Array<{ role: string }>).map((m) => m.role).filter((role) => role !== "system");
+		expect(roles(current.messages)).toEqual(["user", "assistant", "user", "assistant"]);
+
+		// Going back to the first message empties the conversation; the next prompt starts it over.
+		await client.request("session.rewind", { sessionId: session.id, entryId: after.points[0]?.entryId ?? "" });
+		expect(roles((await client.request("session.snapshot", { sessionId: session.id })).messages)).toEqual([]);
+		from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "fresh start" });
+		await rec.waitForType("agent_settled", from);
+		const restarted = await client.request("session.forkPoints", { sessionId: session.id });
+		expect(restarted.points.map((p) => p.text)).toEqual(["fresh start"]);
+		await expectError(client.request("session.rewind", { sessionId: session.id, entryId: "missing" }), "BAD_REQUEST");
 	});
 
 	it("closes, reopens from the list, and refuses paths outside the workspace", async () => {

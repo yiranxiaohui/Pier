@@ -268,6 +268,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"session.archive",
 	"session.cleanup",
 	"session.fork",
+	"session.rewind",
 	"session.rename",
 	"session.prompt",
 	"session.steer",
@@ -1750,6 +1751,12 @@ export class PierHost implements RequestHandler {
 				return selectedText === undefined
 					? { session: session.summary() }
 					: { session: session.summary(), selectedText };
+			},
+			"session.rewind": async (_ctx, params) => {
+				const session = this.pool.require(params.sessionId);
+				await session.rewind(params.entryId);
+				this.broadcast({ type: "session.listChanged", workspaceId: session.workspaceId });
+				return { session: session.summary() };
 			},
 			"session.rename": async (_ctx, params) => {
 				const summary = await this.pool.require(params.sessionId).rename(params.name);

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeProjectKey } from "../src/claude/claude-runtime.ts";
 import type { ClaudeSdk } from "../src/claude/claude-session.ts";
@@ -64,7 +64,7 @@ export class FakeClaude {
 
 	constructor(private readonly configDir: string) {}
 
-	private file(session: FakeSession): string {
+	private file(session: Pick<FakeSession, "id" | "cwd">): string {
 		const dir = join(this.configDir, "projects", claudeProjectKey(session.cwd));
 		mkdirSync(dir, { recursive: true });
 		return join(dir, `${session.id}.jsonl`);
@@ -132,8 +132,29 @@ export class FakeClaude {
 		this.live = { id, output };
 		const canUseTool = options.canUseTool as (n: string, i: Json, o: Json) => Promise<{ behavior: string }>;
 		let abort = new AbortController();
+		// Like Claude Code: a new session cannot take the id of a stored one, and starts empty.
+		const fresh = options.resume === undefined;
+		const inUse = fresh && existsSync(this.file({ id, cwd }));
+		if (fresh && !inUse) this.sessions.delete(id);
+		// `resumeSessionAt`: the prompt continues after that entry, the ones after it leave the chain.
+		let resumeAt = typeof options.resumeSessionAt === "string" ? options.resumeSessionAt : undefined;
 		const run = async () => {
+			if (inUse) {
+				output.push({
+					type: "result",
+					subtype: "error_during_execution",
+					errors: [`Session ID ${id} is already in use.`],
+				});
+				output.close();
+				return;
+			}
 			for await (const input of params.prompt) {
+				const resumed = this.sessions.get(id);
+				if (resumed && resumeAt !== undefined) {
+					const end = resumed.entries.findIndex((e) => e.uuid === resumeAt);
+					if (end !== -1) resumed.entries = resumed.entries.slice(0, end + 1);
+					resumeAt = undefined;
+				}
 				let session = this.sessions.get(id);
 				if (!session) {
 					session = {

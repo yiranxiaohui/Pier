@@ -189,6 +189,7 @@ export class SessionPool {
 			},
 			onActivity: (session) => this.options.onSessionActivity?.(session),
 			isArchived: (sessionId) => this.options.archive.has(sessionId),
+			trashFile: (file) => moveToTrash(file, this.options.trashDir),
 		};
 	}
 

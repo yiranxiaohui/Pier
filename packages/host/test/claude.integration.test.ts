@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,6 +14,7 @@ import {
 import type { PierClient } from "@pier/client";
 import type { SessionSummary, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { claudeProjectKey } from "../src/claude/claude-runtime.ts";
 import { FakeClaude, streamText } from "./fake-claude.ts";
 import { Recorder, startTestHost, type TestHost } from "./helpers.ts";
 
@@ -390,6 +391,68 @@ describe("Claude Code runtime", () => {
 		expect(snapshot.messages.map((m) => (m as { role: string }).role)).toEqual(["user", "assistant"]);
 
 		await expect(client.request("session.reload", { sessionId: session.id })).rejects.toThrow(/do not support/);
+	});
+
+	it("rewinds in place: resumes at the kept entry, or starts over from the first message (1.72)", async () => {
+		fake.responder = async function* (ctx) {
+			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
+		};
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		const users = () =>
+			buildTranscript(state())
+				.filter((i) => i.kind === "user")
+				.map((i) => (i.kind === "user" ? i.text : ""));
+		const texts = async () =>
+			(await client.request("session.forkPoints", { sessionId: session.id })).points.map((p) => p.text);
+		const send = async (text: string) => {
+			const mark = rec.mark();
+			await client.request("session.prompt", { sessionId: session.id, text });
+			await rec.waitForType("agent_settled", mark);
+		};
+		await send("one");
+		await send("two");
+		await client.request("session.rename", { sessionId: session.id, name: "Kept title" });
+		const entries = fake.sessions.get(session.id)?.entries ?? [];
+		const second = entries.findIndex((e) => e.type === "user" && (e.message as { content: unknown }).content === "two");
+		const keptEntry = entries[second - 1]?.uuid;
+		const { points } = await client.request("session.forkPoints", { sessionId: session.id });
+
+		const closes = fake.closes;
+		await client.request("session.rewind", { sessionId: session.id, entryId: points[1]?.entryId ?? "" });
+		expect(fake.closes).toBe(closes + 1);
+		await expect.poll(users).toEqual(["one"]);
+		// Until the next prompt the stored chain is longer; the session already continues the shorter one.
+		expect(await texts()).toEqual(["one"]);
+		await send("two again");
+		expect(fake.options.at(-1)).toMatchObject({ resume: session.id, resumeSessionAt: keptEntry });
+		expect(await texts()).toEqual(["one", "two again"]);
+		expect(users()).toEqual(["one", "two again"]);
+		// A later process (here restarted for a context limit) resumes the new branch as usual.
+		const started = fake.options.length;
+		await client.request("contextLimit.set", { sessionId: session.id, limit: 150_000 });
+		await send("three");
+		expect(fake.options).toHaveLength(started + 1);
+		expect(fake.options.at(-1)).toMatchObject({ resume: session.id });
+		expect(fake.options.at(-1)).not.toHaveProperty("resumeSessionAt");
+		expect(await texts()).toEqual(["one", "two again", "three"]);
+
+		// Claude Code cannot resume a session at its start: the file goes to Pier's trash and the
+		// session starts over under the same id, with its title written again.
+		const file = join(configDir, "projects", claudeProjectKey(t.workspaceDir), `${session.id}.jsonl`);
+		const restart = await client.request("session.forkPoints", { sessionId: session.id });
+		await client.request("session.rewind", { sessionId: session.id, entryId: restart.points[0]?.entryId ?? "" });
+		expect(existsSync(file)).toBe(false);
+		expect(readdirSync(join(t.root, "pier", "trash", "sessions"))).toEqual([expect.stringContaining(session.id)]);
+		await expect.poll(users).toEqual([]);
+		expect(await texts()).toEqual([]);
+		await send("fresh");
+		expect(fake.options.at(-1)).toMatchObject({ sessionId: session.id });
+		expect(fake.options.at(-1)).not.toHaveProperty("resume");
+		expect(rec.text()).toContain("reply to fresh");
+		expect(await texts()).toEqual(["fresh"]);
+		expect(fake.sessions.get(session.id)?.title).toBe("Kept title");
+		expect((await client.request("session.snapshot", { sessionId: session.id })).session.name).toBe("Kept title");
 	});
 
 	it("limits the context through Claude Code's autoCompactWindow, restarting it once idle (1.64)", async () => {

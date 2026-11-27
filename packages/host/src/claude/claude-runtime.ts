@@ -317,7 +317,11 @@ export class ClaudeCodeRuntime implements AgentRuntime {
 		if (source.busy) throw new PierProtocolError("CONFLICT", "Wait for the agent to finish before forking");
 		const cwd = options.workspace().path;
 		const sdk = await this.sdk();
-		const entries = await sdk.getSessionMessages(source.id, { dir: cwd });
+		// After `session.rewind` the session continues an earlier part of its file.
+		const entries =
+			source instanceof ClaudeCodeSession
+				? await source.storedEntries()
+				: await sdk.getSessionMessages(source.id, { dir: cwd });
 		const index = entries.findIndex((e) => e.uuid === entryId);
 		const entry = entries[index];
 		if (entry?.type !== "user") throw new PierProtocolError("BAD_REQUEST", "Invalid entry ID for forking");

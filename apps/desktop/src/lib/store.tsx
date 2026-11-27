@@ -4,6 +4,7 @@ import {
 	type ChatView,
 	cacheableChatState,
 	localTimeZone,
+	stripImageHints,
 	usageSince,
 } from "@pier/chat-state";
 import { CLOSE_DEVICE_REVOKED, type ClientState, PierClient } from "@pier/client";
@@ -324,6 +325,30 @@ export interface ComposerAttachment {
 export interface ComposerHandle {
 	insertFile(path: string, directory: boolean): void;
 	attach(attachment: ComposerAttachment): void;
+	/** Put back a message that could not be sent, after what the composer already has. */
+	restore(draft: Draft): void;
+}
+
+/**
+ * The session's fork point for a user message of the transcript, which has no entry ids. The fork
+ * points are the same user messages in order (older ones may only be there after a compaction), so
+ * count `fromEnd` (the user messages after it) from the end, and check the text: older pi hosts
+ * keep pi's image notes in it, and list the messages of every branch.
+ */
+export function editedMessagePoint<P extends { entryId: string; text: string }>(
+	points: readonly P[],
+	text: string,
+	fromEnd: number,
+): P | undefined {
+	const same = (point: P | undefined) => point !== undefined && stripImageHints(point.text).trim() === text.trim();
+	const counted = points[points.length - 1 - fromEnd];
+	return same(counted) ? counted : points.findLast(same);
+}
+
+/** `draft` with `restored` (a message that could not be sent) after its text and images. */
+export function restoreToDraft(draft: Draft, restored: Draft): Draft {
+	const text = draft.text.trim() ? `${draft.text.replace(/\s+$/, "")}\n${restored.text}` : restored.text;
+	return { ...draft, text, images: [...draft.images, ...restored.images].slice(0, 16) };
 }
 
 /** Add an attachment to a draft; at most 16 images, as when pasting. */
@@ -2888,6 +2913,13 @@ export class PierStore {
 		else this.saveDraft(sessionId, attachToDraft(this.draft(sessionId), attachment));
 	}
 
+	/** Put a message that could not be sent back into the session's composer (or its saved draft). */
+	restoreToComposer(sessionId: string, draft: Draft): void {
+		const composer = this.composers.get(sessionId);
+		if (composer) composer.restore(draft);
+		else this.saveDraft(sessionId, restoreToDraft(this.draft(sessionId), draft));
+	}
+
 	/**
 	 * Insert a workspace file (or directory) chip at the cursor of the session's composer, or
 	 * append it to the saved draft when that composer is not on screen.
@@ -3447,37 +3479,56 @@ export class PierStore {
 	}
 
 	/**
-	 * Send an edited copy of an earlier message: fork the session just before it, which keeps what
-	 * was said until then, and send the new text with the message's images in the fork. The original
-	 * session stays as it was. `fromEnd` counts the user messages after it in the transcript.
+	 * Send an edited version of an earlier message, as in ChatGPT. Hosts that can go back in a
+	 * session (`session.rewind`, 1.72) drop the message and everything after it from the session
+	 * itself and send the edit there; if that send fails, the edit goes to the composer so it is not
+	 * lost. Older hosts fork the session just before the message and send the edit in the fork,
+	 * leaving the original as it was. `fromEnd` counts the user messages after it in the transcript.
 	 */
 	async resendEdited(
 		session: SessionSummary,
-		original: { text: string; images: ReadonlyArray<{ data: string; mimeType: string }> },
+		original: { text: string },
 		fromEnd: number,
-		text: string,
+		edit: { text: string; images: ReadonlyArray<{ data: string; mimeType: string; name?: string }> },
 	): Promise<boolean> {
-		const forked = await this.callWith(this.clientFor(session.workspaceId), "编辑消息", async (c) => {
-			const { points } = await c.request("session.forkPoints", { sessionId: session.id });
-			// The transcript has no entry ids. The fork points are the same user messages in order (older
-			// ones may only be there after a compaction), so count from the end, and check the text.
-			const same = (point: { text: string } | undefined) => point?.text.trim() === original.text.trim();
-			const counted = points[points.length - 1 - fromEnd];
-			const point = same(counted) ? counted : points.findLast(same);
-			if (!point) throw new Error("找不到这条消息在会话里的位置");
-			return c.request("session.fork", { sessionId: session.id, entryId: point.entryId, position: "before" });
-		});
-		if (!forked) return false;
-		const images = original.images.map((image, i) => ({
+		const controller = this.chats.get(session.id);
+		const inPlace = controller?.chat.capabilities?.rewind === true;
+		const images = edit.images.map((image, i) => ({
 			data: image.data,
 			mimeType: image.mimeType,
-			name: `image-${i + 1}`,
+			name: image.name ?? `image-${i + 1}`,
 		}));
-		this.saveDraft(forked.session.id, { text, images });
-		this.autoSend.add(forked.session.id);
-		this.upsertSession(forked.session);
-		this.selectSession(forked.session);
-		return true;
+		const done = await this.callWith(this.clientFor(session.workspaceId), "编辑消息", async (c) => {
+			const { points } = await c.request("session.forkPoints", { sessionId: session.id });
+			const point = editedMessagePoint(points, original.text, fromEnd);
+			if (!point) throw new Error("找不到这条消息在会话里的位置");
+			if (inPlace) {
+				await c.request("session.rewind", { sessionId: session.id, entryId: point.entryId });
+				return { forked: undefined };
+			}
+			const forked = await c.request("session.fork", {
+				sessionId: session.id,
+				entryId: point.entryId,
+				position: "before",
+			});
+			return { forked: forked.session };
+		});
+		if (!done) return false;
+		if (done.forked) {
+			this.saveDraft(done.forked.id, { text: edit.text, images });
+			this.autoSend.add(done.forked.id);
+			this.upsertSession(done.forked);
+			this.selectSession(done.forked);
+			return true;
+		}
+		const sent = await controller?.send(
+			edit.text,
+			images.map(({ data, mimeType }) => ({ type: "image" as const, data, mimeType })),
+			"auto",
+		);
+		if (sent !== undefined) return true;
+		this.restoreToComposer(session.id, { text: edit.text, images });
+		return false;
 	}
 
 	// ---- drafts ------------------------------------------------------------------------

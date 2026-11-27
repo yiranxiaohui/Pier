@@ -1,6 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import { stripImageHints } from "@pier/chat-state";
+import { stripImageHints, userText } from "@pier/chat-state";
 import {
 	type AgentRuntimeCapabilities,
 	type ApprovalDetails,
@@ -41,6 +41,7 @@ export const PI_CAPABILITIES: AgentRuntimeCapabilities = {
 	followUp: true,
 	compact: true,
 	fork: true,
+	rewind: true,
 	rename: true,
 	setModel: true,
 	thinking: true,
@@ -564,8 +565,37 @@ export class PiManagedSession extends ManagedSession {
 		await this.runtime.session.reload();
 	}
 
+	/**
+	 * The user messages of the current branch, as the transcript shows them (without pi's image
+	 * notes). pi's own list (`getUserMessagesForForking`) has those of every branch in the file.
+	 */
 	override forkPoints(): Array<{ entryId: string; text: string }> {
-		return this.runtime.session.getUserMessagesForForking();
+		const points: Array<{ entryId: string; text: string }> = [];
+		for (const entry of this.runtime.session.sessionManager.getBranch()) {
+			if (entry.type !== "message" || entry.message.role !== "user") continue;
+			points.push({ entryId: entry.id, text: userText(entry.message.content) });
+		}
+		return points;
+	}
+
+	/**
+	 * pi's tree navigation, as `/tree` does it: the leaf moves to the message's parent, so the next
+	 * prompt starts a new branch there; the old branch stays in the session file.
+	 */
+	protected override async rewindTo(entryId: string): Promise<void> {
+		this.assertWritable();
+		const session = this.runtime.session;
+		if (!this.forkPoints().some((point) => point.entryId === entryId)) {
+			throw new PierProtocolError("BAD_REQUEST", "Invalid entry ID for rewinding");
+		}
+		let result: Awaited<ReturnType<AgentSession["navigateTree"]>>;
+		try {
+			result = await session.navigateTree(entryId);
+		} catch (error) {
+			throw new PierProtocolError("CONFLICT", errorMessage(error));
+		}
+		if (result.cancelled) throw new PierProtocolError("CONFLICT", "An extension cancelled going back");
+		this.loadSubagents(session);
 	}
 
 	protected async disposeRuntime(): Promise<void> {

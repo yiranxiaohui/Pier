@@ -42,6 +42,7 @@ import {
 	effortToLevel,
 	levelToEffort,
 	reasoningText,
+	storedSubagents,
 	toolCallFor,
 	toolResultFor,
 	userInputContent,
@@ -52,6 +53,7 @@ export const CODEX_CAPABILITIES: AgentRuntimeCapabilities = {
 	followUp: true,
 	compact: true,
 	fork: true,
+	rewind: true,
 	rename: true,
 	setModel: true,
 	thinking: true,
@@ -1277,6 +1279,33 @@ export class CodexSession extends ManagedSession {
 	/** Turn ids in order, for forking. */
 	turnIds(): string[] {
 		return this.forkPoints().map((p) => p.entryId);
+	}
+
+	/**
+	 * Codex replaces the thread's stored history with the turns before the message's turn
+	 * (`thread/revert`, which needs a thread with paginated history) and continues from there.
+	 * Files the dropped turns changed stay as they are.
+	 */
+	protected override async rewindTo(entryId: string): Promise<void> {
+		if (!this.turnIds().includes(entryId)) {
+			throw new PierProtocolError("BAD_REQUEST", "Invalid entry ID for rewinding");
+		}
+		try {
+			await this.host.server().request("thread/revert", { threadId: this.threadId, beforeTurnId: entryId });
+		} catch (error) {
+			throw new PierProtocolError("CONFLICT", `Codex could not go back in this thread: ${errorMessage(error)}`);
+		}
+		const turns = await this.host.turns(this.threadId);
+		this.transcript.load(convertTurns(turns));
+		// Forget the sub-agents the dropped turns started.
+		const stored = storedSubagents(turns);
+		const kept = new Set(stored.map((subagent) => subagent.id));
+		for (const [threadId, child] of this.children) {
+			if (kept.has(threadId)) continue;
+			child.unadopt?.();
+			this.children.delete(threadId);
+		}
+		this.subagents.load(stored.map((subagent) => this.subagents.get(subagent.id) ?? subagent));
 	}
 
 	protected async disposeRuntime(): Promise<void> {

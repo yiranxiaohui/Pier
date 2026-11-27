@@ -68,6 +68,8 @@ export interface ManagedSessionOptions {
 	isArchived?: (sessionId: string) => boolean;
 	/** Context limit the session starts with (`contextLimit.set`, 1.64). */
 	contextLimit?: number;
+	/** Move a session file to Pier's trash, as `session.delete` does; returns where it went. */
+	trashFile?: (file: string) => string;
 }
 
 /** Summary fields a runtime reports about its session; the base class adds the live state. */
@@ -486,6 +488,27 @@ export abstract class ManagedSession {
 
 	forkPoints(): Array<{ entryId: string; text: string }> | Promise<Array<{ entryId: string; text: string }>> {
 		throw this.unsupported("forking");
+	}
+
+	/**
+	 * Go back in this session to just before the user message `entryId` (one of `forkPoints`, 1.72):
+	 * the message and everything after it leave the conversation, the next prompt continues from
+	 * the message before it. The conversation changed under every event logged so far, so the log
+	 * starts over and subscribers get a new snapshot.
+	 */
+	async rewind(entryId: string): Promise<void> {
+		if (!this.capabilities.rewind) throw this.unsupported("rewinding");
+		if (this.busy) throw new PierProtocolError("CONFLICT", "Wait for the agent to finish before rewinding");
+		await this.rewindTo(entryId);
+		this.lastActivity = Date.now();
+		this.resetLog();
+		this.sendSnapshotToAll();
+		this.options.onActivity?.(this);
+	}
+
+	/** Runtime part of `rewind`: drop `entryId` and what follows it from the conversation. */
+	protected rewindTo(_entryId: string): Promise<void> {
+		return Promise.reject(this.unsupported("rewinding"));
 	}
 
 	respondUi(requestId: string, response: UiResponse, by: string): boolean {

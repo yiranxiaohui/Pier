@@ -475,6 +475,16 @@ const handlers = {
 		replayTokenUsage(thread);
 		return { thread: threadView(thread), model: thread.model, reasoningEffort: null, serviceTier: thread.serviceTier };
 	},
+	"thread/revert": (params) => {
+		const thread = threads.get(params.threadId);
+		if (!thread) throw new Error(`no rollout found for thread id ${params.threadId}`);
+		if (active.has(thread.id)) throw new Error("thread has an active turn");
+		const end = thread.turns.findIndex((t) => t.id === params.beforeTurnId);
+		if (end === -1) throw new Error(`unknown turn ${params.beforeTurnId}`);
+		thread.turns = thread.turns.slice(0, end);
+		afterResponse.push(() => notify("thread/reverted", { threadId: thread.id }));
+		return { thread: threadView(thread), turnsBackwardsCursor: null, itemsBackwardsCursor: null };
+	},
 	"thread/settings/update": (params) => {
 		if (!experimentalApi) throw new Error("thread/settings/update requires experimentalApi capability");
 		const thread = threads.get(params.threadId);

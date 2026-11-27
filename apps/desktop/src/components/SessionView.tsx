@@ -287,7 +287,7 @@ export function SessionView({ session }: { session: SessionSummary }) {
 	const nodeOnline = useAppState((s) => s.nodes[node]?.connection === "open");
 	useAppState((s) => s.peers);
 	const editMessage = useCallback<EditMessage>(
-		(item, fromEnd, text) => store.resendEdited(session, item, fromEnd, text),
+		(item, fromEnd, edit) => store.resendEdited(session, item, fromEnd, edit),
 		[store, session],
 	);
 
@@ -303,8 +303,11 @@ export function SessionView({ session }: { session: SessionSummary }) {
 		);
 	}
 	const { chat, error } = view;
-	// Editing forks the session; offered while it is idle, so the fork has a settled history.
-	const canEdit = chat.capabilities?.fork !== false && (chat.runState === "idle" || chat.runState === "inactive");
+	// Editing goes back in the session (`rewind`, 1.72), or forks it on older hosts; offered while
+	// the session is idle, so the conversation it changes has settled.
+	const editInPlace = chat.capabilities?.rewind === true;
+	const canEdit =
+		(editInPlace || chat.capabilities?.fork !== false) && (chat.runState === "idle" || chat.runState === "inactive");
 	return (
 		<div className="session-view">
 			<header className="session-header">
@@ -332,6 +335,7 @@ export function SessionView({ session }: { session: SessionSummary }) {
 				workspaceId={session.workspaceId}
 				scope={scope}
 				onEdit={canEdit ? editMessage : undefined}
+				editInPlace={editInPlace}
 			/>
 			<div className="session-bottom">
 				<Banners chat={chat} />

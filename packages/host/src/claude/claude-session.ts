@@ -7,6 +7,7 @@ import type {
 	Query,
 	SDKMessage,
 	SDKUserMessage,
+	SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
 	type AgentRuntimeCapabilities,
@@ -63,6 +64,7 @@ export const CLAUDE_CAPABILITIES: AgentRuntimeCapabilities = {
 	followUp: true,
 	compact: true,
 	fork: true,
+	rewind: true,
 	rename: true,
 	setModel: true,
 	thinking: true,
@@ -191,6 +193,11 @@ export class ClaudeCodeSession extends ManagedSession {
 	/** The context limit changed while Claude Code was busy: restart it once the run ends. */
 	private restartForLimit = false;
 	/**
+	 * Set by `rewind`: the last stored entry the conversation keeps. The next process resumes the
+	 * session at it (`resumeSessionAt`), so the next prompt continues there in the same file.
+	 */
+	private resumeAt: string | undefined;
+	/**
 	 * Claude Code's live background tasks (background shell commands, backgrounded subagents, MCP
 	 * tasks), without the ambient ones. They run inside its process and report back to the
 	 * conversation when they finish, so the process must outlive them: while any runs, the session
@@ -280,10 +287,16 @@ export class ClaudeCodeSession extends ManagedSession {
 			throw new PierProtocolError("CONFLICT", "Claude Code (`claude`) is not installed on this computer");
 		const sdk = await this.host.sdk();
 		const input = new InputQueue<SDKUserMessage>();
+		const persisted = this.persisted;
+		const resumeAt = persisted ? this.resumeAt : undefined;
+		// Every caller sends something right away, which Claude Code writes after that entry: the
+		// file's latest branch then starts there, and later processes resume it as usual.
+		this.resumeAt = undefined;
 		const options: Options = {
 			cwd: this.workspacePath,
 			pathToClaudeCodeExecutable: executable,
-			...(this.persisted ? { resume: this.sessionId } : { sessionId: this.sessionId }),
+			...(persisted ? { resume: this.sessionId } : { sessionId: this.sessionId }),
+			...(resumeAt ? { resumeSessionAt: resumeAt } : {}),
 			includePartialMessages: true,
 			systemPrompt: { type: "preset", preset: "claude_code" },
 			settingSources: ["user", "project", "local"],
@@ -1394,13 +1407,59 @@ export class ClaudeCodeSession extends ManagedSession {
 		return this.host.commands();
 	}
 
-	override async forkPoints(): Promise<Array<{ entryId: string; text: string }>> {
+	/**
+	 * The stored conversation as the session continues it: up to the entry `rewind` went back to
+	 * while no prompt has been sent since. Empty while nothing is stored.
+	 */
+	async storedEntries(): Promise<SessionMessage[]> {
 		if (!this.persisted) return [];
 		const sdk = await this.host.sdk();
 		const entries = await sdk.getSessionMessages(this.sessionId, { dir: this.workspacePath });
-		return convertTranscript(entries)
+		if (!this.resumeAt) return entries;
+		const end = entries.findIndex((e) => e.uuid === this.resumeAt);
+		return end === -1 ? entries : entries.slice(0, end + 1);
+	}
+
+	override async forkPoints(): Promise<Array<{ entryId: string; text: string }>> {
+		return convertTranscript(await this.storedEntries())
 			.filter((m): m is UserMessage => m.role === "user" && m.entryId !== undefined)
 			.map((m) => ({ entryId: m.entryId as string, text: userContentText(m.content) }));
+	}
+
+	/**
+	 * Keep the stored entries before the message: the next process resumes the session at the
+	 * last of them (`resumeSessionAt`) and Claude Code writes the next prompt after it, in the same
+	 * file, where the dropped entries stay. Claude Code cannot resume a session at its start, so
+	 * going back to the first message moves the file to Pier's trash, and the session starts over
+	 * under the same id.
+	 */
+	protected override async rewindTo(entryId: string): Promise<void> {
+		const entries = await this.storedEntries();
+		const index = entries.findIndex((e) => e.uuid === entryId);
+		if (entries[index]?.type !== "user") throw new PierProtocolError("BAD_REQUEST", "Invalid entry ID for rewinding");
+		if (this.idleTimer) clearTimeout(this.idleTimer);
+		this.idleTimer = undefined;
+		this.stopProcess();
+		const kept = entries.slice(0, index);
+		const last = kept.at(-1);
+		if (last) this.resumeAt = last.uuid;
+		else {
+			const file = this.sessionFile;
+			if (file) this.options.trashFile?.(file);
+			if (this.sessionFile) throw new PierProtocolError("CONFLICT", "Could not move the session file to the trash");
+			this.resumeAt = undefined;
+			// The title was stored in the file: write it again once the new one exists.
+			if (this.name) this.pendingName = this.name;
+		}
+		const messages = convertTranscript(kept);
+		this.transcript.load(messages);
+		const agents = storedSubagents(messages, true);
+		this.subagents.load(agents.map((a) => a.info));
+		this.agentIds.clear();
+		this.agentTasks.clear();
+		this.taskAgents.clear();
+		this.childMessages.clear();
+		for (const agent of agents) if (agent.agentId) this.agentIds.set(agent.info.id, agent.agentId);
 	}
 
 	protected async disposeRuntime(): Promise<void> {
