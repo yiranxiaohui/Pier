@@ -1,10 +1,10 @@
 import { agentRuntimeLabel } from "@pier/chat-state";
 import type { ApprovalPolicy, PeerInfo, SessionSummary, WorkspaceInfo } from "@pier/protocol";
 import { DEFAULT_AGENT_RUNTIME } from "@pier/protocol";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { sessionActivity } from "../lib/agent-activity.ts";
 import { POLICY_DESCRIPTION, POLICY_LABEL, relativeTime, sessionTitle } from "../lib/format.ts";
-import { SESSION_PAGE, SESSION_PREVIEW, sessionWindow } from "../lib/session-list.ts";
+import { SESSION_PAGE, SESSION_PREVIEW, sessionListTime, sessionWindow, sortSessions } from "../lib/session-list.ts";
 import {
 	type ComputerInfo,
 	LOCAL_NODE,
@@ -299,6 +299,8 @@ function SessionItem({
 	const running = sessionActivity(store, session).active;
 	const archived = !!session.archived;
 	const runtime = session.runtime ?? DEFAULT_AGENT_RUNTIME;
+	const byActivity = useAppState((s) => s.sortSessionsByActivity);
+	const time = Date.parse(sessionListTime(session, byActivity));
 	return (
 		<div className={`session-item${confirm ? " confirming" : ""}${archived ? " archived" : ""}`}>
 			<button
@@ -316,7 +318,16 @@ function SessionItem({
 				</span>
 				<span className="session-row-title">{sessionTitle(session)}</span>
 				<SessionBadge session={session} />
-				<span className="session-row-time">{relativeTime(session.modifiedAt)}</span>
+				<span
+					className="session-row-time"
+					title={
+						Number.isFinite(time)
+							? `${byActivity ? "最近活动" : "创建于"} ${new Date(time).toLocaleString()}`
+							: undefined
+					}
+				>
+					{relativeTime(time)}
+				</span>
 			</button>
 			<span className="session-actions">
 				{canArchive && !confirm ? (
@@ -400,6 +411,8 @@ function WorkspaceGroup({
 	const nodeName = store.nodeName(node);
 	const expanded = useAppState((s) => !!s.expanded[workspace.id]);
 	const sessions = useAppState((s) => s.sessions[workspace.id]);
+	const byActivity = useAppState((s) => s.sortSessionsByActivity);
+	const sorted = useMemo(() => sessions && sortSessions(sessions, byActivity), [sessions, byActivity]);
 	useAppState((s) => s.chatsVersion);
 	const runningCount = online ? (sessions?.filter((session) => sessionActivity(store, session).active).length ?? 0) : 0;
 	const selectedSessionId = useAppState((s) => s.selectedSessionId);
@@ -411,10 +424,10 @@ function WorkspaceGroup({
 	const [showArchived, setShowArchived] = useState(false);
 	const [cleanup, setCleanup] = useState(false);
 	const selected = selectedWorkspaceId === workspace.id && !selectedSessionId && !newChat;
-	const current = sessions?.filter((s) => !s.archived);
+	const current = sorted?.filter((s) => !s.archived);
 	const selectedIndex = current?.findIndex((s) => s.id === selectedSessionId) ?? -1;
 	const list = sessionWindow(current?.length ?? 0, limit, selectedIndex);
-	const archived = sessions?.filter((s) => s.archived) ?? [];
+	const archived = sorted?.filter((s) => s.archived) ?? [];
 	const archivedList = sessionWindow(archived.length, archivedLimit, -1);
 	// An archived session that is open keeps the archive expanded, so it stays visible.
 	const archivedOpen = showArchived || archived.some((s) => s.id === selectedSessionId);

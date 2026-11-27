@@ -81,6 +81,7 @@ import { fileToken } from "./composer-text.ts";
 import { workspaceNameError } from "./file-names.ts";
 import { imageFileName, parseDataUrl } from "./image-clipboard.ts";
 import { newSessionDefaultsFromSettings } from "./new-session-defaults.ts";
+import { withSessionActivity } from "./session-list.ts";
 import { remotePageBlocker } from "./settings-target.ts";
 import { beginWorkspacePaste, finishWorkspacePaste, renameWorkspaceClipboardPath } from "./workspace-clipboard.ts";
 import { movedToLine } from "./yunlian.ts";
@@ -493,6 +494,11 @@ export interface AppState {
 	sidebar: boolean;
 	/** Width of the left-hand sidebar in pixels. */
 	sidebarWidth: number;
+	/**
+	 * The sidebar lists sessions by latest activity, so one that starts running moves to the top;
+	 * off (the default), by creation time. Remembered on this device (`pier.sessionSort`).
+	 */
+	sortSessionsByActivity: boolean;
 	/** The right-hand workspace file panel is shown. */
 	filesPanel: boolean;
 	/** Width of the file panel in pixels. */
@@ -650,6 +656,8 @@ export function isRightPanelViewShown(state: AppState, view: RightPanelView): bo
 	return state.filesPanel && state.rightPanelTab === view && !state.filePreviewShown;
 }
 const SIDEBAR_KEY = "pier.sidebar";
+/** `activity` when the sidebar sorts sessions by latest activity (see `sortSessionsByActivity`). */
+const SESSION_SORT_KEY = "pier.sessionSort";
 const WORKSPACE_ORDER_KEY = "pier.workspaceOrder";
 export const SIDEBAR_MIN_WIDTH = 180;
 export const SIDEBAR_MAX_WIDTH = 480;
@@ -871,6 +879,7 @@ export class PierStore {
 			update: { state: "idle", currentVersion: APP_VERSION, autoCheck: true, downloaded: 0 },
 			sidebar: sidebar.open !== false,
 			sidebarWidth: clampSidebarWidth(sidebar.width ?? SIDEBAR_DEFAULT_WIDTH),
+			sortSessionsByActivity: localStorage.getItem(SESSION_SORT_KEY) === "activity",
 			filesPanel: panel.open === true,
 			filesPanelWidth: clampPanelWidth(panel.width ?? FILES_PANEL_DEFAULT_WIDTH),
 			rightPanelTabs: panelTabs.tabs,
@@ -933,6 +942,9 @@ export class PierStore {
 		}
 		if ("sidebar" in next || "sidebarWidth" in next) {
 			localStorage.setItem(SIDEBAR_KEY, JSON.stringify({ open: this.state.sidebar, width: this.state.sidebarWidth }));
+		}
+		if ("sortSessionsByActivity" in next) {
+			localStorage.setItem(SESSION_SORT_KEY, state.sortSessionsByActivity ? "activity" : "created");
 		}
 		if ("workspaceOrder" in next) {
 			localStorage.setItem(WORKSPACE_ORDER_KEY, JSON.stringify(state.workspaceOrder));
@@ -1379,15 +1391,10 @@ export class PierStore {
 			const sessionId = String(event.sessionId);
 			const state = event.state as SessionRunState;
 			const pendingUi = Number(event.pendingUi) || 0;
-			if (this.state.sessions[workspaceId]?.some((session) => session.id === sessionId)) {
-				this.set((s) => ({
-					sessions: {
-						...s.sessions,
-						[workspaceId]: s.sessions[workspaceId]?.map((session) =>
-							session.id === sessionId ? { ...session, state, pendingUi, active: true } : session,
-						),
-					},
-				}));
+			const listed = this.state.sessions[workspaceId];
+			const next = listed && withSessionActivity(listed, sessionId, state, pendingUi);
+			if (next) {
+				this.set((s) => ({ sessions: { ...s.sessions, [workspaceId]: next } }));
 				this.checkChats(workspaceId, sessionId);
 			} else {
 				this.scheduleRefresh(workspaceId);
@@ -2845,6 +2852,11 @@ export class PierStore {
 
 	setFilePreviewMode(mode: FilePreviewMode): void {
 		if (mode !== this.state.filePreviewMode) this.set({ filePreviewMode: mode });
+	}
+
+	/** Sort the sidebar's sessions by latest activity, or (`false`) by creation time. */
+	setSortSessionsByActivity(enabled: boolean): void {
+		if (enabled !== this.state.sortSessionsByActivity) this.set({ sortSessionsByActivity: enabled });
 	}
 
 	/** Set the preview panel's width; undefined goes back to following the window width. */
