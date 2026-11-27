@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { type ReadBytes, transferErrorMessage } from "../lib/file-transfers.ts";
 import { formatBytes } from "../lib/format.ts";
-import { loadMedia, MAX_MEDIA_BYTES, MEDIA_AUTOLOAD_BYTES, type MediaType } from "../lib/media-files.ts";
+import {
+	isDocument,
+	loadMedia,
+	MEDIA_AUTOLOAD_BYTES,
+	type MediaType,
+	maxPreviewBytes,
+	mediaWords,
+} from "../lib/media-files.ts";
+import { DocxPreview } from "./DocxPreview.tsx";
 import { IconAlert, IconFile, IconLoader, IconMusic, IconPlay } from "./Icons.tsx";
+import { PdfPreview } from "./PdfPreview.tsx";
 
 type MediaState =
 	| { phase: "idle" }
 	| { phase: "loading"; done: number; total: number }
-	| { phase: "ready"; url: string }
+	/** `url` (an object URL of `blob`) only for video and audio. */
+	| { phase: "ready"; blob: Blob; url?: string | undefined }
 	| { phase: "error"; message: string }
 	| { phase: "unplayable" };
 
@@ -25,16 +35,16 @@ function pauseWhenHidden(element: HTMLMediaElement | null): (() => void) | undef
 }
 
 /**
- * A video or audio file of the preview, played by the webview. The file is read in full first
- * (with progress); small files start loading right away, large ones on a click. Remount it (by
- * `key`) to read the file again.
+ * A video, audio file, PDF or Word document of the preview: media play in the webview, documents
+ * show in `PdfPreview` / `DocxPreview`. The file is read in full first (with progress); small files
+ * start loading right away, large ones on a click. Remount it (by `key`) to read the file again.
  */
 export function MediaPreview({
 	name,
 	size,
 	type,
 	reader,
-	unavailable = "那台电脑的 Pier 版本过旧，无法在预览中播放，请先更新它",
+	unavailable,
 }: {
 	name: string;
 	/** Size of the file on disk, from reading it for the preview. */
@@ -42,11 +52,13 @@ export function MediaPreview({
 	type: MediaType;
 	/** Opens a reader of the file's bytes (it may throw); undefined when the file cannot be read in chunks. */
 	reader: (() => ReadBytes) | undefined;
-	/** Why the file cannot be played, shown when `reader` is undefined. */
+	/** Why the file cannot be shown, when `reader` is undefined. */
 	unavailable?: string | undefined;
 }) {
-	const label = type.kind === "video" ? "视频" : "音频";
-	const tooLarge = size > MAX_MEDIA_BYTES;
+	const words = mediaWords(type);
+	const { noun, verb, before, after } = words;
+	const document = isDocument(type);
+	const tooLarge = size > maxPreviewBytes(type);
 	/** Bumped to (re)start loading; 0 waits for a click. */
 	const [attempt, setAttempt] = useState(() => (size <= MEDIA_AUTOLOAD_BYTES ? 1 : 0));
 	const [state, setState] = useState<MediaState>({ phase: "idle" });
@@ -72,8 +84,8 @@ export function MediaPreview({
 					controller.signal,
 				);
 				if (controller.signal.aborted) return;
-				url = URL.createObjectURL(blob);
-				setState({ phase: "ready", url });
+				if (!document) url = URL.createObjectURL(blob);
+				setState({ phase: "ready", blob, url });
 			} catch (error) {
 				if (!controller.signal.aborted) setState({ phase: "error", message: transferErrorMessage(error) });
 			}
@@ -82,7 +94,7 @@ export function MediaPreview({
 			controller.abort();
 			if (url) URL.revokeObjectURL(url);
 		};
-	}, [attempt, tooLarge, canRead, size, type.mimeType]);
+	}, [attempt, tooLarge, canRead, size, type.mimeType, document]);
 
 	const cancel = () => {
 		setAttempt(0);
@@ -95,7 +107,7 @@ export function MediaPreview({
 		return (
 			<div className="file-viewer-empty">
 				<IconFile size={16} />
-				{unavailable}
+				{unavailable ?? `那台电脑的 Pier 版本过旧，无法在预览中${verb}，请先更新它`}
 			</div>
 		);
 	}
@@ -103,11 +115,14 @@ export function MediaPreview({
 		return (
 			<div className="file-viewer-empty">
 				<IconFile size={16} />
-				{label}太大（{formatBytes(size)}），无法在预览中播放，请下载后观看
+				{noun}
+				{after}太大（{formatBytes(size)}），无法在预览中{verb}，请{words.afterDownload}
 			</div>
 		);
 	}
 	if (shown.phase === "ready") {
+		if (type.kind === "pdf") return <PdfPreview data={shown.blob} />;
+		if (type.kind === "docx") return <DocxPreview data={shown.blob} />;
 		return type.kind === "video" ? (
 			<div className="file-viewer-media">
 				{/* biome-ignore lint/a11y/useMediaCaption: workspace videos come without caption tracks. */}
@@ -141,7 +156,7 @@ export function MediaPreview({
 		return (
 			<div className="file-viewer-empty">
 				<IconAlert size={16} />
-				无法播放这个{label}，格式或编码可能不受支持，可以下载后用本地播放器打开
+				无法播放这个{noun}，格式或编码可能不受支持，可以下载后用本地播放器打开
 			</div>
 		);
 	}
@@ -150,7 +165,10 @@ export function MediaPreview({
 			<div className="file-viewer-notice error">
 				<IconAlert size={20} />
 				<div>
-					<strong>无法加载{label}</strong>
+					<strong>
+						无法加载{before}
+						{noun}
+					</strong>
 					<p>{shown.message}</p>
 				</div>
 				<button type="button" className="subtle" onClick={() => setAttempt((n) => n + 1)}>
@@ -165,7 +183,8 @@ export function MediaPreview({
 			<div className="file-viewer-media-loading">
 				<span className="file-viewer-media-status">
 					<IconLoader size={14} className="spin" />
-					正在加载{label}… {formatBytes(shown.done)} / {formatBytes(shown.total)}
+					正在加载{before}
+					{noun}… {formatBytes(shown.done)} / {formatBytes(shown.total)}
 				</span>
 				<div className="update-progress-track">
 					<div
@@ -184,11 +203,12 @@ export function MediaPreview({
 	return (
 		<div className="file-viewer-media-loading">
 			<span className="file-viewer-media-status">
-				{label}较大（{formatBytes(size)}），需要先完整读取才能播放
+				{noun}
+				{after}较大（{formatBytes(size)}），需要先完整读取才能{verb}
 			</span>
 			<button type="button" className="primary small" onClick={() => setAttempt((n) => n + 1)}>
-				<IconPlay size={13} />
-				加载并播放
+				{document ? <IconFile size={13} /> : <IconPlay size={13} />}
+				加载并{verb}
 			</button>
 		</div>
 	);

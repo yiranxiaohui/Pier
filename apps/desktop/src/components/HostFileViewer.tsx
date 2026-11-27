@@ -3,7 +3,7 @@ import type { WorkspaceFileContent } from "@pier/protocol";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, relativeTime } from "../lib/format.ts";
 import { type FileScope, fileErrorText, scopeAbsolute, scopeFiles } from "../lib/host-files.ts";
-import { mediaType } from "../lib/media-files.ts";
+import { previewMediaType } from "../lib/media-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
 import { CodeEditor, type CodeEditorHandle, SAVE_SHORTCUT } from "./CodeEditor.tsx";
 import {
@@ -22,9 +22,9 @@ import { Modal } from "./Modal.tsx";
 
 /**
  * Preview of one file in the host file manager: text in VS Code's editor (Monaco), an image, a
- * video or audio player (when `canReadBytes`), or a note for other binary files. Text read in
- * full can be edited in place and saved with Ctrl/⌘+S; saving refuses to overwrite a file
- * changed on disk unless confirmed.
+ * video or audio player, PDF and Word documents as pages (those when `canReadBytes`), or a note
+ * for other binary files. Text read in full can be edited in place and saved with Ctrl/⌘+S;
+ * saving refuses to overwrite a file changed on disk unless confirmed.
  */
 export function HostFileViewer({
 	client,
@@ -42,7 +42,7 @@ export function HostFileViewer({
 	path: string;
 	name: string;
 	editable: boolean;
-	/** The host reads files in chunks (`FileAbilities.transfer`), which playing media needs. */
+	/** The host reads files in chunks (`FileAbilities.transfer`), which media and documents need. */
 	canReadBytes: boolean;
 	onClose: () => void;
 	onDownload?: (() => void) | undefined;
@@ -95,8 +95,9 @@ export function HostFileViewer({
 		};
 	}, [confirmed, load]);
 
-	const media = file?.kind === "binary" ? mediaType(path) : undefined;
-	const isText = file?.kind === "text";
+	const media = file ? previewMediaType(path, file.kind) : undefined;
+	// A PDF may decode as text, but shows as a document, not in the editor.
+	const isText = file?.kind === "text" && !media;
 	const canEdit = editable && isText && !file.truncated;
 	const readOnlyReason = !isText
 		? undefined

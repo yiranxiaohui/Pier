@@ -768,6 +768,140 @@ input.files-path-input.invalid {
 	font-variant-numeric: tabular-nums;
 }
 
+/* PDF and Word documents (PdfPreview, DocxPreview): white pages on the code surface under a slim
+   bar of page and zoom controls. */
+.document-preview {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	background: var(--bg-code);
+}
+
+.document-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 4px 12px;
+	padding: 4px 6px;
+	border-bottom: 1px solid var(--border);
+	background: var(--bg);
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.document-toolbar-spacer {
+	flex: 1;
+}
+
+.document-pages,
+.document-zoom {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.document-page-input {
+	width: 46px;
+	margin-left: 4px;
+	padding: 2px 6px;
+	border-radius: 6px;
+	font-size: 12px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+
+.document-page-count {
+	margin-left: 4px;
+	font-variant-numeric: tabular-nums;
+}
+
+.document-zoom-value {
+	min-width: 40px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+
+.document-zoom .segmented {
+	margin-left: 6px;
+}
+
+.document-zoom .segmented button {
+	padding: 2px 10px;
+	font-size: 12px;
+}
+
+.document-stage {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+}
+
+/* pdf.js requires its scrolling container to be absolutely positioned. */
+.pdf-preview-scroll,
+.docx-preview-scroll {
+	position: absolute;
+	inset: 0;
+	overflow: auto;
+	outline: none;
+}
+
+.pdf-preview .pdfViewer {
+	padding: 6px 0 12px;
+}
+
+.pdf-preview .pdfViewer .canvasWrapper {
+	box-shadow:
+		0 0 0 1px rgba(0, 0, 0, 0.06),
+		0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+/* The Word document renders into a shadow root of this element, zoomed with CSS `zoom`. Its
+   styles come from the file and may even restyle this host (`:host`), so the scrolling box keeps
+   whatever it positions, fixed or not, painted inside the preview. */
+.docx-preview-scroll {
+	contain: paint;
+}
+
+.docx-preview-pages {
+	display: block;
+}
+
+.document-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 24px;
+	background: var(--bg-code);
+	font-size: 13px;
+	color: var(--text-faint);
+	text-align: center;
+}
+
+.document-overlay:not(.document-password) {
+	flex-direction: row;
+}
+
+.document-password strong {
+	font-size: 14px;
+	color: var(--text);
+}
+
+.document-password-row {
+	display: flex;
+	gap: 8px;
+	margin-top: 6px;
+}
+
+.document-password-row input {
+	width: min(220px, 60vw);
+}
+
 .file-viewer-empty {
 	display: flex;
 	flex: 1;

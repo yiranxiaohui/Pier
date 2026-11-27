@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { downloadFile, fileBytesReader } from "../lib/file-transfers.ts";
 import { formatBytes, joinPath, relativeTime, relativeWorkspacePath } from "../lib/format.ts";
 import { filePreviewAuthorizationPath, filePreviewError } from "../lib/markdown-files.ts";
-import { mediaType } from "../lib/media-files.ts";
+import { isDocument, previewMediaType } from "../lib/media-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
 import {
 	hostAuthorizesFilePreviews,
@@ -77,10 +77,11 @@ function Breadcrumbs({ path }: { path: string }) {
  * One workspace file in the preview. Text opens in VS Code's editor (Monaco) with syntax
  * highlighting and, when the file was read in full and its computer accepts edits, can be edited
  * in place and saved with Ctrl/⌘+S. Markdown and HTML open rendered, with a source view to edit
- * them; images show as images, videos and audio in a player. `onInsert` inserts the path into
- * the composer when present (and closes the file after it with `closeOnInsert`). The file name
- * shows on its tab in `SidePanel`, so the viewer reports unsaved edits through `onDirtyChange`;
- * bumping `closeRequest` asks to close the file, which first offers to save unsaved edits.
+ * them; images show as images, videos and audio in a player, PDF and Word documents as pages.
+ * `onInsert` inserts the path into the composer when present (and closes the file after it with
+ * `closeOnInsert`). The file name shows on its tab in `SidePanel`, so the viewer reports unsaved
+ * edits through `onDirtyChange`; bumping `closeRequest` asks to close the file, which first offers
+ * to save unsaved edits.
  */
 export function FileViewer({
 	workspaceId,
@@ -187,8 +188,10 @@ export function FileViewer({
 	const canAuthorize = !!authorizationPath && hostAuthorizesFilePreviews(previewHost, previewNode !== LOCAL_NODE);
 
 	const name = path.split(/[\\/]/).pop() || path;
-	const media = file?.kind === "binary" ? mediaType(path) : undefined;
-	const isText = file?.kind === "text";
+	const media = file ? previewMediaType(path, file.kind) : undefined;
+	const mediaVerb = media && isDocument(media) ? "打开" : "播放";
+	// A PDF may decode as text, but shows as a document, not in the editor.
+	const isText = file?.kind === "text" && !media;
 	const isMarkdown = MARKDOWN.test(path) && isText;
 	const isHtml = HTML.test(path) && isText && !file.truncated;
 	const renderable = isMarkdown || isHtml;
@@ -364,9 +367,9 @@ export function FileViewer({
 				}
 				unavailable={
 					previewDownload
-						? "当前 Pier 版本不支持播放预览文件，请先更新"
+						? `当前 Pier 版本不支持${mediaVerb}预览文件，请先更新`
 						: !previewDownloadPath
-							? "只能播放工作区内的文件，请将文件放入当前工作区"
+							? `只能${mediaVerb}工作区内的文件，请将文件放入当前工作区`
 							: undefined
 				}
 			/>
