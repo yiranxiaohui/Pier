@@ -47,7 +47,6 @@ import type {
 	MethodParams,
 	MethodResult,
 	ModelInfo,
-	NativeAgentRuntime,
 	PackageManagerInfo,
 	PairingRequest,
 	PairingResolution,
@@ -2273,7 +2272,8 @@ export class PierStore {
 		return client.request("runtime.installStatus", { runtime, ...(refresh ? { refresh } : {}) });
 	}
 
-	async setAgentAutoUpdate(runtime: NativeAgentRuntime, enabled: boolean): Promise<void> {
+	/** pi and OpenCode need protocol 1.73; Claude Code and Codex 1.56. */
+	async setAgentAutoUpdate(runtime: AgentInstallRuntime, enabled: boolean): Promise<void> {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
 		await client.request("runtime.setAutoUpdate", { runtime, enabled });

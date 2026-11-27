@@ -40,8 +40,19 @@ const CODEX_RELEASE = "https://api.github.com/repos/openai/codex/releases/latest
 const VERSION = /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/;
 const CHECKSUM = /^[a-f0-9]{64}$/i;
 const MAX_DOWNLOAD_BYTES = 600 * 1024 * 1024;
-const AUTO_UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
-const AUTO_UPDATE_DISABLED = new Error("后台自动更新已关闭");
+/** Background checks start a minute after the Host and repeat every six hours. */
+export const AUTO_UPDATE_DELAY = 60_000;
+export const AUTO_UPDATE_INTERVAL = 6 * 60 * 60 * 1000;
+/** The abort reason when a user turns background updates off during a check. */
+export const AUTO_UPDATE_DISABLED = new Error("后台自动更新已关闭");
+
+/**
+ * Background updates only move forward to stable releases; build metadata of the installed version
+ * has no precedence.
+ */
+export function isNewerStableRelease(latest: string, installed: string): boolean {
+	return /^\d+\.\d+\.\d+$/.test(latest) && compareVersions(latest, installed.replace(/\+.*/, "")) > 0;
+}
 
 export function installationTarget(
 	platform = process.platform,
@@ -72,7 +83,8 @@ export interface AgentInstallerOptions {
 	configurePath?: typeof configureInstallationPath;
 	fetch?: typeof fetch;
 	probe?: typeof probeVersion;
-	autoUpdateTarget?: (runtime: NativeAgentRuntime) => { executable: string; source: AgentInstallSource } | undefined;
+	/** The installed agent to keep updated in the background, when its switch is on. */
+	autoUpdateTarget?: (runtime: InstallableRuntime) => { executable: string; source: AgentInstallSource } | undefined;
 	onInstalled?: (runtime: InstallableRuntime) => Promise<void> | void;
 	/** This computer's OpenCode build (`linux-x64`, `windows-x64-baseline`, …); detected by default. */
 	opencodeTarget?: () => Promise<string>;
@@ -204,7 +216,7 @@ export class AgentInstaller {
 		const targetFor = this.options.autoUpdateTarget;
 		if (!targetFor || this.closed || this.autoTimer) return;
 		const check = () => {
-			for (const runtime of NativeAgentRuntimeSchema.options) {
+			for (const runtime of [...NativeAgentRuntimeSchema.options, "opencode" as const]) {
 				if (this.jobs.has(runtime)) continue;
 				try {
 					const target = targetFor(runtime);
@@ -216,11 +228,11 @@ export class AgentInstaller {
 			this.autoTimer = setTimeout(check, AUTO_UPDATE_INTERVAL);
 			this.autoTimer.unref();
 		};
-		this.autoTimer = setTimeout(check, 60_000);
+		this.autoTimer = setTimeout(check, AUTO_UPDATE_DELAY);
 		this.autoTimer.unref();
 	}
 
-	disableAutoUpdate(runtime: NativeAgentRuntime): void {
+	disableAutoUpdate(runtime: InstallableRuntime): void {
 		const job = this.jobs.get(runtime);
 		if (job?.autoExecutable) job.abort.abort(AUTO_UPDATE_DISABLED);
 	}
@@ -462,11 +474,7 @@ export class AgentInstaller {
 			signal.throwIfAborted();
 			if (!installed || !VERSION.test(installed))
 				throw new Error("无法确认已安装的 Agent 版本，将在下次后台检查时重试");
-			// Background checks only move forward to stable releases. Build metadata has no precedence.
-			if (
-				!/^\d+\.\d+\.\d+$/.test(release.version) ||
-				compareVersions(release.version, installed.replace(/\+.*/, "")) <= 0
-			) {
+			if (!isNewerStableRelease(release.version, installed)) {
 				this.update(job, { state: "idle" });
 				return;
 			}
@@ -518,13 +526,9 @@ export class AgentInstaller {
 		signal.throwIfAborted();
 		const version = await (this.options.probe ?? probeVersion)(executable, 15_000);
 		if (version !== release.version) throw new Error("安装后版本验证失败，已保留之前的 Agent，请重试");
-		if (job.autoExecutable) {
-			// An external updater or uninstall may have changed the active CLI during the download.
-			const active = this.options.autoUpdateTarget?.(runtime)?.executable;
-			if (active !== job.autoExecutable || (await (this.options.probe ?? probeVersion)(active)) !== installed) {
-				this.update(job, { state: "idle" });
-				return;
-			}
+		if (job.autoExecutable && (await this.activeChanged(job, job.autoExecutable, installed))) {
+			this.update(job, { state: "idle" });
+			return;
 		}
 		signal.throwIfAborted();
 		const destination = join(root, `${release.version}-${randomUUID()}`);
@@ -543,10 +547,17 @@ export class AgentInstaller {
 		this.update(job, { state: "ready" });
 	}
 
+	/** Whether an external updater or uninstall changed the active CLI while a background job ran. */
+	private async activeChanged(job: Job, executable: string, installed: string | undefined): Promise<boolean> {
+		const active = this.options.autoUpdateTarget?.(job.runtime)?.executable;
+		return active !== executable || (await (this.options.probe ?? probeVersion)(active)) !== installed;
+	}
+
 	/**
 	 * OpenCode's native release goes into `~/.opencode/bin`, where OpenCode's own installer puts it,
 	 * replacing an earlier copy there in one step. An up-to-date OpenCode the Host already uses,
-	 * wherever it is installed, is kept as it is.
+	 * wherever it is installed, is kept as it is. A background job (`autoExecutable`) only installs a
+	 * stable release newer than the OpenCode the Host uses, so an OpenCode 2 is never replaced.
 	 */
 	private async installOpenCode(job: Job, staging: { path?: string }): Promise<void> {
 		const { signal } = job.abort;
@@ -556,6 +567,17 @@ export class AgentInstaller {
 		const target = await (this.options.opencodeTarget ?? detectOpenCodeTarget)();
 		const release = await opencodeRelease(job.source, target, (url) => this.response(url, signal), signal);
 		this.update(job, { version: release.version });
+		let installed: string | undefined;
+		if (job.autoExecutable) {
+			installed = await probe(job.autoExecutable);
+			signal.throwIfAborted();
+			if (!installed || !VERSION.test(installed))
+				throw new Error("无法确认已安装的 OpenCode 版本，将在下次后台检查时重试");
+			if (!isNewerStableRelease(release.version, installed)) {
+				this.update(job, { state: "idle" });
+				return;
+			}
+		}
 		const current = this.options.currentOpenCode?.() ?? (existsSync(paths.executable) ? paths.executable : undefined);
 		if (current && (await probe(current)) === release.version) {
 			signal.throwIfAborted();
@@ -583,6 +605,10 @@ export class AgentInstaller {
 		signal.throwIfAborted();
 		const version = await probe(executable, 15_000);
 		if (version !== release.version) throw new Error("安装后版本验证失败，已保留之前的 OpenCode，请重试");
+		if (job.autoExecutable && (await this.activeChanged(job, job.autoExecutable, installed))) {
+			this.update(job, { state: "idle" });
+			return;
+		}
 		await (this.options.configurePath ?? configureInstallationPath)(paths.bin, { home });
 		signal.throwIfAborted();
 		await publishOpenCode(executable, paths.executable);

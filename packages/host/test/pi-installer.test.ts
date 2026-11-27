@@ -1,8 +1,15 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentInstallSource } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type CommandRun, PI_INSTALLER_URLS, PiInstaller, type PiInstallerOptions } from "../src/pi/installer.ts";
+import {
+	type CommandRun,
+	PI_INSTALLER_URLS,
+	PI_LATEST_VERSION_URL,
+	PiInstaller,
+	type PiInstallerOptions,
+} from "../src/pi/installer.ts";
 import type { NodeToolchain } from "../src/pi/node-requirement.ts";
 import type { PiLocation } from "../src/pi/sdk.ts";
 
@@ -30,6 +37,7 @@ describe("pi installation", () => {
 	});
 	afterEach(async () => {
 		await Promise.all(installers.splice(0).map((i) => i.shutdown()));
+		vi.useRealTimers();
 		rmSync(root, { recursive: true, force: true });
 		vi.unstubAllEnvs();
 	});
@@ -73,6 +81,95 @@ describe("pi installation", () => {
 		// pi's own update knows how it was installed; only the installer needs the Node.js check.
 		expect(findNode).not.toHaveBeenCalled();
 		expect(onInstalled).toHaveBeenCalledOnce();
+	});
+
+	it("updates pi in the background only when pi.dev offers a newer stable release", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		let location: PiLocation = found("1.5.2", "/home/u/.local/bin/pi");
+		let latest = "1.6.0";
+		let source: AgentInstallSource | undefined = "npmmirror";
+		const runs: CommandRun[] = [];
+		const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+			Response.json({ version: latest, packageName: "@earendil-works/pi-coding-agent" }),
+		);
+		const onInstalled = vi.fn();
+		const installer = create({
+			locate: () => location,
+			fetch,
+			onInstalled,
+			autoUpdateSource: () => source,
+			run: async (run) => {
+				runs.push(run);
+				location = found(latest, "/home/u/.local/bin/pi");
+				return 0;
+			},
+		});
+		installer.startAutoUpdates();
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(await finished(installer)).toEqual({ runtime: "pi", state: "ready", source: "npmmirror", version: "1.6.0" });
+		expect(fetch).toHaveBeenCalledWith(PI_LATEST_VERSION_URL, expect.anything());
+		expect(runs.map((r) => r.args)).toEqual([["update", "--self"]]);
+		expect(runs[0]?.env.npm_config_registry).toBe("https://registry.npmmirror.com/");
+		expect(onInstalled).toHaveBeenCalledOnce();
+		// Up to date, a prerelease, then a pi that is no longer installed: nothing runs.
+		const changes = [
+			() => {},
+			() => {
+				latest = "1.7.0-beta.1";
+			},
+			() => {
+				latest = "1.7.0";
+				location = { state: "missing" };
+			},
+		];
+		for (const change of changes) {
+			change();
+			await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+			await vi.waitFor(() => expect(installer.status().state).toBe("idle"));
+		}
+		expect(fetch).toHaveBeenCalledTimes(3);
+		expect(runs).toHaveLength(1);
+		source = undefined;
+		location = found("1.5.2", "/home/u/.local/bin/pi");
+		await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+		expect(fetch).toHaveBeenCalledTimes(3);
+		expect(installer.status().state).toBe("idle");
+	});
+
+	it("cancels a background check when turned off, but lets a running pi update finish", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		let location = found("1.5.2", "/usr/bin/pi");
+		const fetch = vi.fn<typeof globalThis.fetch>(
+			(_url, init) =>
+				new Promise((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+				}),
+		);
+		let finish: (code: number) => void = () => {};
+		// Like the real command, an aborted signal stops it (and could leave pi half updated).
+		const run = vi.fn(
+			({ signal }: CommandRun) =>
+				new Promise<number | null>((resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+					finish = (code) => {
+						location = found("1.6.0", "/usr/bin/pi");
+						resolve(code);
+					};
+				}),
+		);
+		const installer = create({ locate: () => location, fetch, run, autoUpdateSource: () => "official" });
+		installer.startAutoUpdates();
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(installer.status()).toMatchObject({ state: "checking", source: "official" });
+		installer.disableAutoUpdate();
+		await vi.waitFor(() => expect(installer.status().state).toBe("idle"));
+		expect(run).not.toHaveBeenCalled();
+		fetch.mockImplementation(async () => Response.json({ version: "1.6.0" }));
+		await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+		await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+		installer.disableAutoUpdate();
+		finish(0);
+		expect(await finished(installer)).toMatchObject({ state: "ready", version: "1.6.0" });
 	});
 
 	it("runs pi's official installer when pi is missing, with no terminal to ask", async () => {

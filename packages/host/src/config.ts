@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 import {
-	type AgentInstallSource,
+	type AgentInstallRuntime,
 	AgentInstallSourceSchema,
 	type ApprovalPolicy,
 	ApprovalPolicySchema,
@@ -12,6 +12,10 @@ import {
 	type WorkspaceInfo,
 } from "@pier/protocol";
 import { z } from "zod";
+
+function isNativeRuntime(runtime: AgentInstallRuntime): runtime is NativeAgentRuntime {
+	return NativeAgentRuntimeSchema.safeParse(runtime).success;
+}
 
 const WorkspaceSchema = z.object({
 	id: z.string().min(1),
@@ -43,6 +47,10 @@ const RemoteConfigSchema = z.object({
 });
 export type RemoteConfig = z.infer<typeof RemoteConfigSchema>;
 
+/** Background updates of one agent: on or off, and the route of its last manual installation. */
+const AgentUpdateSchema = z.object({ enabled: z.boolean(), source: AgentInstallSourceSchema });
+export type AgentUpdateSettings = z.infer<typeof AgentUpdateSchema>;
+
 export const PierConfigSchema = z.object({
 	version: z.literal(1),
 	hostId: z.string().min(1),
@@ -51,9 +59,12 @@ export const PierConfigSchema = z.object({
 	workspaces: z.array(WorkspaceSchema),
 	/** Added in 0.2; absent in older files means remote access off. */
 	remote: RemoteConfigSchema.optional(),
-	agentUpdates: z
-		.partialRecord(NativeAgentRuntimeSchema, z.object({ enabled: z.boolean(), source: AgentInstallSourceSchema }))
-		.optional(),
+	agentUpdates: z.partialRecord(NativeAgentRuntimeSchema, AgentUpdateSchema).optional(),
+	/**
+	 * pi and OpenCode (0.3.13). Hosts before it reject other keys in `agentUpdates` and would not
+	 * start after a downgrade, so these live apart, under keys any later agent can join.
+	 */
+	otherAgentUpdates: z.record(z.string(), AgentUpdateSchema).optional(),
 });
 
 export type PierConfig = z.infer<typeof PierConfigSchema>;
@@ -120,15 +131,23 @@ export class ConfigStore {
 		return this.config.defaultPolicy;
 	}
 
-	agentUpdate(runtime: NativeAgentRuntime): { enabled: boolean; source: AgentInstallSource } {
-		return this.config.agentUpdates?.[runtime] ?? { enabled: true, source: "official" };
+	/** On by default, from the official route until a manual installation picks another. */
+	agentUpdate(runtime: AgentInstallRuntime): AgentUpdateSettings {
+		const stored = isNativeRuntime(runtime)
+			? this.config.agentUpdates?.[runtime]
+			: this.config.otherAgentUpdates?.[runtime];
+		return stored ?? { enabled: true, source: "official" };
 	}
 
-	setAgentUpdate(runtime: NativeAgentRuntime, patch: { enabled?: boolean; source?: AgentInstallSource }): void {
+	setAgentUpdate(runtime: AgentInstallRuntime, patch: Partial<AgentUpdateSettings>): void {
 		const previous = this.agentUpdate(runtime);
 		const next = { ...previous, ...patch };
 		if (next.enabled === previous.enabled && next.source === previous.source) return;
-		this.save({ ...this.config, agentUpdates: { ...this.config.agentUpdates, [runtime]: next } });
+		this.save(
+			isNativeRuntime(runtime)
+				? { ...this.config, agentUpdates: { ...this.config.agentUpdates, [runtime]: next } }
+				: { ...this.config, otherAgentUpdates: { ...this.config.otherAgentUpdates, [runtime]: next } },
+		);
 	}
 
 	get remote(): RemoteConfig {

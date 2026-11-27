@@ -11,6 +11,12 @@ import {
 	PierProtocolError,
 } from "@pier/protocol";
 import { mergePath } from "../login-shell-path.ts";
+import {
+	AUTO_UPDATE_DELAY,
+	AUTO_UPDATE_DISABLED,
+	AUTO_UPDATE_INTERVAL,
+	isNewerStableRelease,
+} from "../runtimes/installation.ts";
 import { findNodeToolchain, type NodeToolchain, nodeRequirement, nodeRequirementMessage } from "./node-requirement.ts";
 import type { PiLocation } from "./sdk.ts";
 
@@ -19,6 +25,8 @@ export const PI_INSTALLER_URLS = {
 	posix: "https://pi.dev/install.sh",
 	windows: "https://pi.dev/install.ps1",
 } as const;
+/** Where `pi update` reads the latest pi release: `{ version, packageName?, note? }`. */
+export const PI_LATEST_VERSION_URL = "https://pi.dev/api/latest-version";
 const NPMMIRROR_REGISTRY = "https://registry.npmmirror.com/";
 const JOB_TIMEOUT_MS = 15 * 60 * 1000;
 const MAX_SCRIPT_BYTES = 2 * 1024 * 1024;
@@ -51,6 +59,11 @@ export interface PiInstallerOptions {
 	configurePath?: (bin: string) => Promise<void>;
 	/** Called after a successful installation or update. */
 	onInstalled?: () => Promise<void> | void;
+	/**
+	 * The route of background updates while they are on; undefined when they are off (or when
+	 * `PIER_PI_PATH` picks the pi).
+	 */
+	autoUpdateSource?: () => AgentInstallSource | undefined;
 	/**
 	 * Reads the user's PATH again before each job, so a Node.js (or pi) installed while the Host
 	 * runs is found without a restart: the registry on Windows, the login shell on macOS / Linux.
@@ -86,6 +99,10 @@ interface Job {
 	source: AgentInstallSource;
 	abort: AbortController;
 	done: Promise<void>;
+	/** A background check: it runs `pi update` only when pi.dev offers a newer stable pi. */
+	auto?: boolean;
+	/** Set when the command starts: turning background updates off no longer stops it. */
+	running?: boolean;
 }
 
 /** A printable line without terminal control sequences or credentials in URLs. */
@@ -153,11 +170,13 @@ function runCommand({ command, args, env, signal, onLine }: CommandRun): Promise
  * official installer from pi.dev, once Node.js and npm are on PATH (it cannot ask to install them
  * without a terminal). Each job first reads the user's PATH again, so what the user installed while
  * the Host runs counts. Clients only choose the npm registry route; they cannot pass URLs, paths or
- * commands. Jobs survive client disconnects, like the Claude Code / Codex installer.
+ * commands. Jobs survive client disconnects, like the Claude Code / Codex installer. While
+ * background updates are on, the Host checks pi.dev a minute after it starts and every six hours.
  */
 export class PiInstaller {
 	private current: AgentInstallationStatus = { runtime: "pi", state: "idle" };
 	private job: Job | undefined;
+	private autoTimer?: ReturnType<typeof setTimeout>;
 	private closed = false;
 
 	constructor(private readonly options: PiInstallerOptions) {}
@@ -167,12 +186,40 @@ export class PiInstaller {
 	}
 
 	start(source: AgentInstallSource = "official"): AgentInstallationStatus {
+		return this.startJob(source, false);
+	}
+
+	startAutoUpdates(): void {
+		const sourceFor = this.options.autoUpdateSource;
+		if (!sourceFor || this.closed || this.autoTimer) return;
+		const check = () => {
+			if (!this.job) {
+				try {
+					const source = sourceFor();
+					if (source) this.startJob(source, true);
+				} catch (error) {
+					this.current = { runtime: "pi", state: "error", error: String(error) };
+				}
+			}
+			this.autoTimer = setTimeout(check, AUTO_UPDATE_INTERVAL);
+			this.autoTimer.unref();
+		};
+		this.autoTimer = setTimeout(check, AUTO_UPDATE_DELAY);
+		this.autoTimer.unref();
+	}
+
+	/** Cancels a background check; a running `pi update` finishes, since stopping npm could break pi. */
+	disableAutoUpdate(): void {
+		if (this.job?.auto && !this.job.running) this.job.abort.abort(AUTO_UPDATE_DISABLED);
+	}
+
+	private startJob(source: AgentInstallSource, auto: boolean): AgentInstallationStatus {
 		if (this.closed) throw new PierProtocolError("CONFLICT", "Pier Host 正在退出");
 		if (!AGENT_INSTALL_SOURCES.pi.includes(source)) {
 			throw new PierProtocolError("BAD_REQUEST", "pi 不支持所选下载线路");
 		}
 		if (this.job) throw new PierProtocolError("CONFLICT", "pi 正在安装或更新，请等待完成");
-		const job: Job = { source, abort: new AbortController(), done: Promise.resolve() };
+		const job: Job = { source, auto, abort: new AbortController(), done: Promise.resolve() };
 		this.current = { runtime: "pi", state: "checking", source };
 		this.job = job;
 		// Start on a later tick: the caller gets the `checking` status that was just set.
@@ -236,18 +283,21 @@ export class PiInstaller {
 		return env;
 	}
 
-	/** Download pi's official installer script into a private temporary directory. */
-	private async installerScript(directory: string, signal: AbortSignal): Promise<{ command: string; args: string[] }> {
-		const windows = (this.options.platform ?? process.platform) === "win32";
-		const url = windows ? PI_INSTALLER_URLS.windows : PI_INSTALLER_URLS.posix;
-		const response = await (this.options.fetch ?? fetch)(url, {
+	private async piDev(url: string, signal: AbortSignal, accept?: string): Promise<Response> {
+		return (this.options.fetch ?? fetch)(url, {
 			signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
-			headers: { "User-Agent": "Pier-Agent-Installer" },
+			headers: { "User-Agent": "Pier-Agent-Installer", ...(accept ? { Accept: accept } : {}) },
 		}).catch((error: unknown) => {
 			if (signal.aborted) throw error;
 			const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
 			throw new Error(`无法连接 pi.dev（${cause instanceof Error ? cause.message : String(cause)}），请检查网络后重试`);
 		});
+	}
+
+	/** Download pi's official installer script into a private temporary directory. */
+	private async installerScript(directory: string, signal: AbortSignal): Promise<{ command: string; args: string[] }> {
+		const windows = (this.options.platform ?? process.platform) === "win32";
+		const response = await this.piDev(windows ? PI_INSTALLER_URLS.windows : PI_INSTALLER_URLS.posix, signal);
 		if (!response.ok) throw new Error(`下载 pi 安装程序失败（HTTP ${response.status}），请稍后重试`);
 		const text = await response.text();
 		if (text.length > MAX_SCRIPT_BYTES || (!windows && !text.startsWith("#!"))) {
@@ -261,6 +311,15 @@ export class PiInstaller {
 					args: ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", file],
 				}
 			: { command: "sh", args: [file] };
+	}
+
+	/** Whether pi.dev, which `pi update` asks too, offers a stable pi newer than `installed`. */
+	private async newerRelease(installed: string, signal: AbortSignal): Promise<boolean> {
+		const response = await this.piDev(PI_LATEST_VERSION_URL, signal, "application/json");
+		if (!response.ok) throw new Error(`查询 pi 最新版本失败（HTTP ${response.status}），将在下次后台检查时重试`);
+		const latest: unknown = ((await response.json()) as { version?: unknown } | null)?.version;
+		if (typeof latest !== "string" || !latest.trim()) throw new Error("pi.dev 返回了无效版本");
+		return isNewerStableRelease(latest.trim(), installed);
 	}
 
 	private async install(job: Job): Promise<void> {
@@ -278,6 +337,14 @@ export class PiInstaller {
 					: before.state === "invalid"
 						? before.command
 						: undefined;
+			// Background checks only update a pi the Host can load, never install one.
+			if (
+				job.auto &&
+				(before.state !== "found" || !existing || !(await this.newerRelease(before.installation.version, signal)))
+			) {
+				this.update({ state: "idle" });
+				return;
+			}
 			const env = this.environment(job.source, !existing);
 			let step: { command: string; args: string[] };
 			if (existing) {
@@ -288,6 +355,7 @@ export class PiInstaller {
 				step = await this.installerScript(staging, signal);
 			}
 			signal.throwIfAborted();
+			job.running = true;
 			this.update({ state: "installing", detail: existing ? "正在运行 pi update" : "正在运行 pi 官方安装程序" });
 			this.options.log?.(`pi: running ${existing ? `${existing} update --self` : "pi's official installer"}`);
 			const code = await (this.options.run ?? runCommand)({
@@ -328,6 +396,10 @@ export class PiInstaller {
 				this.options.log?.(`pi: after installing: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		} catch (error) {
+			if (signal.reason === AUTO_UPDATE_DISABLED) {
+				this.update({ state: "idle" });
+				return;
+			}
 			const message = error instanceof Error ? error.message : String(error);
 			if (error instanceof NodeRequirementError) {
 				this.update({ state: "error", error: message, nodeRequirement: error.requirement });
@@ -345,6 +417,7 @@ export class PiInstaller {
 
 	async shutdown(): Promise<void> {
 		this.closed = true;
+		clearTimeout(this.autoTimer);
 		const job = this.job;
 		if (!job) return;
 		job.abort.abort(new Error("Pier Host 已停止安装"));

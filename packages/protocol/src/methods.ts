@@ -57,7 +57,6 @@ import {
 	type LoopbackRequest,
 	MAX_CONTEXT_LIMIT,
 	type ModelInfo,
-	NativeAgentRuntimeSchema,
 	type NewApiAuthorizeResult,
 	type NewApiAuthorizeStart,
 	type NewApiLoginResult,
@@ -531,7 +530,8 @@ export const MethodParamsSchemas = {
 	 * `opencode` (1.65) installs the latest OpenCode 1 release into `~/.opencode/bin`.
 	 */
 	"runtime.install": z.object({ runtime: AgentInstallRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
-	"runtime.setAutoUpdate": z.object({ runtime: NativeAgentRuntimeSchema, enabled: z.boolean() }),
+	/** Turns background updates of one agent on or off (1.56; `pi` and `opencode` 1.73). */
+	"runtime.setAutoUpdate": z.object({ runtime: AgentInstallRuntimeSchema, enabled: z.boolean() }),
 
 	"session.list": z.object({ workspaceId: Id }),
 	/** `runtime` (1.22) picks the agent runtime; the default is `pi`. */

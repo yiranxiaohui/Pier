@@ -64,9 +64,8 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 	// Hosts before 1.61 have pi built in and update it with Pier; OpenCode needs 1.65.
 	const since = pi ? 61 : opencode ? 65 : 32;
 	const supported = hostSpeaksMinor(target.hostInfo, since);
-	// pi updates itself (`pi update`); a running Host keeps the pi it loaded until it restarts.
-	// OpenCode checks for its own updates (its `autoupdate` setting).
-	const supportsAutoUpdate = !pi && !opencode && hostSpeaksMinor(target.hostInfo, 56);
+	// Background updates: Claude Code and Codex since 1.56, pi and OpenCode since 1.73.
+	const supportsAutoUpdate = hostSpeaksMinor(target.hostInfo, pi || opencode ? 73 : 56);
 	// Hosts before 1.50 only download from the official route.
 	const routes = hostSpeaksMinor(target.hostInfo, Math.max(since, 50));
 	const [source, setSource] = useState(() => readAgentInstallSource(target.node, runtime));
@@ -155,7 +154,6 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 	}, [store, runtime, identity, routes, source]);
 
 	async function setAutoUpdate(enabled: boolean) {
-		if (runtime === "pi" || runtime === "opencode") return;
 		setSavingAutoUpdate(true);
 		setError(undefined);
 		try {
@@ -244,7 +242,15 @@ export function AgentInstallCard({ runtime }: { runtime: AgentInstallRuntime }) 
 				{supportsAutoUpdate ? (
 					<SettingRow
 						title="后台自动更新"
-						description={`Pier 运行时每 6 小时检查一次已安装的 ${name}。下载沿用上次手动安装的线路，默认使用官方线路。`}
+						description={`${
+							pi
+								? "Pier 运行时每 6 小时检查一次 pi 的新版本，有新版本时运行 pi update，重启 Pier Host 后生效。"
+								: opencode
+									? "Pier 运行时每 6 小时检查一次已安装的 OpenCode，有新的 OpenCode 1 正式版时安装到 ~/.opencode/bin。"
+									: `Pier 运行时每 6 小时检查一次已安装的 ${name}。`
+						}下载沿用上次手动安装的线路，默认使用官方线路。${
+							opencode ? "OpenCode 自己的「检查更新」设置不受此开关影响。" : ""
+						}`}
 					>
 						<Switch
 							label={`${name} 后台自动更新`}

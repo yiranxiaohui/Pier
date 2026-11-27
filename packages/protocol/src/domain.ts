@@ -1349,10 +1349,7 @@ export interface PiSettingsChangeResult {
 export const AgentConfigRuntimeSchema = z.enum(["claude-code", "codex", "opencode"]);
 export type AgentConfigRuntime = z.infer<typeof AgentConfigRuntimeSchema>;
 
-/**
- * Agents Pier installs from their verified native releases and keeps updated in the background
- * (1.32): Claude Code and Codex.
- */
+/** Agents Pier installs from their verified native releases (1.32): Claude Code and Codex. */
 export const NativeAgentRuntimeSchema = z.enum(["claude-code", "codex"]);
 export type NativeAgentRuntime = z.infer<typeof NativeAgentRuntimeSchema>;
 
@@ -1426,7 +1423,10 @@ export interface AgentInstallationStatus {
 export interface AgentInstallationResult {
 	installation: AgentInstallationStatus;
 	agent: AgentRuntimeInfo;
-	/** Host preference for background updates of this runtime (1.56, default on; not for pi). */
+	/**
+	 * Host preference for background updates of this runtime (default on): Claude Code and Codex
+	 * from 1.56, pi and OpenCode from 1.73.
+	 */
 	autoUpdate?: boolean;
 	/**
 	 * pi only (1.61): the version installed on disk when it differs from the pi the Host has

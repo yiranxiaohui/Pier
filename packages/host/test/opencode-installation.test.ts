@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ConfigStore } from "../src/config.ts";
 import { opencodePaths, opencodeTarget, publishOpenCode } from "../src/opencode/installer.ts";
 import { AgentInstaller } from "../src/runtimes/installation.ts";
 import { configureInstallationPath } from "../src/runtimes/installation-path.ts";
@@ -38,6 +39,7 @@ describe("OpenCode installation", () => {
 	});
 	afterEach(async () => {
 		await Promise.all(installers.splice(0).map((i) => i.shutdown()));
+		vi.useRealTimers();
 		rmSync(root, { recursive: true, force: true });
 	});
 
@@ -206,6 +208,49 @@ describe("OpenCode installation", () => {
 		expect(onInstalled).not.toHaveBeenCalled();
 	});
 
+	it("updates the OpenCode the Host uses in the background, only to a newer OpenCode 1", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const external = join(root, "npm-global", filename);
+		mkdirSync(join(external, ".."), { recursive: true });
+		writeFileSync(external, "1.18.0");
+		const bytes = archive("1.19.6");
+		const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
+			if (String(url) === LATEST) return Response.json({ version: "1.19.6" });
+			if (String(url).startsWith(RELEASES)) return Response.json(release("1.19.6", sha256(bytes)));
+			return new Response(new Uint8Array(bytes));
+		});
+		const onInstalled = vi.fn();
+		let enabled = true;
+		const active = () => (existsSync(command()) ? command() : external);
+		const installer = create({
+			fetch,
+			onInstalled,
+			currentOpenCode: active,
+			autoUpdateTarget: (runtime) =>
+				runtime === "opencode" && enabled ? { executable: active(), source: "gh-proxy" } : undefined,
+		});
+		installer.startAutoUpdates();
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(await finished(installer)).toMatchObject({ state: "ready", source: "gh-proxy", version: "1.19.6" });
+		expect(readFileSync(command(), "utf8")).toBe("1.19.6");
+		expect(readFileSync(external, "utf8")).toBe("1.18.0");
+		expect(onInstalled).toHaveBeenCalledWith("opencode");
+		// The same release, a newer one installed elsewhere and OpenCode 2 stay as they are.
+		for (const version of ["1.19.6", "1.20.0", "2.0.1"]) {
+			writeFileSync(command(), version);
+			fetch.mockClear();
+			await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+			await vi.waitFor(() => expect(installer.status("opencode").state).toBe("idle"));
+			expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([LATEST, `${RELEASES}/tags/v1.19.6`]);
+			expect(readFileSync(command(), "utf8")).toBe(version);
+		}
+		expect(onInstalled).toHaveBeenCalledOnce();
+		enabled = false;
+		fetch.mockClear();
+		await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it("does not install OpenCode 2 or malformed versions", async () => {
 		for (const [version, error] of [
 			["2.3.2", "只能安装 OpenCode 1"],
@@ -281,8 +326,7 @@ it.skipIf(process.platform === "win32")(
 			const client = await host.connect();
 			const recorder = new Recorder();
 			client.onEvent(recorder.handler);
-			const status = await client.request("runtime.installStatus", { runtime: "opencode" });
-			expect(status).not.toHaveProperty("autoUpdate");
+			expect((await client.request("runtime.installStatus", { runtime: "opencode" })).autoUpdate).toBe(true);
 			const changed = recorder.waitForType("runtime.changed", recorder.mark());
 			expect(
 				(await client.request("runtime.install", { runtime: "opencode", source: "ghproxy" })).installation,
@@ -294,9 +338,13 @@ it.skipIf(process.platform === "win32")(
 				installation: { state: "ready", version: "1.19.6" },
 				agent: { available: true, executable, version: "1.19.6" },
 			});
-			await expect(
-				client.request("runtime.setAutoUpdate", { runtime: "opencode" as "codex", enabled: false }),
-			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			// Background updates (1.73) keep the route of the last manual installation.
+			await client.request("runtime.setAutoUpdate", { runtime: "opencode", enabled: false });
+			expect((await client.request("runtime.installStatus", { runtime: "opencode" })).autoUpdate).toBe(false);
+			expect(new ConfigStore(join(host.root, "pier", "config.json")).agentUpdate("opencode")).toEqual({
+				enabled: false,
+				source: "ghproxy",
+			});
 		} finally {
 			await host.close();
 			vi.unstubAllEnvs();

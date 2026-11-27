@@ -745,10 +745,10 @@ export class PierHost implements RequestHandler {
 			...options.agentInstaller,
 			autoUpdateTarget: (runtime) => {
 				const settings = this.config.agentUpdate(runtime);
-				const agent = runtime === "codex" ? agents.codex : agents.claudeCode;
+				const agent = runtime === "codex" ? agents.codex : runtime === "opencode" ? agents.opencode : agents.claudeCode;
 				if (!settings.enabled || agent === false || agent?.executable || process.env[agentPathOverride(runtime)])
 					return;
-				const executable = nativeRuntimes[runtime]?.executable();
+				const executable = (runtime === "opencode" ? opencode : nativeRuntimes[runtime])?.executable();
 				return executable ? { executable, source: settings.source } : undefined;
 			},
 			currentOpenCode: () => opencode?.executable(),
@@ -767,6 +767,10 @@ export class PierHost implements RequestHandler {
 			...options.piInstaller,
 			locate: () => env.loader.locate(),
 			log,
+			autoUpdateSource: () => {
+				const settings = this.config.agentUpdate("pi");
+				return settings.enabled && !process.env[PI_PATH_OVERRIDE] ? settings.source : undefined;
+			},
 			// A pi installed while the Host runs is loaded now; an updated one after a restart.
 			onInstalled: async () => {
 				await env.ready().catch(() => undefined);
@@ -889,6 +893,7 @@ export class PierHost implements RequestHandler {
 		await host.remote.apply();
 		host.tasks.start();
 		host.agentInstaller.startAutoUpdates();
+		host.piInstaller.startAutoUpdates();
 		if (options.agents?.codex !== false) void host.agentInstaller.repairInstallations();
 		return host;
 	}
@@ -1056,11 +1061,6 @@ export class PierHost implements RequestHandler {
 		}
 	}
 
-	/** The background update switch of Claude Code and Codex; OpenCode (1.65) updates itself. */
-	private agentAutoUpdate(runtime: InstallableRuntime): { autoUpdate?: boolean } {
-		return runtime === "opencode" ? {} : { autoUpdate: this.config.agentUpdate(runtime).enabled };
-	}
-
 	/** pi's installation status: the job, the loaded pi, and a newer pi on disk waiting for a restart. */
 	private async piInstallation(): Promise<AgentInstallationResult> {
 		const agent = await this.pool.runtime("pi").info();
@@ -1069,6 +1069,7 @@ export class PierHost implements RequestHandler {
 		return {
 			installation: this.piInstaller.status(),
 			agent,
+			autoUpdate: this.config.agentUpdate("pi").enabled,
 			...(this.env.version && installed && installed !== this.env.version ? { installedVersion: installed } : {}),
 		};
 	}
@@ -1640,13 +1641,16 @@ export class PierHost implements RequestHandler {
 				return {
 					installation: this.agentInstaller.status(params.runtime),
 					agent: await this.pool.runtime(params.runtime).info(params.refresh),
-					...this.agentAutoUpdate(params.runtime),
+					autoUpdate: this.config.agentUpdate(params.runtime).enabled,
 				};
 			},
 			"runtime.setAutoUpdate": (_ctx, { runtime, enabled }) => {
 				this.pool.runtime(runtime);
 				this.config.setAgentUpdate(runtime, { enabled });
-				if (!enabled) this.agentInstaller.disableAutoUpdate(runtime);
+				if (!enabled) {
+					if (runtime === "pi") this.piInstaller.disableAutoUpdate();
+					else this.agentInstaller.disableAutoUpdate(runtime);
+				}
 				this.broadcast({ type: "runtime.changed", runtime });
 				return { enabled };
 			},
@@ -1657,7 +1661,9 @@ export class PierHost implements RequestHandler {
 							"CONFLICT",
 							`当前使用 ${PI_PATH_OVERRIDE} 指定的 pi，请在那里更新，或移除此环境变量后再使用 Pier 安装`,
 						);
-					this.piInstaller.start(params.source);
+					const installation = this.piInstaller.start(params.source);
+					// Background updates keep the route of the last manual installation.
+					this.config.setAgentUpdate("pi", { source: installation.source ?? "official" });
 					const device = ctx.connection.device;
 					if (device)
 						this.broadcastLocal({
@@ -1676,8 +1682,7 @@ export class PierHost implements RequestHandler {
 					);
 				// Publication retains the old command if Windows prevents replacing an executable in use.
 				const installation = this.agentInstaller.start(params.runtime, params.source);
-				if (params.runtime !== "opencode")
-					this.config.setAgentUpdate(params.runtime, { source: installation.source ?? "official" });
+				this.config.setAgentUpdate(params.runtime, { source: installation.source ?? "official" });
 				const device = ctx.connection.device;
 				if (device)
 					this.broadcastLocal({
@@ -1685,7 +1690,11 @@ export class PierHost implements RequestHandler {
 						level: "info",
 						message: `${device.name} 正在远程安装或更新 ${agent.name}`,
 					});
-				return { installation, agent: await agent.info(), ...this.agentAutoUpdate(params.runtime) };
+				return {
+					installation,
+					agent: await agent.info(),
+					autoUpdate: this.config.agentUpdate(params.runtime).enabled,
+				};
 			},
 			"session.create": async (_ctx, params) => {
 				const session = await this.pool.create(this.requireWorkspace(params.workspaceId), params.name, params.runtime);

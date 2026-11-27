@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { ConfigStore } from "../src/config.ts";
 import { PiLoader, type PiLocation } from "../src/pi/sdk.ts";
 import { DEV_PI_PACKAGE_DIR, Recorder, startTestHost, testPiSdk } from "./helpers.ts";
 
@@ -73,6 +75,11 @@ describe("a Host without pi", () => {
 				nodeRequirement: { minimum: "22.19.0", problem: "missing", command: "winget install OpenJS.NodeJS.LTS" },
 			});
 			expect(refreshPath).toHaveBeenCalledOnce();
+			// Background updates keep the route of the last manual installation (1.73).
+			expect(new ConfigStore(join(host.root, "pier", "config.json")).agentUpdate("pi")).toEqual({
+				enabled: true,
+				source: "npmmirror",
+			});
 		} finally {
 			await host.close();
 		}

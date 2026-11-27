@@ -616,10 +616,13 @@ it("starts installation over the protocol, survives a disconnected client and re
 		expect((await observer.request("runtime.list")).runtimes.find((r) => r.id === "claude-code")?.executable).toBe(
 			result.agent.executable,
 		);
-		// pi updates itself (`pi update`); there is no background updater for it.
-		await expect(
-			observer.request("runtime.setAutoUpdate", { runtime: "pi" as NativeAgentRuntime, enabled: false }),
-		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		// pi (1.73) has a switch too, stored apart from `agentUpdates`, which older Hosts validate.
+		expect((await observer.request("runtime.installStatus", { runtime: "pi" })).autoUpdate).toBe(true);
+		await observer.request("runtime.setAutoUpdate", { runtime: "pi", enabled: false });
+		expect((await observer.request("runtime.installStatus", { runtime: "pi" })).autoUpdate).toBe(false);
+		const file = JSON.parse(readFileSync(join(host.root, "pier", "config.json"), "utf8"));
+		expect(file.agentUpdates).toEqual({ "claude-code": { enabled: false, source: "official" } });
+		expect(file.otherAgentUpdates).toEqual({ pi: { enabled: false, source: "official" } });
 		await expect(
 			observer.request("runtime.install", { runtime: "claude-code", source: "ghfast" }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
