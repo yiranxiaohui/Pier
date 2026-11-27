@@ -190,7 +190,14 @@ export class SessionPool {
 			onActivity: (session) => this.options.onSessionActivity?.(session),
 			isArchived: (sessionId) => this.options.archive.has(sessionId),
 			trashFile: (file) => moveToTrash(file, this.options.trashDir),
+			promptSuggestions: () => this.options.config.promptSuggestions,
 		};
+	}
+
+	/** Turn prompt suggestions on or off (`suggestions.set`, 1.76); open sessions follow at once. */
+	setPromptSuggestions(enabled: boolean): void {
+		this.options.config.setPromptSuggestions(enabled);
+		for (const session of this.sessions.values()) session.promptSuggestionsChanged(enabled);
 	}
 
 	private add(session: ManagedSession): ManagedSession {

@@ -134,7 +134,7 @@ export function hostAllowsRemoteManagement(info: HostInfo | undefined): boolean 
 }
 
 /** Whether a host speaks protocol `1.<minor>` or a later version. */
-function hostSpeaks(info: HostInfo | undefined, minor: number): boolean {
+export function hostSpeaks(info: HostInfo | undefined, minor: number): boolean {
 	const version = info ? parseProtocolVersion(info.protocolVersion) : undefined;
 	return version !== undefined && (version.major > 1 || (version.major === 1 && version.minor >= minor));
 }
@@ -2277,6 +2277,19 @@ export class PierStore {
 		const client = this.settingsClient;
 		if (!client) throw this.settingsOffline();
 		await client.request("runtime.setAutoUpdate", { runtime, enabled });
+	}
+
+	/** Whether the managed computer predicts the next prompt after each reply (protocol 1.76). */
+	async getPromptSuggestions(): Promise<boolean> {
+		const client = this.settingsClient;
+		if (!client) throw this.settingsOffline();
+		return (await client.request("suggestions.get", {})).enabled;
+	}
+
+	async setPromptSuggestions(enabled: boolean): Promise<boolean> {
+		const client = this.settingsClient;
+		if (!client) throw this.settingsOffline();
+		return (await client.request("suggestions.set", { enabled })).enabled;
 	}
 
 	/** `source` needs protocol 1.50; older Hosts always download from the official route. */

@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import { stripImageHints, userText } from "@pier/chat-state";
 import {
@@ -25,6 +25,7 @@ import {
 	textOf,
 } from "../managed-session.ts";
 import type { TranscriptMessage } from "../runtimes/live-transcript.ts";
+import { SUGGESTION_INSTRUCTION } from "../runtimes/prompt-suggestion.ts";
 import type { SubagentRuntimeHooks } from "../runtimes/subagents.ts";
 import { ExternalChangeGuard } from "../session-lock.ts";
 import { createApprovalExtension } from "./approval-extension.ts";
@@ -223,6 +224,7 @@ export class PiManagedSession extends ManagedSession {
 		if (replaced) {
 			this.bridge.cancelAll();
 			this.allowances.clear();
+			this.clearSuggestion();
 			this.emit({ type: "session.replaced", previousSessionId: previousId, session: this.summary() }, previousId);
 			this.releaseLock();
 			this.acquireLock(session.sessionFile);
@@ -274,6 +276,50 @@ export class PiManagedSession extends ManagedSession {
 		if (event.type === "tool_execution_update" || event.type === "tool_execution_end") this.trackSubagents(event);
 		if (WRITE_EVENTS.has(event.type)) this.guard.record();
 		this.updateRunState();
+		if (event.type === "agent_settled" && !event.aborted && this.repliedInFull()) {
+			this.suggestNext((signal) => this.predictNextPrompt(signal));
+		}
+	}
+
+	/** Whether the run that just settled ended with a whole reply (not an error, a cut-off or a stop). */
+	private repliedInFull(): boolean {
+		const last = this.runtime.session.messages.at(-1) as { role?: string; stopReason?: string } | undefined;
+		return last?.role === "assistant" && last.stopReason === "stop";
+	}
+
+	/**
+	 * Predict the user's next prompt (1.76): one more request with the session's model and the
+	 * context its last request had (pi's context hooks applied), plus the instruction, so it reads
+	 * the same prompt cache. It goes straight to pi's model runtime: nothing is added to the
+	 * session, no tool runs, and pi's cache warming keeps following the session's own requests.
+	 */
+	private async predictNextPrompt(signal: AbortSignal): Promise<string | undefined> {
+		const session = this.runtime.session;
+		const agent = session.agent;
+		const model = agent.state.model as Model<Api> | undefined;
+		if (!model) return undefined;
+		try {
+			const messages = agent.transformContext
+				? await agent.transformContext(agent.state.messages, signal)
+				: agent.state.messages;
+			const context: Context = {
+				messages: [
+					...(await agent.convertToLlm(messages)),
+					{ role: "user", content: [{ type: "text", text: SUGGESTION_INSTRUCTION }], timestamp: Date.now() },
+				],
+			};
+			const level = session.thinkingLevel;
+			const reply = await this.piOptions.env.modelRuntime.completeSimple(model, context, {
+				signal,
+				...(agent.sessionId ? { sessionId: agent.sessionId } : {}),
+				...(model.reasoning && level !== "off" ? { reasoning: level as SimpleStreamOptions["reasoning"] } : {}),
+			});
+			if (reply.stopReason !== "stop") return undefined;
+			return reply.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+		} catch {
+			// A failed prediction only means no suggestion this time.
+			return undefined;
+		}
 	}
 
 	/** Subagents recorded in the session's stored `subagent` tool results. */

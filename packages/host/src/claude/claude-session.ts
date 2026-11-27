@@ -190,8 +190,13 @@ export class ClaudeCodeSession extends ManagedSession {
 	private runWaiters: Array<() => void> = [];
 	private lastCompactTokens = 0;
 	private idleTimer: ReturnType<typeof setTimeout> | undefined;
-	/** The context limit changed while Claude Code was busy: restart it once the run ends. */
-	private restartForLimit = false;
+	/**
+	 * A setting Claude Code reads when it starts (the context limit, prompt suggestions) changed
+	 * while it was busy: restart it once the run ends.
+	 */
+	private restartWhenIdle = false;
+	/** Whether the running Claude Code process predicts the next prompt (`promptSuggestions`). */
+	private processSuggests = false;
 	/**
 	 * Set by `rewind`: the last stored entry the conversation keeps. The next process resumes the
 	 * session at it (`resumeSessionAt`), so the next prompt continues there in the same file.
@@ -280,13 +285,14 @@ export class ClaudeCodeSession extends ManagedSession {
 		this.idleTimer = undefined;
 		// A context limit changed during the last run takes effect when Claude Code starts. A prompt
 		// right after that run can arrive before the restart `finishRun` schedules: restart now.
-		if (this.restartForLimit) this.restartIfIdle();
+		if (this.restartWhenIdle) this.restartIfIdle();
 		if (this.query && this.input) return { query: this.query, input: this.input };
 		const executable = this.host.executable();
 		if (!executable)
 			throw new PierProtocolError("CONFLICT", "Claude Code (`claude`) is not installed on this computer");
 		const sdk = await this.host.sdk();
 		const input = new InputQueue<SDKUserMessage>();
+		const suggests = this.suggestionsEnabled;
 		const persisted = this.persisted;
 		const resumeAt = persisted ? this.resumeAt : undefined;
 		// Every caller sends something right away, which Claude Code writes after that entry: the
@@ -298,6 +304,8 @@ export class ClaudeCodeSession extends ManagedSession {
 			...(persisted ? { resume: this.sessionId } : { sessionId: this.sessionId }),
 			...(resumeAt ? { resumeSessionAt: resumeAt } : {}),
 			includePartialMessages: true,
+			// Claude Code predicts the next prompt after each turn on the turn's prompt cache (1.76).
+			...(suggests ? { promptSuggestions: true } : {}),
 			systemPrompt: { type: "preset", preset: "claude_code" },
 			settingSources: ["user", "project", "local"],
 			permissionMode: "default",
@@ -320,6 +328,7 @@ export class ClaudeCodeSession extends ManagedSession {
 		const query = sdk.query({ prompt: input, options });
 		this.query = query;
 		this.input = input;
+		this.processSuggests = suggests;
 		this.resetBackgroundTasks();
 		void this.consume(query);
 		return { query, input };
@@ -390,6 +399,12 @@ export class ClaudeCodeSession extends ManagedSession {
 				return;
 			case "command_lifecycle":
 				if (m.state === "started" && typeof m.command_uuid === "string") this.startQueued(m.command_uuid);
+				return;
+			case "prompt_suggestion":
+				// Sent after the turn's `result`; a prompt sent since then makes it stale.
+				if (!this.running && this.queued.length === 0 && typeof m.suggestion === "string") {
+					this.offerSuggestion(m.suggestion);
+				}
 				return;
 			default:
 				return;
@@ -665,7 +680,7 @@ export class ClaudeCodeSession extends ManagedSession {
 		const waiters = this.runWaiters;
 		this.runWaiters = [];
 		for (const resolve of waiters) resolve();
-		if (this.restartForLimit) setTimeout(() => this.restartIfIdle(), 0);
+		if (this.restartWhenIdle) setTimeout(() => this.restartIfIdle(), 0);
 		else this.scheduleProcessStop();
 	}
 
@@ -680,19 +695,20 @@ export class ClaudeCodeSession extends ManagedSession {
 	}
 
 	/**
-	 * Claude Code reads the context limit (`autoCompactWindow`) when it starts, so stop it once it
-	 * has nothing to do; the next prompt resumes the session with the new limit.
+	 * Claude Code reads the context limit (`autoCompactWindow`) and whether to suggest prompts when
+	 * it starts, so stop it once it has nothing to do; the next prompt resumes the session with the
+	 * new settings.
 	 */
 	private restartIfIdle(): void {
 		if (!this.query) {
-			this.restartForLimit = false;
+			this.restartWhenIdle = false;
 			return;
 		}
 		if (!this.idle) {
-			this.restartForLimit = true;
+			this.restartWhenIdle = true;
 			return;
 		}
-		this.restartForLimit = false;
+		this.restartWhenIdle = false;
 		if (this.idleTimer) clearTimeout(this.idleTimer);
 		this.idleTimer = undefined;
 		this.stopProcess();
@@ -700,6 +716,11 @@ export class ClaudeCodeSession extends ManagedSession {
 
 	protected override applyContextLimit(): void {
 		this.restartIfIdle();
+	}
+
+	override promptSuggestionsChanged(enabled: boolean): void {
+		super.promptSuggestionsChanged(enabled);
+		if (this.query && this.processSuggests !== enabled) this.restartIfIdle();
 	}
 
 	/**

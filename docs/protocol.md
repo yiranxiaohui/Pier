@@ -1,4 +1,4 @@
-# Pier 协议 v1.75
+# Pier 协议 v1.76
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -200,6 +200,8 @@ Host 用它所在电脑上的 `git` 命令行（`PATH` 中的，或环境变量 
 | `runtime.list` | `{}` | `{ runtimes: AgentRuntimeInfo[] }`；`AgentRuntimeInfo = { id, name, available, reason?, version?, executable?, capabilities, contextLimitDefault? }`。`contextLimitDefault`（1.64）是这个运行时新会话默认的上下文上限（见下文「上下文上限」），没有默认值时省略。`available` 表示能新建会话（CLI 已安装；登录状态在使用时才检查），不可用时 `reason` 说明原因。CLI 依次从 `PIER_CLAUDE_PATH` / `PIER_CODEX_PATH`、用户级公共安装（旧版 Pier 独立安装作为兼容回退）、`PATH` 与常见安装目录中查找 |
 | `runtime.installStatus`（1.32） | `{ runtime: "claude-code" \| "codex" \| "pi" \| "opencode", refresh?: boolean }` | `{ installation: AgentInstallationStatus, agent: AgentRuntimeInfo, autoUpdate?: boolean, installedVersion?: string }`；`refresh: true` 重新运行版本探测，其余请求使用缓存。`autoUpdate`（1.56）为该主机上这个 Agent 的后台自动更新开关，默认开启；pi 与 OpenCode 自 1.73 起返回。`runtime: "pi"`（1.61）：`installedVersion` 是磁盘上已安装、但与 Host 已加载版本（`agent.version`）不同的 pi 版本，重启 Host 后生效 |
 | `runtime.setAutoUpdate`（1.56） | `{ runtime: "claude-code" \| "codex" \| "pi" \| "opencode", enabled: boolean }` | `{ enabled }`；保存开关并广播 `runtime.changed`；`pi` 与 `opencode` 需要 1.73。关闭时取消正在进行的后台检查或下载，已开始运行的 `pi update` 不中断。已配对设备可设置，远程操作记入审计日志 |
+| `suggestions.get`（1.76） | `{}` | `{ enabled }`；这台电脑上的会话是否在每轮回复后预测用户的下一条消息（`session.suggestion`），默认关闭 |
+| `suggestions.set`（1.76） | `{ enabled: boolean }` | `{ enabled }`；保存开关（`~/.pier/config.json` 的 `promptSuggestions`），对这台电脑上所有会话生效：关闭时清除各会话当前的建议并取消进行中的预测。Claude Code 在进程启动时读取这个设置，空闲的 Claude Code 会话立即重启进程，运行中的会话在本轮结束后重启。每次预测是一次额外的模型请求，见 §4.2 `session.suggestion` |
 | `runtime.install`（1.32） | `{ runtime: "claude-code" \| "codex" \| "pi" \| "opencode", source?: AgentInstallSource }` | 同上；异步启动官方最新版本的安装或更新，立即返回。pi（1.61）与 OpenCode（1.65）见下文。`source`（1.50）选择下载线路，默认 `official`：Claude Code 可选 `official`（downloads.claude.ai）或 `npmmirror`（registry.npmmirror.com 上同一原生程序的 npm 平台包），Codex 可选 `official`（GitHub 直连）、`ghfast`、`gh-proxy` 或 `ghproxy`（GitHub 加速前缀），OpenCode 可选 `official`（GitHub 直连）、`ghfast`、`gh-proxy`、`ghproxy` 或 `npmmirror`；运行时不支持的线路返回 `BAD_REQUEST`。版本与 SHA-256 校验值始终取自官方服务（OpenCode 的 npmmirror 线路为 registry.npmjs.org 公布的 SHA-512），不能指定下载地址、路径或命令。同一运行时已有安装任务时返回 `CONFLICT`；若该任务仍在获取版本或下载且所选线路不同，则中止原任务并按新线路重新开始。显式路径覆盖存在时也返回 `CONFLICT`。`AgentInstallationStatus.source`（1.50）为当前或上一次任务的线路 |
 
 `AgentInstallationStatus = { runtime, state: "idle" | "checking" | "downloading" | "verifying" | "installing" | "ready" | "error", source?, version?, downloadedBytes?, totalBytes?, detail?, error? }`。客户端通过 `runtime.installStatus` 轮询进度，连接断开不影响任务；Host 退出会取消安装并清理暂存文件。仅支持 x64 / arm64 的 Windows、macOS、Linux。Claude Code 使用官方原生二进制和平台清单，Codex 使用官方完整原生发行包（含辅助程序），两者都校验 SHA-256 并运行 `--version` 验证后才更新用户级公共命令（`~/.local/bin`），并配置用户 `PATH`；外部终端重新打开后与 Pier 共用安装。Codex 从完整发行包运行：Unix 的 `~/.local/bin/codex` 是指向版本目录中 `bin/codex` 的符号链接；Windows 的命令目录为 `%USERPROFILE%\.local\share\codex\current\bin`，`current` 是指向所选版本目录的联接（junction），Host 把这个目录加入用户 `PATH`，并移除早期版本复制到 `%USERPROFILE%\.local\bin` 的 Codex 程序；Host 启动时若发现这类副本，且 `versions` 中有同版本的完整发行包，就改用它（不下载，成功后广播 `runtime.changed`）。程序按版本保存在 `~/.local/share/claude/versions` / `~/.local/share/codex/versions`。失败时恢复旧命令，配置、凭据与会话目录保留；Windows 程序被占用时提示关闭相关会话后重试。旧版 Pier 独立安装在下次更新时迁移，已经是最新版也会迁移；公共安装已经是最新版时检查 `PATH` 后返回 `ready`。成功安装广播 `{ type: "runtime.changed", runtime }`，客户端应刷新 Agent 列表；该事件不含凭据。已打开的 Codex 会话保留原来的 app-server 进程，全部关闭后才切换到新版。这两个方法向已配对设备开放，远程 `runtime.install` 记录运行时名称到审计日志。
@@ -603,6 +605,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 | `session.status` | `state: idle\|streaming\|compacting\|retrying` | 状态变化时发送 |
 | `session.model` | `model?, contextInfo?, thinkingLevel` | `model.set` 之后；运行时报告新的上下文窗口或上下文大小时也会发送（Codex 每次模型请求之后） |
 | `session.fast` | `enabled: boolean` | Codex Fast 状态变化时发送（1.43），包括原生 `thread/settings/updated` 通知 |
+| `session.suggestion` | `text?: string` | 预测的下一条用户消息（1.76，`suggestions.set` 开启时）：一轮回复正常结束后发送，没有 `text` 表示清除（新一轮开始、会话回退或关闭了设置）。客户端在输入框为空时显示，由用户决定是否采用；Host 不会自动发送。Claude Code 由 CLI 自己预测（Agent SDK 的 `promptSuggestions`，第一轮、plan 模式和额度将满时不预测）；Codex 在当前线程的临时分叉上预测（`thread/fork` 的 `experimentalPredictionMode`，需要 Codex 0.165 或更新版本，只读沙箱、不审批，以便复用缓存）；pi 用会话的模型和完整上下文追加一条预测请求（不执行工具）；OpenCode 在工作区以外新建一个临时会话，用 `small_model`（未配置时用会话的模型）根据最近几轮对话预测，关闭全部工具，结束后删除；Hermes 不预测 |
 | `subagent.update` | `subagent: SubagentInfo` | subagent 出现或变化时发送完整状态（1.54），见「Subagent」；状态变化立即发送，进度最多每 250ms 一次 |
 | `session.replaced` | `previousSessionId, session` | 扩展命令（如 `/new`）替换了底层 pi 会话；帧的 `sessionId` 为旧 ID，随后会收到新会话的 `session.snapshot` |
 | `session.closed` | `reason: idle\|closed\|deleted\|host_shutdown` | 会话离开活跃池；`deleted` 表示会话已被 `session.delete` 删除（1.6） |
@@ -693,6 +696,7 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
   queue: { steering: string[]; followUp: string[] };
   model?: ModelInfo; contextInfo?: SessionContextInfo; thinkingLevel: string;
   fastMode?: boolean;          // Codex Fast 模式（1.43），其他运行时与旧 Host 省略
+  suggestion?: string;         // 预测的下一条用户消息（1.76），没有时省略，见 §4.2 session.suggestion
   statuses: Record<string, string>; widgets: Record<string, { lines: string[]; placement?: string }>;
   title?: string; errorMessage?: string;
   capabilities?: AgentRuntimeCapabilities; // 会话运行时的能力（1.22），见 §3 Agent 运行时

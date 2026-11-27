@@ -707,6 +707,8 @@ export interface SessionSnapshot {
 	thinkingLevel: ThinkingLevel;
 	/** Whether Codex Fast mode is enabled (1.43). Absent for other runtimes/older hosts. */
 	fastMode?: boolean;
+	/** The predicted next prompt (1.76, see `session.suggestion`). Absent when there is none. */
+	suggestion?: string;
 	statuses: Record<string, string>;
 	widgets: Record<string, { lines: string[]; placement?: string }>;
 	title?: string;

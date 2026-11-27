@@ -326,6 +326,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"update.setMirror",
 	"runtime.install",
 	"runtime.setAutoUpdate",
+	"suggestions.set",
 	"speech.configure",
 	"settings.update",
 	"settings.write",
@@ -395,6 +396,8 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 			return { runtime: params.runtime, ...(params.source ? { source: params.source } : {}) };
 		case "runtime.setAutoUpdate":
 			return { runtime: params.runtime, enabled: params.enabled };
+		case "suggestions.set":
+			return { enabled: params.enabled };
 		case "session.prompt":
 		case "session.steer":
 		case "session.followUp":
@@ -1684,6 +1687,11 @@ export class PierHost implements RequestHandler {
 				}
 				this.broadcast({ type: "runtime.changed", runtime });
 				return { enabled };
+			},
+			"suggestions.get": () => ({ enabled: this.config.promptSuggestions }),
+			"suggestions.set": (_ctx, { enabled }) => {
+				this.pool.setPromptSuggestions(enabled);
+				return { enabled: this.config.promptSuggestions };
 			},
 			"runtime.install": async (ctx, params) => {
 				if (params.runtime === "pi") {

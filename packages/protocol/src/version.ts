@@ -6,7 +6,7 @@
  * - Bump the major version for breaking changes. Hosts reject clients whose
  *   major version differs.
  */
-export const PROTOCOL_VERSION = "1.75";
+export const PROTOCOL_VERSION = "1.76";
 
 export interface ParsedVersion {
 	major: number;

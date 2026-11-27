@@ -20,6 +20,7 @@ import {
 	type SessionContent,
 	type SessionDescription,
 } from "../managed-session.ts";
+import { compareVersions } from "../peers/ssh/remote.ts";
 import {
 	firstPromptOf,
 	type ImagePart,
@@ -31,6 +32,7 @@ import {
 	usageFrom,
 	userContentText,
 } from "../runtimes/live-transcript.ts";
+import { SUGGESTION_INSTRUCTION } from "../runtimes/prompt-suggestion.ts";
 import { clip, type SubagentPatch, type SubagentRuntimeHooks } from "../runtimes/subagents.ts";
 import type { CodexAppServer } from "./app-server.ts";
 import {
@@ -69,6 +71,13 @@ type Json = Record<string, unknown>;
 /** How long a thread may take to unload before it is resumed with a new context limit. */
 const UNLOAD_TIMEOUT_MS = 5000;
 
+/** Oldest Codex whose `thread/fork` has prediction mode (`experimentalPredictionMode`). */
+export const MIN_PREDICTION_VERSION = "0.165.0";
+/** Longest a prompt prediction may take before it is given up. */
+const PREDICTION_TIMEOUT_MS = 60_000;
+/** Items a prediction may produce; any other (a tool call) stops it. */
+const PREDICTION_ITEMS = new Set(["userMessage", "agentMessage", "reasoning", "hookPrompt", "plan"]);
+
 /**
  * Configuration overrides for `thread/start`, `thread/resume` and `thread/fork` that make Codex
  * compact before the context reaches `limit` (1.64). Codex reads them only when it loads the
@@ -89,6 +98,8 @@ export interface CodexSessionHost {
 	adopt(threadId: string, session: CodexSession): () => void;
 	/** Every turn of a thread with full items, oldest first. */
 	turns(threadId: string): Promise<Json[]>;
+	/** Version of the Codex CLI, when known. */
+	version(): Promise<string | undefined>;
 	log(message: string): void;
 }
 
@@ -462,7 +473,12 @@ export class CodexSession extends ManagedSession {
 				const turn = (params.turn ?? {}) as Json;
 				const error = (turn.error as Json | null | undefined)?.message;
 				const failure = turn.status === "failed" ? String(error ?? this.pendingError ?? "The turn failed") : undefined;
+				// Not after a compaction, nor when a queued prompt starts the next turn right away.
+				const followed = this.queued.length > 0 || this.compacting;
 				this.finishTurn(failure);
+				if (turn.status === "completed" && !followed && !this.reloadForLimit) {
+					this.suggestNext((signal) => this.predictNextPrompt(signal));
+				}
 				return;
 			}
 			case "thread/tokenUsage/updated":
@@ -497,6 +513,76 @@ export class CodexSession extends ManagedSession {
 			}
 			default:
 				return;
+		}
+	}
+
+	/**
+	 * Predict the user's next prompt (1.76) the way Codex's own clients do: on an ephemeral fork of
+	 * the thread in prediction mode, which starts from the loaded thread's config, tools and history
+	 * to reuse its prompt cache. The fork's turn runs read-only without approvals and stops at its
+	 * first tool call; the fork is dropped afterwards and never shows in the thread list.
+	 */
+	private async predictNextPrompt(signal: AbortSignal): Promise<string | undefined> {
+		const version = await this.host.version();
+		if (version && compareVersions(version, MIN_PREDICTION_VERSION) < 0) return undefined;
+		if (signal.aborted) return undefined;
+		const server = this.host.server();
+		let forkId: string | undefined;
+		let off: (() => void) | undefined;
+		try {
+			const fork = await server.request<{ thread?: Json }>("thread/fork", {
+				threadId: this.threadId,
+				experimentalPredictionMode: true,
+				ephemeral: true,
+				excludeTurns: true,
+			});
+			forkId = typeof fork.thread?.id === "string" ? fork.thread.id : undefined;
+			if (!forkId || signal.aborted) return undefined;
+			const threadId = forkId;
+			let turnId: string | undefined;
+			let text: string | undefined;
+			const finished = new Promise<boolean>((resolve) => {
+				const timer = setTimeout(() => resolve(false), PREDICTION_TIMEOUT_MS);
+				timer.unref?.();
+				const end = (completed: boolean) => {
+					clearTimeout(timer);
+					resolve(completed);
+				};
+				signal.addEventListener("abort", () => end(false), { once: true });
+				off = server.onNotification((method, params) => {
+					if (params.threadId !== threadId) return;
+					if (method === "turn/started") {
+						const id = ((params.turn ?? {}) as Json).id;
+						if (typeof id === "string") turnId = id;
+					} else if (method === "item/started" || method === "item/completed") {
+						const item = (params.item ?? {}) as Json;
+						if (!PREDICTION_ITEMS.has(String(item.type))) end(false);
+						else if (method === "item/completed" && item.type === "agentMessage") text = String(item.text ?? "");
+					} else if (method === "turn/completed") {
+						end(((params.turn ?? {}) as Json).status === "completed");
+					}
+				});
+			});
+			const low = this.currentModel()?.thinkingLevels?.includes("low");
+			const started = await server.request<{ turn?: Json }>("turn/start", {
+				threadId,
+				input: toInput(SUGGESTION_INSTRUCTION, undefined),
+				// Prediction mode lets the fork think less than the thread.
+				...(low ? { effort: "low" } : {}),
+				approvalPolicy: "never",
+				sandboxPolicy: { type: "readOnly", networkAccess: false },
+			});
+			if (typeof started.turn?.id === "string") turnId ??= started.turn.id;
+			if (await finished) return text;
+			if (turnId) await server.request("turn/interrupt", { threadId, turnId }).catch(() => undefined);
+			return undefined;
+		} catch (error) {
+			if (!signal.aborted)
+				this.host.log(`codex ${this.threadId.slice(0, 8)}: prompt suggestion failed: ${errorMessage(error)}`);
+			return undefined;
+		} finally {
+			off?.();
+			if (forkId) void server.request("thread/unsubscribe", { threadId: forkId }).catch(() => undefined);
 		}
 	}
 

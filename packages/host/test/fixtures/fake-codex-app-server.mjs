@@ -107,6 +107,8 @@ const MODELS = [
 ];
 
 const active = new Map();
+/** Ids of the prediction forks (`experimentalPredictionMode`), oldest first. */
+const predictions = [];
 
 /**
  * The effective configuration (`config/read`): `config.json` in FAKE_CODEX_DIR when a test wrote
@@ -396,7 +398,10 @@ async function runTurn(thread, turn, text) {
 		complete({ ...reasoning, summary: ["Thinking"] });
 		const message = { type: "agentMessage", id: id("msg"), text: "", phase: null };
 		notify("item/started", { threadId, turnId, item: message, startedAtMs: Date.now() });
-		const reply = `Reply to ${text}${steered.length ? ` + ${steered.length} steer` : ""}`;
+		// A prediction fork answers with the next prompt the last real turn suggests.
+		const reply = thread.prediction
+			? `Next after ${thread.prediction}`
+			: `Reply to ${text}${steered.length ? ` + ${steered.length} steer` : ""}`;
 		for (const chunk of reply.match(/.{1,5}/g) ?? []) {
 			notify("item/agentMessage/delta", { threadId, turnId, itemId: message.id, delta: chunk });
 		}
@@ -463,6 +468,27 @@ const handlers = {
 	},
 	"thread/fork": (params) => {
 		const source = threads.get(params.threadId);
+		if (params.experimentalPredictionMode) {
+			// Like Codex: an ephemeral fork of a loaded thread with all its turns and no overrides.
+			if (!experimentalApi) throw new Error("experimentalPredictionMode requires experimentalApi capability");
+			if (params.ephemeral !== true) throw new Error("`experimentalPredictionMode` requires `ephemeral: true`");
+			if (params.excludeTurns !== true)
+				throw new Error("ephemeral paginated thread/fork requires `excludeTurns: true`");
+			if (params.config)
+				throw new Error("`experimentalPredictionMode` cannot be combined with configuration overrides");
+			if (!loaded.has(source.id)) throw new Error("`experimentalPredictionMode` requires a loaded parent");
+			const last = source.turns.at(-1)?.items.find((i) => i.type === "userMessage")?.content?.[0]?.text ?? "";
+			const thread = newThread(source.cwd, {
+				forkedFromId: source.id,
+				ephemeral: true,
+				path: null,
+				turns: structuredClone(source.turns),
+				prediction: last,
+			});
+			loaded.add(thread.id);
+			predictions.push(thread.id);
+			return { thread: threadView(thread), model: thread.model, reasoningEffort: null, serviceTier: null };
+		}
 		const end = source.turns.findIndex((t) => t.id === params.lastTurnId);
 		const thread = newThread(source.cwd, {
 			forkedFromId: source.id,
@@ -558,6 +584,13 @@ const handlers = {
 		const thread = threads.get(params.threadId);
 		return { loaded: loaded.has(params.threadId), config: thread?.loadedConfig ?? null };
 	},
+	// Test helper: the prediction forks, whether each is still loaded and what its turn asked for.
+	"fake/predictions": () =>
+		predictions.map((threadId) => ({
+			threadId,
+			loaded: loaded.has(threadId),
+			turn: threads.get(threadId)?.lastTurnParams ?? null,
+		})),
 	// Test helper: what the last turn/start asked for.
 	"fake/lastTurn": (params) => threads.get(params.threadId)?.lastTurnParams ?? null,
 	"fake/rejectSettings": (params) => {

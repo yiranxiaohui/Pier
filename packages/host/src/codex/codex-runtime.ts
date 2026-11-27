@@ -192,6 +192,7 @@ export class CodexRuntime implements AgentRuntime {
 				};
 			},
 			turns: (threadId) => this.readTurns(threadId),
+			version: async () => (await this.info()).version,
 			log: this.log,
 		};
 	}

@@ -1003,6 +1003,9 @@ class Cli {
 				if (typeof event.name === "string" && this.session) this.session = { ...this.session, name: event.name };
 				this.emit([]);
 				break;
+			case "session.suggestion":
+				if (typeof event.text === "string" && event.text) this.notice("info", `Suggested next prompt: ${event.text}`);
+				break;
 			case "session.replaced": {
 				const next = event.session as SessionSummary;
 				this.sessionId = next.id;

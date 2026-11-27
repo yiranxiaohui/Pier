@@ -21,6 +21,8 @@ interface Props {
 	value: string;
 	onChange: (value: string) => void;
 	placeholder: string;
+	/** Set when `placeholder` is a suggested prompt (1.76) rather than a hint. */
+	suggestion?: string | undefined;
 	disabled?: boolean;
 	/** Runs first; call `preventDefault()` to stop the default handling (e.g. Enter sends). */
 	onKeyDown?: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
@@ -138,7 +140,7 @@ function around(root: HTMLElement, range: Range): { before: string; after: strin
  * The DOM is only rebuilt when `value` changes from outside (sending, slash commands).
  */
 export const ComposerInput = forwardRef<ComposerInputHandle, Props>(function ComposerInput(
-	{ value, onChange, placeholder, disabled, onKeyDown, onPaste, onOpenFile },
+	{ value, onChange, placeholder, suggestion, disabled, onKeyDown, onPaste, onOpenFile },
 	ref,
 ) {
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -288,7 +290,7 @@ export const ComposerInput = forwardRef<ComposerInputHandle, Props>(function Com
 		// biome-ignore lint/a11y/useSemanticElements: a textarea cannot hold inline file chips.
 		<div
 			ref={rootRef}
-			className={`composer-input${value ? "" : " empty"}`}
+			className={`composer-input${value ? "" : " empty"}${suggestion ? " suggesting" : ""}`}
 			role="textbox"
 			aria-multiline="true"
 			aria-placeholder={placeholder}

@@ -9,7 +9,15 @@ import type {
 	UiResponse,
 } from "@pier/protocol";
 import { knownMessages } from "@pier/protocol";
-import { applySnapshot, type ChatState, clearResync, dismissNotice, initialChatState, reduceChat } from "./reducer.ts";
+import {
+	applySnapshot,
+	type ChatState,
+	clearResync,
+	dismissNotice,
+	initialChatState,
+	reduceChat,
+	withoutSuggestion,
+} from "./reducer.ts";
 import { mergeCommands, type SlashCommand } from "./slash.ts";
 
 /** Slash commands of a session, and whether the host could list its own (older hosts cannot). */
@@ -215,8 +223,15 @@ export class ChatController {
 		}
 	}
 
+	/** Hide the prompt suggestion until the host makes a new one (sending, dismissing it). */
+	dismissSuggestion(): void {
+		const chat = withoutSuggestion(this.view.chat);
+		if (chat !== this.view.chat) this.update({ ...this.view, chat });
+	}
+
 	/** Send a message; while the agent runs it steers (or queues a follow-up). */
 	send(text: string, images: ImageInput[], mode: "auto" | "steer" | "followUp" = "auto"): Promise<unknown> {
+		this.dismissSuggestion();
 		const sessionId = this.sessionId;
 		const idle = this.chat.runState === "idle" || this.chat.runState === "inactive";
 		const imageParam = images.length ? { images } : {};
@@ -243,6 +258,7 @@ export class ChatController {
 	 * runs extension commands from a prompt.
 	 */
 	sendCommand(text: string, images: ImageInput[], mode: "auto" | "steer" | "followUp" = "auto"): Promise<unknown> {
+		this.dismissSuggestion();
 		const sessionId = this.sessionId;
 		const idle = this.chat.runState === "idle" || this.chat.runState === "inactive";
 		const streamingBehavior =

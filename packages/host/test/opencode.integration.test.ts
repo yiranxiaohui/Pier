@@ -21,6 +21,14 @@ let configDir: string;
 let flow: { mode: "approval" } | { mode: "reply"; input: number };
 let summaries: Array<Record<string, unknown>>;
 let replies = 0;
+/** OpenCode's effective config (`GET /config`). */
+let configBody: Record<string, unknown>;
+/** Throwaway sessions created for prompt suggestions, their prompts, and how many were deleted. */
+let scratch: {
+	created: Array<{ directory: string | null; body: Record<string, unknown> }>;
+	prompts: Array<Record<string, unknown>>;
+	deleted: number;
+};
 const id = "ses_pier";
 function event(type: string, properties: unknown) {
 	controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type, properties })}\n\n`));
@@ -40,6 +48,8 @@ beforeEach(async () => {
 	rules = [];
 	flow = { mode: "approval" };
 	summaries = [];
+	configBody = {};
+	scratch = { created: [], prompts: [], deleted: 0 };
 	const sdk = createOpencodeClient({
 		baseUrl: "http://opencode.test",
 		fetch: async (input) => {
@@ -54,6 +64,30 @@ beforeEach(async () => {
 						},
 					}),
 				);
+			}
+			if (path === "/session" && request.method === "POST") {
+				const raw = await request.text();
+				const body = raw ? JSON.parse(raw) : {};
+				if (body.title !== "Pier prompt suggestion") return Response.json({ ...session, permission: rules });
+				scratch.created.push({ directory: new URL(request.url).searchParams.get("directory"), body });
+				return Response.json({
+					id: "ses_scratch",
+					directory: tmpdir(),
+					title: body.title,
+					time: { created: 3, updated: 3 },
+				});
+			}
+			if (path === "/session/ses_scratch/message") {
+				scratch.prompts.push(await request.json());
+				const time = Date.now();
+				return Response.json({
+					info: { id: "msg_s", sessionID: "ses_scratch", role: "assistant", time: { created: time, completed: time } },
+					parts: [{ id: "prt_s", sessionID: "ses_scratch", messageID: "msg_s", type: "text", text: "Run the tests" }],
+				});
+			}
+			if (path === "/session/ses_scratch" && request.method === "DELETE") {
+				scratch.deleted++;
+				return Response.json(true);
 			}
 			if (path === "/session" && request.method === "GET")
 				return Response.json([
@@ -71,7 +105,7 @@ beforeEach(async () => {
 				return Response.json([
 					{ name: "build", permission: [{ permission: "read", pattern: ".env", action: "deny" }] },
 				]);
-			if (path === "/config") return Response.json({});
+			if (path === "/config") return Response.json(configBody);
 			if (path === `/session/${id}/summarize`) {
 				summaries.push(await request.json());
 				return Response.json(true);
@@ -181,6 +215,38 @@ it.each(["deny", "abort"])("handles %s while OpenCode waits for approval", async
 	}
 	expect(rules).toEqual([]);
 	expect((await client.request("session.snapshot", { sessionId: id })).session.state).toBe("idle");
+});
+
+it("predicts the next prompt in a throwaway session outside the workspace with every tool denied (1.76)", async () => {
+	await client.request("suggestions.set", { enabled: true });
+	configBody = { small_model: "prov/small" };
+	flow = { mode: "reply", input: 1000 };
+	const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "opencode" });
+	const rec = new Recorder();
+	await client.subscribe(session.id, rec.handler);
+	await client.request("session.prompt", { sessionId: id, text: "Fix the bug" });
+	const frame = await rec.waitFor((f) => f.event.type === "session.suggestion" && f.event.text !== undefined);
+	expect(frame.event.text).toBe("Run the tests");
+	expect(scratch.created).toEqual([
+		{
+			directory: tmpdir(),
+			body: { title: "Pier prompt suggestion", permission: [{ permission: "*", pattern: "*", action: "deny" }] },
+		},
+	]);
+	expect(scratch.prompts).toHaveLength(1);
+	expect(scratch.prompts[0]).toMatchObject({ model: { providerID: "prov", modelID: "small" }, tools: { "*": false } });
+	const text = JSON.stringify(scratch.prompts[0]?.parts);
+	expect(text).toContain("User: Fix the bug");
+	expect(text).toContain("Assistant: done");
+	await expect.poll(() => scratch.deleted).toBe(1);
+	expect((await client.request("session.snapshot", { sessionId: id })).suggestion).toBe("Run the tests");
+
+	// Without a small model the session's model predicts.
+	configBody = {};
+	const from = rec.mark();
+	await client.request("session.prompt", { sessionId: id, text: "Run the tests" });
+	await rec.waitFor((f) => f.event.type === "session.suggestion" && f.event.text !== undefined, from);
+	expect(scratch.prompts[1]).toMatchObject({ model: { providerID: "prov", modelID: "model-a" } });
 });
 
 it("restarts the OpenCode server after its configuration changes, once no turn runs", async () => {

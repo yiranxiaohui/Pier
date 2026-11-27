@@ -163,6 +163,9 @@ export function Composer({
 	const attached = draft.images.length > 0 || (draft.contexts?.length ?? 0) > 0;
 	const canSend = !voice.busy && !closed && chat.loaded && !sending && (prompt.trim().length > 0 || attached);
 	const menu = useSlashMenu(controller, prompt);
+	// The predicted next prompt (1.76) shows in the empty composer; Tab takes it.
+	const suggestion =
+		!running && !closed && !sending && !voice.busy && draft.text === "" && !attached ? chat.suggestion : undefined;
 
 	const actions: SlashActions = {
 		newSession: () => {
@@ -266,12 +269,14 @@ export function Composer({
 				ref={input}
 				value={draft.text}
 				disabled={closed}
+				suggestion={suggestion}
 				placeholder={
-					closed
+					suggestion ??
+					(closed
 						? "会话已关闭"
 						: running
 							? "补充指示以引导当前任务，Esc 停止…"
-							: "描述你的任务…（Enter 发送，Shift+Enter 换行，/ 使用命令）"
+							: "描述你的任务…（Enter 发送，Shift+Enter 换行，/ 使用命令）")
 				}
 				onChange={(text) => setDraft((d) => ({ ...d, text }))}
 				onOpenFile={(path) => store.openFilePreview(controller.workspaceId, path)}
@@ -284,6 +289,16 @@ export function Composer({
 				}}
 				onKeyDown={(e) => {
 					if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+					if (suggestion && e.key === "Tab" && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+						e.preventDefault();
+						setDraft((d) => ({ ...d, text: suggestion }));
+						return;
+					}
+					if (suggestion && e.key === "Escape") {
+						e.preventDefault();
+						controller.dismissSuggestion();
+						return;
+					}
 					if (menu.open) {
 						const entry = menu.entries[menu.active];
 						if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -341,6 +356,7 @@ export function Composer({
 				</div>
 				<div className="composer-actions">
 					<SessionModelPicker chat={chat} controller={controller} />
+					{suggestion ? <span className="composer-hint">Tab 填入建议 · Esc 忽略</span> : null}
 					{running ? (
 						<>
 							<span className="composer-hint">Enter 引导 · Alt+Enter 排队</span>

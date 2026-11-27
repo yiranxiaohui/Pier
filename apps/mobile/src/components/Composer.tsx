@@ -63,6 +63,11 @@ export function Composer({
 		store.saveDraft(chat.sessionId, value);
 	};
 	const menu = useSlashMenu(chat, text);
+	// The predicted next prompt (1.76): a tap puts it in the input.
+	const suggestion =
+		!busy && !sending && !voice.busy && !chat.chat.closed && text === "" && images.length === 0
+			? chat.chat.suggestion
+			: undefined;
 
 	const openSession = (session: { id: string; workspaceId: string } | undefined) => {
 		const hostId = store.getState().host.hostId;
@@ -138,6 +143,27 @@ export function Composer({
 	return (
 		<View style={styles.root}>
 			<SlashMenu menu={menu} onPick={pick} />
+			{suggestion ? (
+				<View style={styles.suggestionRow}>
+					<Pressable
+						onPress={() => update(suggestion)}
+						accessibilityRole="button"
+						accessibilityLabel={`填入建议：${suggestion}`}
+						testID="suggestion-chip"
+						style={({ pressed }) => [
+							styles.suggestion,
+							{ backgroundColor: p.card, borderColor: p.border },
+							pressed && styles.pressed,
+						]}
+					>
+						<Icon name="sparkles-outline" size={13} color={p.accentText} />
+						<Text style={[styles.suggestionText, { color: p.text }]} numberOfLines={2}>
+							{suggestion}
+						</Text>
+					</Pressable>
+					<IconButton icon="close" label="忽略建议" size={40} onPress={() => chat.dismissSuggestion()} />
+				</View>
+			) : null}
 			<View style={[styles.box, FLOAT_SHADOW, { backgroundColor: p.card, borderColor: focused ? p.accent : p.border }]}>
 				{images.length ? (
 					<ScrollView horizontal style={styles.images} contentContainerStyle={styles.imagesContent}>
@@ -291,6 +317,19 @@ const styles = StyleSheet.create({
 		lineHeight: 21,
 	},
 	toolbar: { flexDirection: "row", alignItems: "center", gap: 8 },
+	suggestionRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+	suggestion: {
+		flex: 1,
+		flexDirection: "row",
+		alignItems: "center",
+		gap: 6,
+		minHeight: 40,
+		paddingHorizontal: 12,
+		paddingVertical: 8,
+		borderRadius: RADIUS.md,
+		borderWidth: StyleSheet.hairlineWidth,
+	},
+	suggestionText: { flex: 1, fontSize: 14, lineHeight: 19 },
 	modelChip: {
 		flexShrink: 1,
 		flexDirection: "row",

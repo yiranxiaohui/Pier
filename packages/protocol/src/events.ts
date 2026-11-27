@@ -71,6 +71,11 @@ export type PierSessionEvent =
 	| { type: "session.closed"; reason: "idle" | "closed" | "deleted" | "host_shutdown" }
 	| { type: "session.model"; model?: ModelInfo; contextInfo?: SessionContextInfo; thinkingLevel: string }
 	| { type: "session.fast"; enabled: boolean }
+	/**
+	 * The predicted next prompt (1.76): set after a reply when prompt suggestions are on
+	 * (`suggestions.set`), absent when it was cleared (a new run started, or the setting went off).
+	 */
+	| { type: "session.suggestion"; text?: string }
 	/** A subagent started or changed (1.54); carries its whole current state. */
 	| { type: "subagent.update"; subagent: SubagentInfo }
 	| { type: "ui.request"; request: UiRequest }

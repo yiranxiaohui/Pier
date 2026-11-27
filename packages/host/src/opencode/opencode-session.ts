@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import type {
 	AssistantMessage,
 	Event,
@@ -23,9 +24,12 @@ import {
 	ManagedSession,
 	type ManagedSessionOptions,
 	MIN_CONTEXT_LIMIT,
+	replyText,
 	type SessionContent,
+	textOf,
 } from "../managed-session.ts";
 import { firstPromptOf, LiveTranscript, type TranscriptMessage } from "../runtimes/live-transcript.ts";
+import { type ExcerptMessage, excerptPrompt } from "../runtimes/prompt-suggestion.ts";
 import type { OpenCodeRuntime } from "./opencode-runtime.ts";
 import { contextTokensOf, errorText, OpenCodeTranscript } from "./transcript.ts";
 
@@ -45,6 +49,17 @@ export const OPENCODE_CAPABILITIES: AgentRuntimeCapabilities = {
 };
 const strict = { throwOnError: true } as const;
 const nativeAllowed = ["read", "grep", "glob", "list", "todowrite", "question"];
+/** Title of the throwaway sessions that predict the next prompt. */
+const PREDICTION_TITLE = "Pier prompt suggestion";
+/** Longest a prompt prediction may take before it is given up. */
+const PREDICTION_TIMEOUT_MS = 60_000;
+
+/** A `provider/model` reference from OpenCode's config (`small_model`). */
+function modelRef(value: string | undefined): { providerID: string; modelID: string } | undefined {
+	const slash = value?.indexOf("/") ?? -1;
+	if (!value || slash <= 0 || slash === value.length - 1) return undefined;
+	return { providerID: value.slice(0, slash), modelID: value.slice(slash + 1) };
+}
 
 /** Narrow native allows in their original order. Later exceptions, including denies, still win. */
 function turnPermissions(rules: PermissionRuleset): PermissionRuleset {
@@ -166,7 +181,65 @@ export class OpenCodeSession extends ManagedSession {
 				this.setRunState("idle");
 				// OpenCode cannot be told the limit, so compact once a turn ended past it.
 				if (completed && this.overLimit()) void this.compactNow("threshold").catch(() => {});
+				else if (completed && !this.transcript.errorMessage) {
+					this.suggestNext((signal) => this.predictNextPrompt(signal));
+				}
 			});
+	}
+
+	/**
+	 * Predict the user's next prompt (1.76). OpenCode records every request in a session, so this
+	 * asks a throwaway session outside the workspace (Pier lists only the workspace's sessions) with
+	 * every tool denied, from the end of the conversation, using OpenCode's `small_model` (or the
+	 * session's model), and deletes it afterwards.
+	 */
+	private async predictNextPrompt(signal: AbortSignal): Promise<string | undefined> {
+		const prompt = excerptPrompt(this.excerpt());
+		if (!prompt) return undefined;
+		const endTurn = this.runtime.beginTurn();
+		const directory = tmpdir();
+		const options = { ...strict, signal: AbortSignal.any([signal, AbortSignal.timeout(PREDICTION_TIMEOUT_MS)]) };
+		let client: OpencodeClient | undefined;
+		let scratch: string | undefined;
+		try {
+			client = await this.runtime.server.client();
+			const { data: config } = await client.config.get({ directory: this.workspacePath }, options);
+			const model =
+				modelRef(config.small_model) ??
+				(this.model ? { providerID: this.model.provider, modelID: this.model.id } : this.lastModel);
+			if (!model) return undefined;
+			const { data: session } = await client.session.create(
+				{ directory, title: PREDICTION_TITLE, permission: [{ permission: "*", pattern: "*", action: "deny" }] },
+				options,
+			);
+			scratch = session.id;
+			const { data: reply } = await client.session.prompt(
+				{ directory, sessionID: scratch, model, tools: { "*": false }, parts: [{ type: "text", text: prompt }] },
+				options,
+			);
+			if (reply.info.error) return undefined;
+			return reply.parts.map((part) => (part.type === "text" && !part.synthetic ? part.text : "")).join("");
+		} catch {
+			// A failed prediction only means no suggestion this time.
+			return undefined;
+		} finally {
+			endTurn();
+			if (client && scratch) {
+				await client.session
+					.delete({ directory, sessionID: scratch }, { ...strict, signal: AbortSignal.timeout(5000) })
+					.catch(() => {});
+			}
+		}
+	}
+
+	/** The conversation's prompts and replies as text, for {@link excerptPrompt}. */
+	private excerpt(): ExcerptMessage[] {
+		const messages: ExcerptMessage[] = [];
+		for (const message of this.transcript.messages as Array<{ role?: string; content?: unknown }>) {
+			if (message.role === "user") messages.push({ role: "user", text: textOf(message.content) });
+			else if (message.role === "assistant") messages.push({ role: "assistant", text: replyText(message.content) });
+		}
+		return messages;
 	}
 
 	private overLimit(): boolean {

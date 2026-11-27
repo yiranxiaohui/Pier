@@ -146,6 +146,44 @@ describe("Codex runtime", () => {
 		expect(await client.request("fast.set", { sessionId: session.id })).toEqual({ enabled: false });
 	});
 
+	it("predicts the next prompt on an ephemeral prediction fork (1.76)", async () => {
+		await client.request("suggestions.set", { enabled: true });
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "codex" });
+		const rec = new Recorder();
+		await client.subscribe(session.id, rec.handler, { workspaceId: workspace.id });
+		await rec.waitForType("session.snapshot");
+		await client.request("session.prompt", { sessionId: session.id, text: "fix the bug" });
+		const frame = await rec.waitFor((f) => f.event.type === "session.suggestion" && f.event.text !== undefined);
+		expect(frame.event.text).toBe("Next after fix the bug");
+		// The fork ran read-only without approvals, thinking less, and was unloaded afterwards.
+		const forks = (await runtime().server().request("fake/predictions", {})) as Array<{
+			threadId: string;
+			loaded: boolean;
+			turn: Record<string, unknown>;
+		}>;
+		expect(forks).toHaveLength(1);
+		expect(forks[0]?.turn).toMatchObject({
+			effort: "low",
+			approvalPolicy: "never",
+			sandboxPolicy: { type: "readOnly", networkAccess: false },
+		});
+		expect(JSON.stringify(forks[0]?.turn.input)).toContain("Pier prompt suggestion");
+		await expect
+			.poll(async () => ((await runtime().server().request("fake/predictions", {})) as typeof forks)[0]?.loaded)
+			.toBe(false);
+		// Neither the transcript nor the thread list show the fork.
+		const snapshot = await client.request("session.snapshot", { sessionId: session.id });
+		expect(snapshot.suggestion).toBe("Next after fix the bug");
+		expect(JSON.stringify(snapshot.messages)).not.toContain("Pier prompt suggestion");
+		const { sessions } = await client.request("session.list", { workspaceId: workspace.id });
+		expect(sessions.map((s) => s.id)).toEqual([session.id]);
+
+		// The next prompt clears it.
+		const from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "Next after fix the bug" });
+		expect((await rec.waitForType("session.suggestion", from)).event).toEqual({ type: "session.suggestion" });
+	});
+
 	it("rejects Fast mode for other runtimes", async () => {
 		const { session } = await client.request("session.create", { workspaceId: workspace.id });
 		await expect(client.request("fast.set", { sessionId: session.id })).rejects.toMatchObject({ code: "UNSUPPORTED" });

@@ -58,6 +58,8 @@ export interface ChatState {
 	contextInfo?: SessionContextInfo;
 	thinkingLevel: string;
 	fastMode?: boolean;
+	/** The predicted next prompt (1.76), shown in an empty composer until a run starts. */
+	suggestion?: string;
 	statuses: Record<string, string>;
 	widgets: Record<string, { lines: string[]; placement?: string }>;
 	title?: string;
@@ -149,7 +151,15 @@ export function applySnapshot(state: ChatState, snapshot: SessionSnapshot): Chat
 	if (snapshot.errorMessage) next.errorMessage = snapshot.errorMessage;
 	if (snapshot.capabilities) next.capabilities = snapshot.capabilities;
 	if (snapshot.fastMode !== undefined) next.fastMode = snapshot.fastMode;
+	if (snapshot.suggestion) next.suggestion = snapshot.suggestion;
 	return next;
+}
+
+/** `state` without its prompt suggestion (the same object when it has none). */
+export function withoutSuggestion(state: ChatState): ChatState {
+	if (state.suggestion === undefined) return state;
+	const { suggestion: _suggestion, ...rest } = state;
+	return rest;
 }
 
 function cloneAssistant(message: AssistantMessage): AssistantMessage {
@@ -390,8 +400,11 @@ export function reduceChat(state: ChatState, frame: EventFrame): ChatState {
 					followUp: [...((event.followUp as string[] | undefined) ?? [])],
 				},
 			};
-		case "session.status":
-			return { ...state, runState: event.state as SessionRunState };
+		case "session.status": {
+			const next = { ...state, runState: event.state as SessionRunState };
+			// A run makes the suggestion stale; the host clears it too.
+			return next.runState === "idle" ? next : withoutSuggestion(next);
+		}
 		case "compaction_start":
 			return { ...state, compacting: { reason: String(event.reason ?? "manual") } };
 		case "compaction_end": {
@@ -436,6 +449,11 @@ export function reduceChat(state: ChatState, frame: EventFrame): ChatState {
 			return typeof event.level === "string" ? { ...state, thinkingLevel: event.level } : state;
 		case "session.fast":
 			return { ...state, fastMode: event.enabled as boolean };
+		case "session.suggestion": {
+			const text = typeof event.text === "string" && event.text ? event.text : undefined;
+			if (text === state.suggestion) return state;
+			return text ? { ...state, suggestion: text } : withoutSuggestion(state);
+		}
 		case "subagent.update": {
 			const subagent = event.subagent as SubagentInfo | undefined;
 			if (!subagent?.id) return state;

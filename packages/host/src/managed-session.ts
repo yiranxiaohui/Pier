@@ -26,6 +26,7 @@ import { evaluateToolCall } from "./approval/policy.ts";
 import { clientEvent, clientMessage, clientMessages } from "./client-messages.ts";
 import { DEFAULT_EVENT_LOG_CAPACITY, EventLog } from "./event-log.ts";
 import { truncateInput } from "./pi/approval-extension.ts";
+import { cleanSuggestion } from "./runtimes/prompt-suggestion.ts";
 import { type SubagentRuntimeHooks, SubagentTracker, type SubagentTranscript } from "./runtimes/subagents.ts";
 import { SessionLock } from "./session-lock.ts";
 import { UiBridge } from "./ui-bridge.ts";
@@ -70,6 +71,8 @@ export interface ManagedSessionOptions {
 	contextLimit?: number;
 	/** Move a session file to Pier's trash, as `session.delete` does; returns where it went. */
 	trashFile?: (file: string) => string;
+	/** Whether to predict the user's next prompt after each reply (`suggestions.set`, 1.76); off without it. */
+	promptSuggestions?: () => boolean;
 }
 
 /** Summary fields a runtime reports about its session; the base class adds the live state. */
@@ -135,6 +138,10 @@ export abstract class ManagedSession {
 	protected readonly subagents: SubagentTracker;
 	/** The session's context limit in tokens (`contextLimit.set`, 1.64); the model's window without one. */
 	protected contextLimit: number | undefined;
+	/** The predicted next prompt (`session.suggestion`, 1.76). */
+	private suggestion: string | undefined;
+	/** The prediction in progress, if any: aborted when it is no longer wanted. */
+	private predicting: AbortController | undefined;
 	lastActivity = Date.now();
 
 	protected constructor(protected readonly options: ManagedSessionOptions) {
@@ -215,7 +222,60 @@ export abstract class ManagedSession {
 		if (next === this.runState) return;
 		this.runState = next;
 		this.emit({ type: "session.status", state: next });
+		// A new run makes the prediction about the last one stale.
+		if (next !== "idle") this.clearSuggestion();
 		this.options.onActivity?.(this);
+	}
+
+	// ---------------------------------------------------------------- prompt suggestions (1.76)
+
+	/** Whether the user wants the next prompt predicted (`suggestions.set`). */
+	protected get suggestionsEnabled(): boolean {
+		return this.options.promptSuggestions?.() ?? false;
+	}
+
+	/**
+	 * Predict the next prompt with `predict`, which resolves to the model's answer (or undefined):
+	 * replaces an earlier prediction, and is dropped when a run starts or the session closes first.
+	 * Errors are the runtime's to report; the session just shows no suggestion.
+	 */
+	protected suggestNext(predict: (signal: AbortSignal) => Promise<string | undefined>): void {
+		if (!this.suggestionsEnabled || this.disposed || this.runState !== "idle") return;
+		this.clearSuggestion();
+		const abort = new AbortController();
+		this.predicting = abort;
+		void predict(abort.signal)
+			.then((text) => {
+				if (this.predicting === abort && !abort.signal.aborted) this.offerSuggestion(text);
+			})
+			.catch(() => undefined)
+			.finally(() => {
+				if (this.predicting === abort) this.predicting = undefined;
+			});
+	}
+
+	/** Show a predicted next prompt, unless a run started meanwhile or suggestions are off. */
+	protected offerSuggestion(text: string | undefined): void {
+		const suggestion = cleanSuggestion(text);
+		if (!suggestion || !this.suggestionsEnabled || this.disposed || this.runState !== "idle") return;
+		if (suggestion === this.suggestion) return;
+		this.suggestion = suggestion;
+		this.emit({ type: "session.suggestion", text: suggestion });
+	}
+
+	/** Drop the current suggestion and stop a prediction in progress. */
+	protected clearSuggestion(): void {
+		const predicting = this.predicting;
+		this.predicting = undefined;
+		predicting?.abort();
+		if (this.suggestion === undefined) return;
+		this.suggestion = undefined;
+		this.emit({ type: "session.suggestion" });
+	}
+
+	/** The prompt suggestion setting changed (`suggestions.set`). */
+	promptSuggestionsChanged(enabled: boolean): void {
+		if (!enabled) this.clearSuggestion();
 	}
 
 	/** Append an event to the log and fan it out to subscribers. */
@@ -323,6 +383,7 @@ export abstract class ManagedSession {
 			...(c.contextInfo ? { contextInfo: c.contextInfo } : {}),
 			thinkingLevel: c.thinkingLevel,
 			...(c.fastMode !== undefined ? { fastMode: c.fastMode } : {}),
+			...(this.suggestion !== undefined ? { suggestion: this.suggestion } : {}),
 			statuses: Object.fromEntries(this.bridge.statuses),
 			widgets: Object.fromEntries(this.bridge.widgets),
 			...(this.bridge.title ? { title: this.bridge.title } : {}),
@@ -501,6 +562,7 @@ export abstract class ManagedSession {
 		if (this.busy) throw new PierProtocolError("CONFLICT", "Wait for the agent to finish before rewinding");
 		await this.rewindTo(entryId);
 		this.lastActivity = Date.now();
+		this.clearSuggestion();
 		this.resetLog();
 		this.sendSnapshotToAll();
 		this.options.onActivity?.(this);
@@ -539,6 +601,8 @@ export abstract class ManagedSession {
 	async dispose(reason: "idle" | "closed" | "deleted" | "host_shutdown"): Promise<void> {
 		if (this.disposed) return;
 		this.bridge.cancelAll();
+		this.predicting?.abort();
+		this.predicting = undefined;
 		this.emit({ type: "session.closed", reason });
 		this.disposed = true;
 		this.subagents.dispose();

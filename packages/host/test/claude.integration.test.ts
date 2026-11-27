@@ -500,6 +500,38 @@ describe("Claude Code runtime", () => {
 		expect(state().contextInfo).not.toHaveProperty("contextLimit");
 	});
 
+	it("lets Claude Code predict the next prompt and restarts it when the setting changes (1.76)", async () => {
+		fake.responder = async function* (ctx) {
+			yield* streamText(`msg_${ctx.text}`, `reply to ${ctx.text}`);
+		};
+		await client.request("suggestions.set", { enabled: true });
+		const { session } = await client.request("session.create", { workspaceId: workspace.id, runtime: "claude-code" });
+		const { rec, state } = await open(session);
+		await client.request("session.prompt", { sessionId: session.id, text: "one" });
+		await rec.waitForType("agent_settled");
+		expect(fake.options[0]?.promptSuggestions).toBe(true);
+
+		// Claude Code sends its prediction after the turn's result.
+		fake.emit({ type: "prompt_suggestion", suggestion: "Now add a test" });
+		await expect.poll(() => state().suggestion).toBe("Now add a test");
+		expect((await client.request("session.snapshot", { sessionId: session.id })).suggestion).toBe("Now add a test");
+
+		// Off: the suggestion goes, and the idle process stops so the next one starts without it.
+		const closes = fake.closes;
+		await client.request("suggestions.set", { enabled: false });
+		await expect.poll(() => state().suggestion).toBeUndefined();
+		expect(fake.closes).toBe(closes + 1);
+		const from = rec.mark();
+		await client.request("session.prompt", { sessionId: session.id, text: "two" });
+		await rec.waitForType("agent_settled", from);
+		expect(fake.options).toHaveLength(2);
+		expect(fake.options[1]).not.toHaveProperty("promptSuggestions");
+		// A late prediction is not shown while suggestions are off.
+		fake.emit({ type: "prompt_suggestion", suggestion: "Ignored" });
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(state().suggestion).toBeUndefined();
+	});
+
 	it("answers a prompt sent right after the run that changed the limit, while the old process exits", async () => {
 		let releaseSlow!: () => void;
 		const slow = new Promise<void>((resolve) => {

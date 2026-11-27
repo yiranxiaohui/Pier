@@ -4,6 +4,7 @@ import { POLICY_DESCRIPTION, POLICY_LABEL } from "../lib/format.ts";
 import { pageDescribesHost, pageFollowsHost, pageIsReadOnly } from "../lib/settings-target.ts";
 import {
 	type FilePreviewMode,
+	hostSpeaks,
 	LOCAL_NODE,
 	type SettingsSection,
 	useAppState,
@@ -164,7 +165,7 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 				label: "常规",
 				icon: IconSettings,
 				keywords:
-					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light 文件预览 预览 弹窗 全屏 右侧面板 标签页 会话列表 会话 工作区 侧边栏 排序 自动排序 最近活动 置顶 最前 创建时间",
+					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light 文件预览 预览 弹窗 全屏 右侧面板 标签页 会话列表 会话 工作区 侧边栏 排序 自动排序 最近活动 置顶 最前 创建时间 建议 提示词 预测 下一条 tab 补全 suggestion",
 			},
 			{
 				id: "workspaces",
@@ -233,7 +234,7 @@ function matchingPage(item: SectionDef, q: string): SectionDef | undefined {
 }
 const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	account: "管理云链API 账号、额度与令牌，连接你的 Agent。",
-	general: "让 Pier 更合你的习惯，调整外观、文件预览、侧边栏排序、语音与启动方式。",
+	general: "让 Pier 更合你的习惯，调整外观、文件预览、侧边栏排序、提示词建议、语音与启动方式。",
 	models: "为 pi 连接模型服务商，选择 pi 新会话的默认模型。",
 	workspaces: "管理项目目录，为每个工作区选择合适的工具审批策略。",
 	extensions: "发现与管理 pi 的扩展包，为 pi 的工作流程添加更多能力。",
@@ -450,6 +451,7 @@ function GeneralSettings() {
 			<AppearanceSettings />
 			<FilePreviewSettings />
 			<SidebarSortSettings />
+			<PromptSuggestionSettings />
 			<SettingsGroup title="语音输入" description="在本机设置识别方式，让想法更快变成文字。">
 				<SettingsCard>
 					<SettingRow title="语音识别服务" stack>
@@ -459,6 +461,73 @@ function GeneralSettings() {
 			</SettingsGroup>
 			{remote ? <RemoteGeneralSettings /> : <LocalGeneralSettings />}
 		</>
+	);
+}
+
+/**
+ * Prompt suggestions (protocol 1.76): a setting of the computer whose Host runs the sessions, so
+ * it follows the computer the settings manage.
+ */
+function PromptSuggestionSettings() {
+	const store = useStore();
+	const target = useSettingsTarget();
+	const supported = hostSpeaks(target.hostInfo, 76);
+	const [enabled, setEnabled] = useState<boolean>();
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string>();
+	// biome-ignore lint/correctness/useExhaustiveDependencies: read it again for another computer.
+	useEffect(() => {
+		setEnabled(undefined);
+		setError(undefined);
+		if (!target.online || !supported) return;
+		let current = true;
+		store.getPromptSuggestions().then(
+			(value) => {
+				if (current) setEnabled(value);
+			},
+			(e: unknown) => {
+				if (current) setError(e instanceof Error ? e.message : String(e));
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [store, target.node, target.online, supported]);
+
+	async function change(next: boolean) {
+		setSaving(true);
+		setError(undefined);
+		try {
+			setEnabled(await store.setPromptSuggestions(next));
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+		} finally {
+			setSaving(false);
+		}
+	}
+
+	const where = target.local ? "这台电脑" : target.name;
+	return (
+		<SettingsGroup title="会话" description={`对 ${where} 上运行的 Agent 会话生效。`}>
+			<SettingsCard>
+				<SettingRow
+					title="建议下一条提示词"
+					description={
+						target.online && !supported && target.hostInfo
+							? `${where} 上的 Pier 版本过旧，更新后才能使用。`
+							: (error ??
+								"Agent 完成一轮回复后，在空输入框中预测你的下一条消息，按 Tab 填入。每次预测都会额外发起一次模型请求：Claude Code、Codex 与 pi 复用本轮的缓存（pi 取决于服务商），OpenCode 用配置的 small_model。Claude Code 会话在空闲时重启后生效；需要 Codex 0.165 或更新版本，Hermes 暂不支持。")
+					}
+				>
+					<Switch
+						checked={enabled === true}
+						disabled={!target.online || !supported || enabled === undefined || saving}
+						onChange={(next) => void change(next)}
+						label="建议下一条提示词"
+					/>
+				</SettingRow>
+			</SettingsCard>
+		</SettingsGroup>
 	);
 }
 

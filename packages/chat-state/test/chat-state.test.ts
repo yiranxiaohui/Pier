@@ -91,6 +91,21 @@ describe("reduceChat", () => {
 		expect(other).toBe(state);
 	});
 
+	it("keeps the predicted next prompt until a run starts or the host clears it (1.76)", () => {
+		let state = loaded({ suggestion: "Run the tests" });
+		expect(state.suggestion).toBe("Run the tests");
+		state = run(state, [{ type: "session.suggestion", text: "Commit it" }]);
+		expect(state.suggestion).toBe("Commit it");
+		state = run(state, [{ type: "session.suggestion" }]);
+		expect(state).not.toHaveProperty("suggestion");
+		state = run(state, [
+			{ type: "session.suggestion", text: "Commit it" },
+			{ type: "session.status", state: "streaming" },
+		]);
+		expect(state).not.toHaveProperty("suggestion");
+		expect(loaded()).not.toHaveProperty("suggestion");
+	});
+
 	it("keeps context window and compaction limits from snapshots and model changes", () => {
 		const info = {
 			autoCompaction: "configured" as const,

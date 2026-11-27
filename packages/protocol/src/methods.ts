@@ -533,6 +533,17 @@ export const MethodParamsSchemas = {
 	"runtime.install": z.object({ runtime: AgentInstallRuntimeSchema, source: AgentInstallSourceSchema.optional() }),
 	/** Turns background updates of one agent on or off (1.56; `pi` and `opencode` 1.73). */
 	"runtime.setAutoUpdate": z.object({ runtime: AgentInstallRuntimeSchema, enabled: z.boolean() }),
+	/**
+	 * Whether sessions on this computer predict the user's next prompt after each reply (1.76,
+	 * `session.suggestion`). Off by default: each prediction is one more model request.
+	 */
+	"suggestions.get": z.object({}).optional(),
+	/**
+	 * Turns prompt suggestions on or off for every session on this computer (1.76). Open sessions
+	 * follow at once, except Claude Code, which reads it when its process starts: an idle Claude
+	 * Code session restarts its process, a busy one after its run.
+	 */
+	"suggestions.set": z.object({ enabled: z.boolean() }),
 
 	"session.list": z.object({ workspaceId: Id }),
 	/** `runtime` (1.22) picks the agent runtime; the default is `pi`. */
@@ -1165,6 +1176,8 @@ export interface MethodResults {
 	"runtime.installStatus": AgentInstallationResult;
 	"runtime.install": AgentInstallationResult;
 	"runtime.setAutoUpdate": { enabled: boolean };
+	"suggestions.get": { enabled: boolean };
+	"suggestions.set": { enabled: boolean };
 	"session.list": { sessions: SessionSummary[] };
 	"session.create": { session: SessionSummary };
 	"session.open": { session: SessionSummary };

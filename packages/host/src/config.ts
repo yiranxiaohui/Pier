@@ -65,6 +65,8 @@ export const PierConfigSchema = z.object({
 	 * start after a downgrade, so these live apart, under keys any later agent can join.
 	 */
 	otherAgentUpdates: z.record(z.string(), AgentUpdateSchema).optional(),
+	/** Predict the user's next prompt after each reply (0.3.16, `suggestions.set`); absent means off. */
+	promptSuggestions: z.boolean().optional(),
 });
 
 export type PierConfig = z.infer<typeof PierConfigSchema>;
@@ -148,6 +150,16 @@ export class ConfigStore {
 				? { ...this.config, agentUpdates: { ...this.config.agentUpdates, [runtime]: next } }
 				: { ...this.config, otherAgentUpdates: { ...this.config.otherAgentUpdates, [runtime]: next } },
 		);
+	}
+
+	/** Whether sessions predict the user's next prompt (`suggestions.set`); off by default. */
+	get promptSuggestions(): boolean {
+		return this.config.promptSuggestions === true;
+	}
+
+	setPromptSuggestions(enabled: boolean): void {
+		if (enabled === this.promptSuggestions) return;
+		this.save({ ...this.config, promptSuggestions: enabled });
 	}
 
 	get remote(): RemoteConfig {

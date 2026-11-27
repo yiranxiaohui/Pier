@@ -302,6 +302,11 @@
 	white-space: nowrap;
 }
 
+/* A suggested next prompt (Tab takes it): darker than a hint, still clearly not typed text. */
+.composer-input.empty.suggesting::before {
+	color: var(--text-muted);
+}
+
 .composer-input[aria-disabled="true"] {
 	cursor: default;
 	opacity: 0.6;
