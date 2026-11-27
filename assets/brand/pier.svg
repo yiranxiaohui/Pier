@@ -1,33 +1,91 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>Pier</title>
-  <desc>An airy P with a mint terminal prompt, a gentle forward lean, and a rising connection ending in a small device node.</desc>
+  <desc>A solid P with an engraved terminal prompt and a cursor block at its foot, both with depth: extruded toward the lower right and lit from above.</desc>
+  <!--
+    Each *-side path is its face's outline swept 47 units right and 47 down: the edge facing that way, a
+    straight step across, and the same edge back. The *-lit gradients run across the sweep, so every
+    point of a wall takes the light of the edge it comes from: brightest where the wall faces up and
+    right, darkest underneath. The prompt is cut out of the P's face; the same shape drawn 13 units
+    deeper is its floor. The shade is the solid drawn again with ever wider, fainter strokes, which
+    renders the same soft shadow in every SVG renderer without a blur filter.
+  -->
   <defs>
     <linearGradient id="surface" x1="96" y1="0" x2="912" y2="1024" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#294775"/>
-      <stop offset=".55" stop-color="#183047"/>
-      <stop offset="1" stop-color="#12444a"/>
+      <stop stop-color="#27c2d9"/>
+      <stop offset=".55" stop-color="#2a6df0"/>
+      <stop offset="1" stop-color="#2333a8"/>
     </linearGradient>
     <radialGradient id="tide" cx="940" cy="970" r="830" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#2bbcac" stop-opacity=".13"/>
-      <stop offset="1" stop-color="#2bbcac" stop-opacity="0"/>
+      <stop stop-color="#7a4dff" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#7a4dff" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="ink" x1="356" y1="270" x2="670" y2="720" gradientUnits="userSpaceOnUse">
+    <radialGradient id="sheen" cx=".18" cy=".08" r=".8">
+      <stop stop-color="#fff" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ink" x1="264" y1="212" x2="630" y2="768" gradientUnits="userSpaceOnUse">
       <stop stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#dcf4f7"/>
+      <stop offset="1" stop-color="#e6eeff"/>
     </linearGradient>
-    <linearGradient id="signal" x1="424" y1="390" x2="630" y2="751" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#a2f4e6"/>
-      <stop offset="1" stop-color="#4edcc5"/>
+    <linearGradient id="signal" x1="491" y1="682" x2="712" y2="768" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9af7e4"/>
+      <stop offset="1" stop-color="#3fe0c5"/>
     </linearGradient>
+    <linearGradient id="ink-lit" x1="707" y1="317" x2="272" y2="752" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c9d8ff" stop-opacity=".99"/>
+      <stop offset=".054" stop-color="#c9d8ff" stop-opacity=".84"/>
+      <stop offset=".199" stop-color="#c9d8ff" stop-opacity=".57"/>
+      <stop offset=".356" stop-color="#c9d8ff" stop-opacity=".32"/>
+      <stop offset=".518" stop-color="#c9d8ff" stop-opacity=".08"/>
+      <stop offset=".602" stop-color="#c9d8ff" stop-opacity=".08"/>
+      <stop offset=".646" stop-color="#c9d8ff" stop-opacity=".4"/>
+      <stop offset=".69" stop-color="#c9d8ff" stop-opacity=".78"/>
+      <stop offset=".807" stop-color="#c9d8ff" stop-opacity=".78"/>
+      <stop offset=".855" stop-color="#c9d8ff" stop-opacity=".4"/>
+      <stop offset=".903" stop-color="#c9d8ff" stop-opacity=".08"/>
+      <stop offset=".979" stop-color="#c9d8ff" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#c9d8ff" stop-opacity=".01"/>
+    </linearGradient>
+    <linearGradient id="signal-lit" x1="694" y1="679" x2="556" y2="817" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3ccdb3" stop-opacity=".99"/>
+      <stop offset=".013" stop-color="#3ccdb3" stop-opacity=".9"/>
+      <stop offset=".04" stop-color="#3ccdb3" stop-opacity=".78"/>
+      <stop offset=".163" stop-color="#3ccdb3" stop-opacity=".78"/>
+      <stop offset=".257" stop-color="#3ccdb3" stop-opacity=".4"/>
+      <stop offset=".351" stop-color="#3ccdb3" stop-opacity=".08"/>
+      <stop offset=".964" stop-color="#3ccdb3" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#3ccdb3" stop-opacity=".01"/>
+    </linearGradient>
+    <g id="solid">
+      <path id="p-side" d="M657.2 266.8A187 187 0 0 1 712 399A187 187 0 0 1 525 586L452 586A38 38 0 0 0 414 624L414 726A42 42 0 0 1 372 768L306 768A42 42 0 0 1 276.3 755.7L323.3 802.7A42 42 0 0 0 353 815L419 815A42 42 0 0 0 461 773L461 671A38 38 0 0 1 499 633L572 633A187 187 0 0 0 759 446A187 187 0 0 0 704.2 313.8Z"/>
+      <path id="p-face" fill-rule="evenodd" d="M306 212L525 212A187 187 0 0 1 712 399A187 187 0 0 1 525 586L452 586A38 38 0 0 0 414 624L414 726A42 42 0 0 1 372 768L306 768A42 42 0 0 1 264 726L264 254A42 42 0 0 1 306 212ZM548.3 308.5A31 31 0 0 0 505.7 353.5L553.9 399L505.7 444.5A31 31 0 0 0 548.3 489.5L620.3 421.5A31 31 0 0 0 620.3 376.5L548.3 308.5Z"/>
+      <path id="prompt" d="M548.3 308.5L620.3 376.5A31 31 0 0 1 620.3 421.5L548.3 489.5A31 31 0 0 1 505.7 444.5L553.9 399L505.7 353.5A31 31 0 0 1 548.3 308.5Z"/>
+      <path id="cursor-side" d="M704.4 689.6A26 26 0 0 1 712 708L712 742A26 26 0 0 1 686 768L517 768A26 26 0 0 1 498.6 760.4L545.6 807.4A26 26 0 0 0 564 815L733 815A26 26 0 0 0 759 789L759 755A26 26 0 0 0 751.4 736.6Z"/>
+      <path id="cursor-face" d="M517 682L686 682A26 26 0 0 1 712 708L712 742A26 26 0 0 1 686 768L517 768A26 26 0 0 1 491 742L491 708A26 26 0 0 1 517 682Z"/>
+    </g>
   </defs>
   <g id="background">
     <path fill="url(#surface)" d="M0 0h1024v1024H0z"/>
     <path fill="url(#tide)" d="M0 0h1024v1024H0z"/>
+    <path fill="url(#sheen)" d="M0 0h1024v1024H0z"/>
   </g>
-  <g id="mark" transform="translate(512 512) skewX(-5) translate(-512 -512)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M338 713c74 47 156 51 224 18" stroke="url(#signal)" stroke-width="28"/>
-    <path d="M338 751V315q0-23 23-23h162c113 0 185 61 185 159s-66 160-175 160H338" stroke="url(#ink)" stroke-width="70"/>
-    <path d="m449 401 65 50-65 50" stroke="url(#signal)" stroke-width="34"/>
-    <circle cx="608" cy="703" r="30" fill="url(#signal)"/>
+  <g id="mark">
+    <g id="shade" transform="translate(14 30)" fill="#0a1c66" stroke="#0a1c66" stroke-linejoin="round">
+      <g opacity=".05"><use href="#solid" stroke-width="8"/></g>
+      <g opacity=".045"><use href="#solid" stroke-width="20"/></g>
+      <g opacity=".04"><use href="#solid" stroke-width="32"/></g>
+      <g opacity=".035"><use href="#solid" stroke-width="46"/></g>
+      <g opacity=".03"><use href="#solid" stroke-width="62"/></g>
+      <g opacity=".02"><use href="#solid" stroke-width="82"/></g>
+      <g opacity=".015"><use href="#solid" stroke-width="104"/></g>
+    </g>
+    <use href="#p-side" fill="#6485e0"/>
+    <use href="#p-side" fill="url(#ink-lit)"/>
+    <use href="#cursor-side" fill="#128a7a"/>
+    <use href="#cursor-side" fill="url(#signal-lit)"/>
+    <use href="#prompt" fill="#128a7a"/>
+    <use href="#prompt" fill="#35d6bc" transform="translate(13 13)"/>
+    <use href="#p-face" fill="url(#ink)"/>
+    <use href="#cursor-face" fill="url(#signal)"/>
   </g>
 </svg>
