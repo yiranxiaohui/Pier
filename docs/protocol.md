@@ -1,4 +1,4 @@
-# Pier 协议 v1.73
+# Pier 协议 v1.74
 
 > 实现：`packages/protocol`（zod schema + TS 类型，Host 与所有客户端共享）。
 > 本文档描述线上格式与语义；字段的权威定义以 `packages/protocol/src` 为准。
@@ -750,19 +750,21 @@ Claude Code 与 Codex 会话（1.22）发出同样形态的事件与 `AgentMessa
 
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
-| `skills.list` | `{ runtime, workspaceId? }` | `{ items: SkillInfo[], errors: string[] }`。技能包含 `scope, name, description, path, enabled, editable, deletable, shared`；路径必须来自列表才能读取或修改 |
+| `skills.list` | `{ runtime, workspaceId? }` | `{ items: SkillInfo[], errors: string[] }`。技能包含 `scope, name, description, path, enabled, editable, deletable, shared`；路径必须来自列表才能读取或修改。Claude Code 还列出已启用插件中的技能（1.74）：`plugin` 为插件 ID（`name@marketplace`），`name` 为 Claude Code 使用的 `插件名:技能目录名`，`scope` 为插件的安装范围，只能查看和启用 / 停用（`Skill(插件名:技能名)` 规则） |
 | `skills.read` | `{ runtime, workspaceId?, path }` | `{ skill, text, revision }`；`revision` 为内容 SHA-256 |
 | `skills.save` | `{ runtime, workspaceId?, scope, name, text, path?, expectedRevision? }` | `{ skill, text, revision }`；无 `path` 时创建独立技能，已存在的目录返回 `CONFLICT`。编辑需要列表路径与读取时的版本；冲突返回 `CONFLICT`，扩展包 / 系统 / 符号链接技能不可编辑 |
 | `skills.import` | `{ runtime, workspaceId?, scope, sourcePath, name? }` | `{ skill, text, revision }`；从目标电脑上绝对路径的技能目录或 `SKILL.md` 复制技能、脚本和资源，不覆盖已有目录 |
 | `skills.setEnabled` | `{ runtime, workspaceId?, path, enabled }` | `{ changed }`；pi 更新资源设置，Codex 更新 `skills.config`，Claude 更新技能 `permissions.deny` 规则，不删除技能文件 |
 | `skills.delete` | `{ runtime, workspaceId?, path, expectedRevision? }` | `{ deleted }`；独立技能目录移入回收站，pi 的显式资源路径遵循 `extension.delete` 的移除语义 |
-| `mcp.list` | `{ runtime, workspaceId? }` | `{ items: McpServerInfo[], errors: string[] }`；服务器包含 `scope, name, path, enabled, config, revision`。`config` 是原生配置，可能含凭据，仅通过认证连接返回 |
+| `mcp.list` | `{ runtime, workspaceId? }` | `{ items: McpServerInfo[], errors: string[] }`；服务器包含 `scope, name, path, enabled, config, revision`。`config` 是原生配置，可能含凭据，仅通过认证连接返回。Claude Code 还列出已启用插件的服务器（1.74，插件根目录的 `.mcp.json` 与 `plugin.json` 的 `mcpServers`）：`plugin` 为插件 ID，`name` 为 `plugin:<插件名>:<服务器名>`，`path` 为定义所在文件，`config` 保留 `${CLAUDE_PLUGIN_ROOT}` 等变量原样；这些服务器随插件启用 / 停用，`mcp.save` / `mcp.setEnabled` / `mcp.delete` / `mcp.test` 不接受它们 |
 | `mcp.save` | `{ runtime, workspaceId?, scope, name, config, enabled?(true), expectedRevision?, create?(false) }` | `McpServerInfo`；新建时传 `create: true` 防止覆盖同名服务器，编辑时必须匹配旧版本；保留其他服务器、配置项及 Codex TOML 注释 |
 | `mcp.setEnabled` | `{ runtime, workspaceId?, scope, name, enabled, expectedRevision }` | `McpServerInfo`；Claude 定义停用后归档在 Pier 状态目录，启用时恢复；pi / Codex 使用原生 `enabled`，支持 pi 的项目启用状态覆盖 |
 | `mcp.delete` | `{ runtime, workspaceId?, scope, name, expectedRevision }` | `{ deleted }`；只移除指定定义，保留其他服务器与应用配置 |
 | `mcp.test` | `{ runtime, workspaceId?, scope, name }` | `{ ok, tools: { name }[], message }`；显式建立 stdio / HTTP / Claude SSE 连接、发现工具并关闭连接；不调用业务工具、不启动 OAuth、不回传子进程日志或凭据。客户端建议 60 秒超时 |
+| `plugins.list`（1.74） | `{ runtime, workspaceId? }` | `{ items: PluginInfo[], errors: string[] }`；Claude Code 已安装的插件，其他运行时返回空列表。`PluginInfo = { runtime, id, name, marketplace, description, version?, author?, scope, path, enabled, contents: { skills, commands, agents, mcpServers, hooks } }`。读取 Claude 配置目录（或 `CLAUDE_CODE_PLUGIN_CACHE_DIR`）下 `plugins/installed_plugins.json` 记录的安装：`user` 范围的安装总是列出，`project` / `local` 范围的安装只在其 `projectPath` 为所选工作区时列出，同一插件取最具体的安装。`name`、`description`、`version`、`author` 取自插件的 `.claude-plugin/plugin.json`；`path` 为安装目录；`contents` 统计默认目录与清单中额外路径下的技能、命令与 Agent 文件、MCP 服务器数及是否有 Hooks。`enabled` 按 Claude Code 的规则取 `enabledPlugins[id]`：用户 < 项目 < 本地设置，最后一个写了该插件的文件决定，只有 `true` 表示启用（不读取托管策略）。安装目录缺失、清单或注册表无法解析时在 `errors` 中说明，不影响其他插件 |
+| `plugins.setEnabled`（1.74） | `{ runtime: "claude-code", workspaceId?, id, enabled }` | `{ changed }`；插件必须出现在同一范围的 `plugins.list` 中，否则返回 `NOT_FOUND`。写入 `enabledPlugins[id]`：写在已经决定该插件的最具体的设置文件中，没有时写入插件安装范围的设置文件（与 `claude plugin enable / disable` 相同），保留其他设置；设置文件无法解析时返回 `CONFLICT`。插件的安装、更新与卸载仍由 Claude Code 完成 |
 
-变更广播 `resources.changed = { runtime, workspaceId? }`，并通知相关扩展 / Agent 配置页面。pi 空闲会话重新加载，忙碌会话保持原运行并在结束后 `/reload`；Claude / Codex 原生配置在会话新建 / 重新打开时读取。审计只记录 runtime、scope、资源名称与工作区，不记录技能正文、MCP 配置、环境变量、请求头或凭据。
+变更广播 `resources.changed = { runtime, workspaceId? }`（`plugins.setEnabled` 同样广播），并通知相关扩展 / Agent 配置页面。pi 空闲会话重新加载，忙碌会话保持原运行并在结束后 `/reload`；Claude / Codex 原生配置在会话新建 / 重新打开时读取。审计只记录 runtime、scope、资源名称（`plugins.setEnabled` 为插件 ID 与开关）与工作区，不记录技能正文、MCP 配置、环境变量、请求头或凭据。
 
 ## 主机进程管理（1.42）
 

@@ -10,6 +10,7 @@ import {
 } from "@pier/protocol";
 import type { ExtensionTarget } from "../pi/extensions.ts";
 import type { AgentConfigFiles } from "./agent-config.ts";
+import type { ClaudePlugins } from "./claude-plugins.ts";
 import { type JsonObject, object, readJson, revision, strings, writeJson } from "./resource-files.ts";
 
 interface Options {
@@ -17,6 +18,7 @@ interface Options {
 	agentDir: string;
 	pierDir: string;
 	configs: AgentConfigFiles;
+	plugins: ClaudePlugins;
 }
 interface Store {
 	path: string;
@@ -205,7 +207,40 @@ export class McpManager {
 				errors.push(error instanceof PierProtocolError ? error.message : `无法读取 ${runtime} ${scope} MCP 配置`);
 			}
 		}
+		if (runtime === "claude-code") this.pluginServers(target, items, errors);
 		return { items, errors };
+	}
+
+	/** Servers of enabled Claude Code plugins, named `plugin:<plugin>:<server>` like Claude Code does. */
+	private pluginServers(target: ExtensionTarget | undefined, items: McpServerInfo[], errors: string[]): void {
+		const listed = this.options.plugins.list(target);
+		errors.push(...listed.errors);
+		let disabled: string[] = [];
+		if (target) {
+			try {
+				const state = this.store("claude-code", "local", target);
+				disabled = strings(object(object(state.doc.projects)[target.path]).disabledMcpServers);
+			} catch {
+				// The user / local scopes above already report an unreadable ~/.claude.json.
+			}
+		}
+		for (const plugin of listed.plugins) {
+			if (!plugin.enabled) continue;
+			for (const server of plugin.mcpServers) {
+				const name = `plugin:${plugin.name}:${server.name}`;
+				const enabled = !disabled.includes(name);
+				items.push({
+					runtime: "claude-code",
+					scope: plugin.scope,
+					name,
+					path: server.path,
+					config: server.config,
+					enabled,
+					revision: revision(JSON.stringify({ config: server.config, enabled })),
+					plugin: plugin.id,
+				});
+			}
+		}
 	}
 
 	/** Match pi's global/project merge, including project enablement-only overrides. */
@@ -275,6 +310,7 @@ export class McpManager {
 	require(runtime: ResourceRuntime, scope: ResourceScope, name: string, target?: ExtensionTarget): McpServerInfo {
 		const found = this.list(runtime, target).items.find((s) => s.scope === scope && s.name === name);
 		if (!found) throw new PierProtocolError("NOT_FOUND", "MCP 服务器不存在，请刷新列表");
+		if (found.plugin) throw new PierProtocolError("BAD_REQUEST", "插件提供的 MCP 服务器随插件启用或停用，不能单独修改");
 		return found;
 	}
 	private write(

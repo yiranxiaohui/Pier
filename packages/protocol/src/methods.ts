@@ -95,6 +95,7 @@ import type { HostProcesses } from "./processes.ts";
 import {
 	type McpServerInfo,
 	type McpTestResult,
+	type PluginInfo,
 	type ResourceList,
 	ResourceMethodSchemas,
 	type SkillDocument,
@@ -1073,6 +1074,8 @@ export interface MethodResults {
 	"mcp.setEnabled": McpServerInfo;
 	"mcp.delete": { deleted: boolean };
 	"mcp.test": McpTestResult;
+	"plugins.list": ResourceList<PluginInfo>;
+	"plugins.setEnabled": { changed: boolean };
 	"tunnel.open": { tunnelId: string };
 	"tunnel.read": { data: string; end: boolean };
 	"tunnel.write": { written: number };

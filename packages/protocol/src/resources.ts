@@ -22,6 +22,11 @@ export interface SkillInfo {
 	editable: boolean;
 	deletable: boolean;
 	shared: boolean;
+	/**
+	 * The Claude Code plugin (`name@marketplace`) that provides the skill (1.74). Plugin skills are
+	 * read-only; `name` is the `plugin:skill` name Claude Code uses.
+	 */
+	plugin?: string;
 }
 
 export interface SkillDocument {
@@ -39,6 +44,30 @@ export interface McpServerInfo {
 	/** Native server configuration; only delivered over authenticated connections. */
 	config: Record<string, unknown>;
 	revision: string;
+	/**
+	 * The Claude Code plugin (`name@marketplace`) that provides the server (1.74). Plugin servers
+	 * are read-only and named `plugin:<plugin>:<server>` like Claude Code does.
+	 */
+	plugin?: string;
+}
+
+/** A Claude Code plugin installed with `/plugin` or `claude plugin install` (1.74). */
+export interface PluginInfo {
+	runtime: ResourceRuntime;
+	/** `name@marketplace`, the key of `enabledPlugins`. */
+	id: string;
+	name: string;
+	marketplace: string;
+	description: string;
+	version?: string;
+	author?: string;
+	/** Where it was installed: `user`, or `project` / `local` for the selected workspace. */
+	scope: ResourceScope;
+	/** The installed plugin directory. */
+	path: string;
+	/** Only enabled plugins load their skills, commands, agents, hooks and MCP servers. */
+	enabled: boolean;
+	contents: { skills: number; commands: number; agents: number; mcpServers: number; hooks: boolean };
 }
 
 export interface ResourceList<T> {
@@ -89,5 +118,8 @@ export const ResourceMethodSchemas = {
 	"mcp.delete": z.object({ ...McpRef, expectedRevision: z.string() }),
 	/** Explicitly connects (and starts stdio processes) only when the user requests a test. */
 	"mcp.test": z.object(McpRef),
+	/** Claude Code plugins (1.74); other runtimes have none. */
+	"plugins.list": z.object(Target),
+	"plugins.setEnabled": z.object({ ...Target, id: z.string().min(1).max(300), enabled: z.boolean() }),
 } as const;
 export type ResourceMethod = keyof typeof ResourceMethodSchemas;

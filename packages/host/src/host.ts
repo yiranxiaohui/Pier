@@ -89,6 +89,7 @@ import { HostPortSampler } from "./ports/listening.ts";
 import { realPathSync } from "./real-path.ts";
 import { RemoteAccess, type RemoteAccessOptions } from "./remote/remote-access.ts";
 import { AgentConfigFiles } from "./runtimes/agent-config.ts";
+import { ClaudePlugins } from "./runtimes/claude-plugins.ts";
 import { AgentInstaller, type AgentInstallerOptions, type InstallableRuntime } from "./runtimes/installation.ts";
 import { configureInstallationPath } from "./runtimes/installation-path.ts";
 import { McpManager } from "./runtimes/mcp.ts";
@@ -248,6 +249,7 @@ const AUDITED_METHODS = new Set<MethodName>([
 	"mcp.setEnabled",
 	"mcp.delete",
 	"mcp.test",
+	"plugins.setEnabled",
 	"tunnel.open",
 	"browser.remoteOpen",
 	"browser.remoteClose",
@@ -363,6 +365,8 @@ function auditDetail(method: MethodName, params: Record<string, unknown>): Recor
 		case "mcp.delete":
 		case "mcp.test":
 			return { runtime: params.runtime, scope: params.scope, name: params.name, workspaceId: params.workspaceId };
+		case "plugins.setEnabled":
+			return { runtime: params.runtime, id: params.id, enabled: params.enabled, workspaceId: params.workspaceId };
 		case "tunnel.open":
 			return { host: params.host, port: params.port };
 		case "browser.remoteOpen":
@@ -620,6 +624,7 @@ export class PierHost implements RequestHandler {
 	readonly packageCatalog: PackageCatalog;
 	readonly settings: PiSettingsFiles;
 	readonly agentConfig: AgentConfigFiles;
+	readonly claudePlugins: ClaudePlugins;
 	readonly skills: SkillManager;
 	readonly mcp: McpManager;
 	readonly agentInstaller: AgentInstaller;
@@ -798,18 +803,21 @@ export class PierHost implements RequestHandler {
 				options.agentConfigDirs?.opencode ??
 				opencodeConfigDir({ ...process.env, ...(agents.opencode ? agents.opencode.env : undefined) }),
 		});
+		this.claudePlugins = new ClaudePlugins(this.agentConfig);
 		this.skills = new SkillManager({
 			home: options.resourceHome ?? homedir(),
 			agentDir: env.agentDir,
 			trashDir: join(this.pierDir, "trash", "skills"),
 			extensions: this.extensions,
 			configs: this.agentConfig,
+			plugins: this.claudePlugins,
 		});
 		this.mcp = new McpManager({
 			home: options.resourceHome,
 			agentDir: env.agentDir,
 			pierDir: this.pierDir,
 			configs: this.agentConfig,
+			plugins: this.claudePlugins,
 		});
 		env.setMcpConfig((cwd) => this.mcp.piConfig(cwd));
 		this.providers = new ProviderManager(env, {
@@ -1292,6 +1300,17 @@ export class PierHost implements RequestHandler {
 					this.mcp.connectionServer(p.runtime, p.scope, p.name, this.extensionTarget(p.workspaceId)),
 					p.workspaceId ? this.requireWorkspace(p.workspaceId).path : undefined,
 				),
+			"plugins.list": (_ctx, p) => {
+				if (p.runtime !== "claude-code") return { items: [], errors: [] };
+				const { plugins, errors } = this.claudePlugins.list(this.extensionTarget(p.workspaceId));
+				return { items: plugins.map(({ skills: _skills, mcpServers: _servers, ...info }) => info), errors };
+			},
+			"plugins.setEnabled": async (_ctx, p) => {
+				if (p.runtime !== "claude-code") throw new PierProtocolError("BAD_REQUEST", "只有 Claude Code 支持插件");
+				const result = this.claudePlugins.setEnabled(p.id, p.enabled, this.extensionTarget(p.workspaceId));
+				await this.applyResourceChange(p.runtime, p.workspaceId);
+				return result;
+			},
 			"host.ports": () => this.ports.sample(),
 			"host.processes": () => this.processes.sample(),
 			"host.killProcess": (_ctx, params) => this.processes.kill(params.pid, params.startToken, params.force),

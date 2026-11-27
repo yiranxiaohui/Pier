@@ -23,6 +23,7 @@ import {
 } from "@pier/protocol";
 import type { ExtensionManager, ExtensionTarget } from "../pi/extensions.ts";
 import type { AgentConfigFiles } from "./agent-config.ts";
+import type { ClaudePlugins } from "./claude-plugins.ts";
 import { parseFrontmatter } from "./frontmatter.ts";
 import { checkRevision, object, revision, strings, writeText } from "./resource-files.ts";
 
@@ -37,6 +38,7 @@ interface Options {
 	trashDir: string;
 	extensions: ExtensionManager;
 	configs: AgentConfigFiles;
+	plugins: ClaudePlugins;
 }
 
 function readFailure(error: unknown): string {
@@ -151,6 +153,10 @@ export class SkillManager {
 		const files = this.configFiles(runtime, target);
 		for (const file of files) if (file.error) errors.push(`无法解析技能配置：${file.path}`);
 		const denied = files.flatMap((f) => strings(object(f.settings?.permissions).deny));
+		const isDenied = (name: string) =>
+			denied.some(
+				(rule) => rule === "Skill" || rule === "Skill(*)" || rule === `Skill(${name})` || rule === `Skill(${name} *)`,
+			);
 		const overrides = files.flatMap((f) => {
 			const value = object(f.settings?.skills).config;
 			return Array.isArray(value) ? value.map(object) : [];
@@ -168,13 +174,7 @@ export class SkillManager {
 						const meta = metadata(this.readText(path), basename(dir));
 						const enabled =
 							runtime === "claude-code"
-								? !denied.some(
-										(rule) =>
-											rule === "Skill" ||
-											rule === "Skill(*)" ||
-											rule === `Skill(${meta.name})` ||
-											rule === `Skill(${meta.name} *)`,
-									)
+								? !isDenied(meta.name)
 								: overrides
 										.filter(
 											(o) =>
@@ -210,7 +210,41 @@ export class SkillManager {
 			};
 			walk(root.path, 0);
 		}
+		if (runtime === "claude-code") this.pluginSkills(target, isDenied, items, errors);
 		return { items, errors };
+	}
+	/** Skills of enabled Claude Code plugins, named `plugin:folder` as Claude Code names them. */
+	private pluginSkills(
+		target: ExtensionTarget | undefined,
+		isDenied: (name: string) => boolean,
+		items: SkillInfo[],
+		errors: string[],
+	): void {
+		const listed = this.options.plugins.list(target, { settingsErrors: false });
+		errors.push(...listed.errors);
+		for (const plugin of listed.plugins) {
+			if (!plugin.enabled) continue;
+			for (const skill of plugin.skills) {
+				const folder = basename(skill.dir).replace(/[^a-zA-Z0-9_-]/g, "-");
+				const name = `${plugin.name}:${folder}`;
+				try {
+					items.push({
+						runtime: "claude-code",
+						scope: plugin.scope,
+						name,
+						description: metadata(this.readText(skill.file), folder).description,
+						path: skill.file,
+						enabled: !isDenied(name),
+						editable: false,
+						deletable: false,
+						shared: false,
+						plugin: plugin.id,
+					});
+				} catch (error) {
+					errors.push(`无法读取插件技能：${skill.file}（${readFailure(error)}）`);
+				}
+			}
+		}
 	}
 	private readText(path: string): string {
 		if (statSync(path).size > 1_000_000) throw new PierProtocolError("BAD_REQUEST", "技能文件超过 1 MB");

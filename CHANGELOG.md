@@ -4,6 +4,8 @@ Pier 的所有重要变更都记录在这里。版本号规则：日常发版只
 
 ## Unreleased
 
+- **「Skills 与 MCP」显示 Claude Code 插件**：此前选择 Claude Code 后只能看到 `~/.claude/skills` 和项目 `.claude/skills` 里的技能，以及配置文件里手写的 MCP 服务器；用 `/plugin` 或 `claude plugin install` 安装的插件，以及插件自带的技能和 MCP 服务器都不显示，看起来像是没有搜到。现在 Claude Code 多了「插件」页，列出已安装的插件，显示版本、安装范围、插件市场、作者、包含多少技能 / 命令 / Agent / MCP 服务器、是否有 Hooks 和安装目录，并能直接启用或停用（与 `claude plugin enable / disable` 写入同一处设置，修改后新建或重新打开 Claude Code 会话生效）；全局安装的插件总是显示，安装在项目 / 本地范围的插件在「查看范围」选中对应工作区时显示。已启用插件的技能以「插件名:技能名」出现在 Skills 里，可以查看和停用；插件的 MCP 服务器以 `plugin:插件名:服务器名` 出现在 MCP 里，标有「插件」，随插件启用或停用。插件的安装、更新与卸载仍在 Claude Code 中完成。同时修复：切换 Agent 或 Skills / MCP 页时，上一页的错误（例如 pi 页的「未找到 pi」）会一直留在新页面上，直到新列表读取完。桌面端和手机端都已更新；需要更新 Agent 所在电脑的 Host（协议 1.74），旧版 Host 不显示「插件」页。
+
 ## v0.3.13 — 2026-11-27
 
 - **pi 和 OpenCode 也会在后台自动更新，每个 Agent 都有自己的开关**：此前 Pier Host 只在后台更新 Claude Code 和 Codex，「设置 → Agent 配置 → 安装与更新」里也只有这两个 Agent 有「后台自动更新」开关；pi 和 OpenCode 只能手动点「更新到最新版本」或在终端里更新。现在 Claude Code、Codex、pi、OpenCode 的「安装与更新」里都有这个开关，默认开启，可以按电脑、按 Agent 单独关闭，关闭后仍可手动更新。pi：Host 启动一分钟后及之后每六小时向 pi.dev 查询最新版本（与 `pi update` 查询的地址相同），有新的正式版时用上次手动安装的下载线路运行 `pi update`，重启 Pier Host 后生效；没有安装 pi 时不会替你安装；关闭开关会取消正在进行的检查，但已经开始的 `pi update` 会运行完，以免 pi 装到一半被打断。OpenCode：和 Claude Code、Codex 一样，发现更新的 OpenCode 1 正式版时下载并校验，装到 `~/.opencode/bin`，在没有进行中的回合时重启 OpenCode 服务；OpenCode 2 或更新的版本不会被替换，OpenCode 配置里自己的「检查更新」不受这个开关影响。设置了 `PIER_PI_PATH` 或 `PIER_OPENCODE_PATH` 时跳过后台更新。需要更新桌面端和 Agent 所在电脑的 Host（协议 1.73）；旧版 Host 上 pi 和 OpenCode 不显示这个开关，也不会在后台更新。

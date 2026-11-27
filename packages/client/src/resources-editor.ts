@@ -1,4 +1,4 @@
-import type { McpServerInfo, ResourceRuntime, ResourceScope } from "@pier/protocol";
+import type { McpServerInfo, PluginInfo, ResourceRuntime, ResourceScope } from "@pier/protocol";
 
 export const RESOURCE_RUNTIME_LABEL: Record<ResourceRuntime, string> = {
 	pi: "pi",
@@ -11,6 +11,19 @@ export const RESOURCE_SCOPE_LABEL: Record<ResourceScope, string> = {
 	local: "本地（当前项目）",
 };
 export const NEW_SKILL_TEXT = "---\nname: my-skill\ndescription: 描述这个技能的用途\n---\n\n在这里编写技能指令。\n";
+
+/** What a Claude Code plugin brings, e.g. "3 个技能 · 1 个 MCP 服务器 · Hooks". */
+export function pluginContentsLabel(plugin: Pick<PluginInfo, "contents">): string {
+	const { skills, commands, agents, mcpServers, hooks } = plugin.contents;
+	const parts = [
+		skills ? `${skills} 个技能` : "",
+		commands ? `${commands} 个命令` : "",
+		agents ? `${agents} 个 Agent` : "",
+		mcpServers ? `${mcpServers} 个 MCP 服务器` : "",
+		hooks ? "Hooks" : "",
+	].filter(Boolean);
+	return parts.length ? parts.join(" · ") : "没有技能、命令、Agent、MCP 或 Hooks";
+}
 
 export interface McpDraft {
 	name: string;

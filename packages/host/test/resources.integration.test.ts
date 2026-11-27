@@ -592,4 +592,154 @@ describe("unified Skills and MCP", () => {
 			expect(stillPresent).toBe(false);
 		},
 	);
+	describe("Claude Code plugins", () => {
+		const mkt = "local-mkt";
+		let cache: string;
+		const plugin = (name: string, files: Record<string, string>) => {
+			const dir = join(cache, name, "1.0.0");
+			for (const [path, text] of Object.entries(files)) {
+				mkdirSync(dirname(join(dir, path)), { recursive: true });
+				writeFileSync(join(dir, path), text);
+			}
+			return dir;
+		};
+		const skill = (name: string) => `---\nname: ${name}\ndescription: ${name} from a plugin\n---\n\nBody.\n`;
+		const settings = (path: string, value: Record<string, unknown>) => {
+			mkdirSync(dirname(path), { recursive: true });
+			writeFileSync(path, JSON.stringify(value));
+		};
+		let projectSettings: string;
+		let localSettings: string;
+		beforeEach(() => {
+			cache = join(claude, "plugins", "cache", mkt);
+			projectSettings = join(t.workspaceDir, ".claude", "settings.json");
+			localSettings = join(t.workspaceDir, ".claude", "settings.local.json");
+			const kit = plugin("demo-kit", {
+				".claude-plugin/plugin.json": JSON.stringify({
+					name: "demo-kit",
+					version: "1.2.0",
+					description: "Demo plugin",
+					author: { name: "Pier" },
+				}),
+				"skills/review/SKILL.md": skill("review"),
+				"skills/notes.txt": "not a skill",
+				"commands/a.md": "a",
+				"commands/sub/b.md": "b",
+				"agents/helper.md": "helper",
+				"hooks/hooks.json": "{}",
+				".mcp.json": JSON.stringify({ mcpServers: { docs: { type: "http", url: "https://example.com/mcp" } } }),
+			});
+			const project = plugin("proj-kit", {
+				".claude-plugin/plugin.json": JSON.stringify({ name: "proj-kit", skills: "./extra/solo" }),
+				"extra/solo/skill.md": skill("solo"),
+				".mcp.json": JSON.stringify({ tool: { command: "node", args: ["server.js"] } }),
+			});
+			const other = plugin("other-kit", { "skills/x/SKILL.md": skill("x") });
+			const entry = (installPath: string, scope = "user", projectPath?: string) => [
+				{ scope, installPath, version: "unknown", ...(projectPath ? { projectPath } : {}) },
+			];
+			settings(join(claude, "plugins", "installed_plugins.json"), {
+				version: 2,
+				plugins: {
+					[`demo-kit@${mkt}`]: entry(kit),
+					[`proj-kit@${mkt}`]: entry(project, "project", t.workspaceDir),
+					[`other-kit@${mkt}`]: entry(other, "local", join(root, "elsewhere")),
+					[`gone@${mkt}`]: entry(join(cache, "gone", "1.0.0")),
+				},
+			});
+			settings(join(claude, "settings.json"), { enabledPlugins: { [`demo-kit@${mkt}`]: true } });
+			settings(projectSettings, { enabledPlugins: { [`proj-kit@${mkt}`]: true } });
+		});
+
+		it("lists user installs globally and the workspace's own installs with it", async () => {
+			const global = await client.request("plugins.list", { runtime: "claude-code" });
+			expect(global.items).toEqual([
+				{
+					runtime: "claude-code",
+					id: `demo-kit@${mkt}`,
+					name: "demo-kit",
+					marketplace: mkt,
+					description: "Demo plugin",
+					version: "1.2.0",
+					author: "Pier",
+					scope: "user",
+					path: join(cache, "demo-kit", "1.0.0"),
+					enabled: true,
+					contents: { skills: 1, commands: 2, agents: 1, mcpServers: 1, hooks: true },
+				},
+			]);
+			expect(global.errors.some((e) => e.includes(`gone@${mkt}`))).toBe(true);
+			const scoped = await client.request("plugins.list", { runtime: "claude-code", workspaceId: workspace.id });
+			expect(scoped.items.map((p) => [p.id, p.scope, p.enabled])).toEqual([
+				[`demo-kit@${mkt}`, "user", true],
+				[`proj-kit@${mkt}`, "project", true],
+			]);
+			expect((await client.request("plugins.list", { runtime: "codex" })).items).toEqual([]);
+		});
+
+		it("lists enabled plugins' skills and MCP servers read-only", async () => {
+			const skills = await client.request("skills.list", { runtime: "claude-code", workspaceId: workspace.id });
+			const review = skills.items.find((s) => s.name === "demo-kit:review");
+			expect(review).toMatchObject({
+				plugin: `demo-kit@${mkt}`,
+				scope: "user",
+				description: "review from a plugin",
+				enabled: true,
+				editable: false,
+				deletable: false,
+			});
+			expect(skills.items.find((s) => s.name === "proj-kit:solo")).toMatchObject({ scope: "project" });
+			expect(skills.items.some((s) => s.name.startsWith("other-kit:"))).toBe(false);
+			if (!review) throw new Error("Expected the plugin skill");
+			expect((await client.request("skills.read", { runtime: "claude-code", path: review.path })).text).toBe(
+				skill("review"),
+			);
+			await expect(
+				client.request("skills.delete", { runtime: "claude-code", path: review.path }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			// Claude Code switches plugin skills off by their `plugin:skill` name.
+			await client.request("skills.setEnabled", { runtime: "claude-code", path: review.path, enabled: false });
+			expect(JSON.parse(readFileSync(join(claude, "settings.json"), "utf8")).permissions.deny).toEqual([
+				"Skill(demo-kit:review)",
+				"Skill(demo-kit:review *)",
+			]);
+
+			const servers = await client.request("mcp.list", { runtime: "claude-code", workspaceId: workspace.id });
+			expect(servers.items.filter((s) => s.plugin).map((s) => [s.name, s.scope, s.config])).toEqual([
+				["plugin:demo-kit:docs", "user", { type: "http", url: "https://example.com/mcp" }],
+				["plugin:proj-kit:tool", "project", { command: "node", args: ["server.js"] }],
+			]);
+		});
+
+		it("switches enabledPlugins where it takes effect", async () => {
+			await client.request("plugins.setEnabled", { runtime: "claude-code", id: `demo-kit@${mkt}`, enabled: false });
+			expect(JSON.parse(readFileSync(join(claude, "settings.json"), "utf8")).enabledPlugins).toEqual({
+				[`demo-kit@${mkt}`]: false,
+			});
+			expect((await client.request("plugins.list", { runtime: "claude-code" })).items[0]?.enabled).toBe(false);
+			const skills = await client.request("skills.list", { runtime: "claude-code" });
+			expect(skills.items.some((s) => s.plugin)).toBe(false);
+			const servers = await client.request("mcp.list", { runtime: "claude-code" });
+			expect(servers.items.some((s) => s.plugin)).toBe(false);
+
+			// The local settings outrank the project's: they decide, so the switch writes there.
+			settings(localSettings, { enabledPlugins: { [`proj-kit@${mkt}`]: false } });
+			const target = { runtime: "claude-code" as const, workspaceId: workspace.id };
+			const listed = await client.request("plugins.list", target);
+			expect(listed.items.find((p) => p.id === `proj-kit@${mkt}`)?.enabled).toBe(false);
+			await client.request("plugins.setEnabled", { ...target, id: `proj-kit@${mkt}`, enabled: true });
+			expect(JSON.parse(readFileSync(localSettings, "utf8")).enabledPlugins[`proj-kit@${mkt}`]).toBe(true);
+			expect(JSON.parse(readFileSync(projectSettings, "utf8")).enabledPlugins[`proj-kit@${mkt}`]).toBe(true);
+			expect(
+				(await client.request("plugins.list", target)).items.every((p) => p.id !== `proj-kit@${mkt}` || p.enabled),
+			).toBe(true);
+
+			await expect(
+				client.request("plugins.setEnabled", { runtime: "claude-code", id: `other-kit@${mkt}`, enabled: true }),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await expect(
+				client.request("plugins.setEnabled", { runtime: "codex", id: `demo-kit@${mkt}`, enabled: true }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		});
+	});
 });

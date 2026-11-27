@@ -3,6 +3,7 @@ import {
 	mcpConfig,
 	mcpDraft,
 	NEW_SKILL_TEXT,
+	pluginContentsLabel,
 	RESOURCE_RUNTIME_LABEL,
 	RESOURCE_SCOPE_LABEL,
 } from "@pier/client";
@@ -10,6 +11,7 @@ import {
 	type McpServerInfo,
 	type McpTestResult,
 	type MethodParams,
+	type PluginInfo,
 	parseProtocolVersion,
 	type ResourceRuntime,
 	type ResourceScope,
@@ -25,6 +27,9 @@ import { MONO, usePalette } from "../../../src/theme.ts";
 
 type Editor = { kind: "skill"; doc?: SkillDocument } | { kind: "import" } | { kind: "mcp"; server?: McpServerInfo };
 const RUNTIMES: ResourceRuntime[] = ["pi", "claude-code", "codex"];
+type ResourceTab = "skills" | "mcp" | "plugins";
+const TAB_LABEL: Record<ResourceTab, string> = { skills: "Skills", mcp: "MCP", plugins: "插件" };
+const LIST_METHOD = { skills: "skills.list", mcp: "mcp.list", plugins: "plugins.list" } as const;
 const keyOf = (s: McpServerInfo) => `${s.runtime}:${s.scope}:${s.name}`;
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -37,10 +42,11 @@ export default function ResourcesScreen() {
 	const supported = protocol && (protocol.major > 1 || (protocol.major === 1 && protocol.minor >= 38));
 	const online = host.hostId === hostId && host.connection === "open";
 	const [runtime, setRuntime] = useState<ResourceRuntime>("pi");
-	const [tab, setTab] = useState<"skills" | "mcp">("skills");
+	const [selectedTab, setTab] = useState<ResourceTab>("skills");
 	const [workspaceId, setWorkspaceId] = useState("");
 	const [skills, setSkills] = useState<SkillInfo[]>([]);
 	const [servers, setServers] = useState<McpServerInfo[]>([]);
+	const [plugins, setPlugins] = useState<PluginInfo[]>([]);
 	const [errors, setErrors] = useState<string[]>([]);
 	const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(false);
@@ -49,24 +55,33 @@ export default function ResourcesScreen() {
 	const [editor, setEditor] = useState<Editor>();
 	const [deleting, setDeleting] = useState<SkillInfo | McpServerInfo>();
 	const target = { runtime, ...(workspaceId ? { workspaceId } : {}) };
+	// Claude Code plugins (protocol 1.74); other agents have no plugin tab.
+	const pluginsSupported =
+		runtime === "claude-code" && protocol && (protocol.major > 1 || (protocol.major === 1 && protocol.minor >= 74));
+	const tab: ResourceTab = selectedTab === "plugins" && !pluginsSupported ? "skills" : selectedTab;
+	const tabs: ResourceTab[] = pluginsSupported ? ["skills", "mcp", "plugins"] : ["skills", "mcp"];
 	const loadId = useRef(0);
 	const load = useCallback(async () => {
 		const id = ++loadId.current;
 		if (!online || !supported) return;
 		setLoading(true);
+		// Errors of the previous agent or tab must not stay up while this list loads.
+		setErrors([]);
 		try {
-			const result = await store.resourceRequest(tab === "skills" ? "skills.list" : "mcp.list", {
+			const result = await store.resourceRequest(LIST_METHOD[tab], {
 				runtime,
 				...(workspaceId ? { workspaceId } : {}),
 			});
 			if (id !== loadId.current) return;
 			if (tab === "skills") setSkills(result.items as SkillInfo[]);
-			else setServers(result.items as McpServerInfo[]);
+			else if (tab === "mcp") setServers(result.items as McpServerInfo[]);
+			else setPlugins(result.items as PluginInfo[]);
 			setErrors(result.errors);
 		} catch (e) {
 			if (id === loadId.current) {
 				setSkills([]);
 				setServers([]);
+				setPlugins([]);
 				setErrors([errorText(e)]);
 			}
 		} finally {
@@ -97,8 +112,11 @@ export default function ResourcesScreen() {
 			setBusy(false);
 		}
 	};
-	const matches = (s: SkillInfo | McpServerInfo) =>
-		`${s.name} ${s.path} ${"description" in s ? s.description : ""}`.toLowerCase().includes(query.toLowerCase());
+	const matches = (s: SkillInfo | McpServerInfo | PluginInfo) =>
+		`${s.name} ${s.path} ${"description" in s ? s.description : ""} ${"id" in s ? s.id : ""}`
+			.toLowerCase()
+			.includes(query.toLowerCase());
+	const shownCount = (tab === "skills" ? skills : tab === "mcp" ? servers : plugins).filter(matches).length;
 	const scopes: ResourceScope[] = workspaceId
 		? runtime === "claude-code" && tab === "mcp"
 			? ["user", "project", "local"]
@@ -152,27 +170,27 @@ export default function ResourcesScreen() {
 							</View>
 						</ScrollView>
 						<View style={styles.row}>
-							<Button
-								title="Skills"
-								small
-								disabled={disabled}
-								variant={tab === "skills" ? "primary" : "secondary"}
-								onPress={() => setTab("skills")}
-							/>
-							<Button
-								title="MCP"
-								small
-								disabled={disabled}
-								variant={tab === "mcp" ? "primary" : "secondary"}
-								onPress={() => setTab("mcp")}
-							/>
+							{tabs.map((t) => (
+								<Button
+									key={t}
+									title={TAB_LABEL[t]}
+									small
+									disabled={disabled}
+									variant={tab === t ? "primary" : "secondary"}
+									onPress={() => setTab(t)}
+								/>
+							))}
 							<Button title="刷新" small disabled={disabled || loading} onPress={() => void load()} />
 						</View>
 						<Muted>
-							{runtime === "pi"
-								? "空闲会话自动重新加载，运行中的会话完成后执行 /reload。"
-								: "修改后新建或重新打开 Agent 会话。"}
+							{tab === "plugins"
+								? "插件在 Claude Code 中用 /plugin 或 claude plugin install 安装。停用的插件不加载它的技能、命令、Agent、Hooks 与 MCP；修改后新建或重新打开会话。"
+								: runtime === "pi"
+									? "空闲会话自动重新加载，运行中的会话完成后执行 /reload。"
+									: "修改后新建或重新打开 Agent 会话。"}
 							{tab === "skills" && runtime === "claude-code" ? " 停用通过技能权限规则生效。" : ""}
+							{tab === "skills" && pluginsSupported ? " 插件中的技能只能查看。" : ""}
+							{tab === "mcp" && pluginsSupported ? " 插件提供的服务器随插件启用或停用。" : ""}
 						</Muted>
 						<TextInput
 							style={inputStyle}
@@ -181,18 +199,20 @@ export default function ResourcesScreen() {
 							value={query}
 							onChangeText={setQuery}
 						/>
-						<View style={styles.row}>
-							<Button
-								title={tab === "skills" ? "新建技能" : "添加服务器"}
-								small
-								variant="primary"
-								disabled={disabled}
-								onPress={() => setEditor(tab === "skills" ? { kind: "skill" } : { kind: "mcp" })}
-							/>
-							{tab === "skills" ? (
-								<Button title="导入技能" small disabled={disabled} onPress={() => setEditor({ kind: "import" })} />
-							) : null}
-						</View>
+						{tab === "plugins" ? null : (
+							<View style={styles.row}>
+								<Button
+									title={tab === "skills" ? "新建技能" : "添加服务器"}
+									small
+									variant="primary"
+									disabled={disabled}
+									onPress={() => setEditor(tab === "skills" ? { kind: "skill" } : { kind: "mcp" })}
+								/>
+								{tab === "skills" ? (
+									<Button title="导入技能" small disabled={disabled} onPress={() => setEditor({ kind: "import" })} />
+								) : null}
+							</View>
+						)}
 						{errors.map((e) => (
 							<Muted key={e}>{e}</Muted>
 						))}
@@ -204,6 +224,7 @@ export default function ResourcesScreen() {
 									<Text style={[styles.name, { color: p.text }]}>{skill.name}</Text>
 									<View style={styles.row}>
 										<Pill text={RESOURCE_SCOPE_LABEL[skill.scope]} />
+										{skill.plugin ? <Pill text="插件" /> : null}
 										{skill.shared ? <Pill text="共享目录" /> : null}
 										<Pill text={skill.enabled ? "已启用" : "已停用"} />
 									</View>
@@ -237,57 +258,98 @@ export default function ResourcesScreen() {
 									</View>
 								</Card>
 							))
-						) : (
+						) : tab === "mcp" ? (
 							servers.filter(matches).map((server) => (
 								<Card key={keyOf(server)}>
 									<Text style={[styles.name, { color: p.text }]}>{server.name}</Text>
 									<View style={styles.row}>
 										<Pill text={RESOURCE_SCOPE_LABEL[server.scope]} />
+										{server.plugin ? <Pill text="插件" /> : null}
 										<Pill text={server.enabled ? "已配置" : "已停用"} />
 									</View>
 									<Text style={[styles.path, { color: p.muted }]}>{server.path}</Text>
 									{tests[keyOf(server)] ? <Muted>{tests[keyOf(server)]?.message}</Muted> : null}
+									{server.plugin ? null : (
+										<View style={styles.row}>
+											<Button
+												title="测试连接"
+												small
+												disabled={disabled}
+												onPress={() =>
+													void run(async () => {
+														const result = await store.resourceRequest("mcp.test", {
+															...target,
+															name: server.name,
+															scope: server.scope,
+														});
+														setTests((old) => ({ ...old, [keyOf(server)]: result }));
+													})
+												}
+											/>
+											<Button
+												title="编辑"
+												small
+												disabled={disabled}
+												onPress={() => setEditor({ kind: "mcp", server })}
+											/>
+											<Button title="删除" small disabled={disabled} onPress={() => setDeleting(server)} />
+											<Switch
+												accessibilityLabel={`启用 ${server.name}`}
+												value={server.enabled}
+												disabled={disabled}
+												onValueChange={(enabled) =>
+													void run(async () => {
+														await store.resourceRequest("mcp.setEnabled", {
+															...target,
+															name: server.name,
+															scope: server.scope,
+															enabled,
+															expectedRevision: server.revision,
+														});
+														setTests({});
+													})
+												}
+											/>
+										</View>
+									)}
+								</Card>
+							))
+						) : (
+							plugins.filter(matches).map((plugin) => (
+								<Card key={plugin.id}>
+									<Text style={[styles.name, { color: p.text }]}>{plugin.name}</Text>
 									<View style={styles.row}>
-										<Button
-											title="测试连接"
-											small
-											disabled={disabled}
-											onPress={() =>
-												void run(async () => {
-													const result = await store.resourceRequest("mcp.test", {
-														...target,
-														name: server.name,
-														scope: server.scope,
-													});
-													setTests((old) => ({ ...old, [keyOf(server)]: result }));
-												})
-											}
-										/>
-										<Button title="编辑" small disabled={disabled} onPress={() => setEditor({ kind: "mcp", server })} />
-										<Button title="删除" small disabled={disabled} onPress={() => setDeleting(server)} />
+										{plugin.version ? <Pill text={plugin.version} /> : null}
+										<Pill text={RESOURCE_SCOPE_LABEL[plugin.scope]} />
+										{plugin.marketplace ? <Pill text={plugin.marketplace} /> : null}
+										<Pill text={plugin.enabled ? "已启用" : "已停用"} />
+									</View>
+									{plugin.description ? <Muted>{plugin.description}</Muted> : null}
+									<Muted>{pluginContentsLabel(plugin)}</Muted>
+									<Text style={[styles.path, { color: p.muted }]}>{plugin.path}</Text>
+									<View style={styles.row}>
 										<Switch
-											accessibilityLabel={`启用 ${server.name}`}
-											value={server.enabled}
+											accessibilityLabel={`启用 ${plugin.name}`}
+											value={plugin.enabled}
 											disabled={disabled}
 											onValueChange={(enabled) =>
-												void run(async () => {
-													await store.resourceRequest("mcp.setEnabled", {
-														...target,
-														name: server.name,
-														scope: server.scope,
-														enabled,
-														expectedRevision: server.revision,
-													});
-													setTests({});
-												})
+												void run(() =>
+													store.resourceRequest("plugins.setEnabled", { ...target, id: plugin.id, enabled }),
+												)
 											}
 										/>
 									</View>
 								</Card>
 							))
 						)}
-						{!loading && !(tab === "skills" ? skills : servers).filter(matches).length ? (
-							<Muted>{query ? "没有匹配的资源" : "还没有资源，点击上方按钮添加。"}</Muted>
+						{!loading && !shownCount ? (
+							<Muted>
+								{query
+									? "没有匹配的资源"
+									: tab === "plugins"
+										? "还没有安装 Claude Code 插件。"
+										: "还没有资源，点击上方按钮添加。"}
+							</Muted>
 						) : null}
 						{tab === "mcp" ? <Muted>测试连接会连接服务器，stdio 类型会在这台电脑上启动配置的程序。</Muted> : null}
 					</>
