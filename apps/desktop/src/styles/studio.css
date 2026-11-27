@@ -129,6 +129,11 @@
 .studio-spot {
 	--cat-fur: #d6cfc4;
 	--cat-glow: #8a867f;
+	/* Derived from the fur on the element itself, so the runtime classes below recolour them. */
+	/* Mixed in OKLCH, which keeps the fur's hue as they darken or lighten. */
+	--cat-line: color-mix(in oklch, var(--cat-fur) 50%, #121218);
+	--cat-dark: color-mix(in oklch, var(--cat-fur) 74%, #24243c);
+	--cat-light: color-mix(in oklch, var(--cat-fur) 26%, #fffaf3);
 }
 
 .runtime-pi {
@@ -316,44 +321,106 @@
 
 /* ---- the cat ---------------------------------------------------------------------------- */
 
+/* A sticker look: soft fur, a darker outline of the same hue, a pale muzzle. */
 .cat-fill {
 	fill: var(--cat-fur);
-}
-
-.cat-ear {
-	stroke: var(--cat-fur);
-	stroke-width: 6;
+	stroke: var(--cat-line);
+	stroke-width: 2.2;
 	stroke-linejoin: round;
 }
 
-.cat-stroke {
-	fill: none;
-	stroke: var(--cat-fur);
-	stroke-width: 10;
-	stroke-linecap: round;
+.cat-light-fill {
+	fill: var(--cat-light);
+}
+
+.cat-dark-fill {
+	fill: var(--cat-dark);
+}
+
+.coat-patch .cat-ear.right {
+	fill: var(--cat-dark);
+}
+
+.coat-tuxedo .cat-paw-pad {
+	fill: var(--cat-light);
 }
 
 .cat-ear-inner {
-	fill: #ff9fb2;
-	opacity: 0.75;
+	fill: color-mix(in srgb, #ff9db2 72%, var(--cat-fur));
 }
 
-.cat-belly {
+.cat-muzzle {
+	fill: var(--cat-light);
+}
+
+.cat-shine-soft {
 	fill: #fff;
 	opacity: 0.32;
 }
 
-.cat-cheek {
-	fill: #ff7d98;
-	opacity: 0.45;
+.cat-shade {
+	fill: var(--cat-line);
+	opacity: 0.13;
+}
+
+.cat-stripes {
+	fill: none;
+	stroke: var(--cat-dark);
+	stroke-width: 2.6;
+	stroke-linecap: round;
+}
+
+.cat-blush-core {
+	stop-color: #ff7f9a;
+	stop-opacity: 0.6;
+}
+
+.cat-blush-edge {
+	stop-color: #ff7f9a;
+	stop-opacity: 0;
+}
+
+.cat-cheek-mini {
+	fill: #ff8fa6;
+	opacity: 0.55;
 }
 
 .cat-whisker {
 	fill: none;
-	stroke: var(--cat-ink);
+	stroke: var(--cat-line);
 	stroke-width: 1.3;
 	stroke-linecap: round;
-	opacity: 0.32;
+	opacity: 0.55;
+}
+
+.cat-tail-line,
+.cat-limb-line {
+	fill: none;
+	stroke: var(--cat-line);
+	stroke-width: 12.4;
+	stroke-linecap: round;
+}
+
+.cat-tail-fur,
+.cat-limb-fur {
+	fill: none;
+	stroke: var(--cat-fur);
+	stroke-width: 8;
+	stroke-linecap: round;
+}
+
+.cat-tail-stripes {
+	fill: none;
+	stroke: var(--cat-dark);
+	stroke-width: 8;
+	stroke-dasharray: 3.5 6.5;
+}
+
+.cat-toe {
+	fill: none;
+	stroke: var(--cat-line);
+	stroke-width: 1.3;
+	stroke-linecap: round;
 }
 
 .cat-ink {
@@ -367,7 +434,7 @@
 .cat-line {
 	fill: none;
 	stroke: var(--cat-ink);
-	stroke-width: 1.8;
+	stroke-width: 1.7;
 	stroke-linecap: round;
 	stroke-linejoin: round;
 }
@@ -376,15 +443,23 @@
 	stroke-width: 2.6;
 }
 
+.cat-line.thin {
+	stroke-width: 1;
+}
+
 .cat-nose {
 	fill: #ef7f95;
 }
 
 .cat-mouth-open {
-	fill: #c4435f;
+	fill: #b83a57;
 	stroke: var(--cat-ink);
-	stroke-width: 1.6;
+	stroke-width: 1.5;
 	stroke-linejoin: round;
+}
+
+.cat-tongue {
+	fill: #ff9fb0;
 }
 
 .acc-stem {
@@ -396,12 +471,15 @@
 
 .acc-leaf {
 	fill: #6cc070;
+	stroke: #4f9d52;
+	stroke-width: 1;
+	stroke-linejoin: round;
 }
 
 .acc-bow {
 	fill: #ff6f91;
-	stroke: #ff6f91;
-	stroke-width: 2;
+	stroke: #e2557a;
+	stroke-width: 1.6;
 	stroke-linejoin: round;
 }
 
@@ -418,16 +496,21 @@
 
 .acc-cup {
 	fill: #4c4958;
+	stroke: #3d3a46;
+	stroke-width: 1.4;
 }
 
 .acc-frame {
 	fill: none;
 	stroke: #3a3530;
 	stroke-width: 2.2;
+	stroke-linecap: round;
 }
 
 .acc-petal {
 	fill: #ffd0dc;
+	stroke: #f3a3b8;
+	stroke-width: 0.8;
 }
 
 .acc-center {
@@ -436,10 +519,16 @@
 
 .acc-cap {
 	fill: #5b8def;
+	stroke: #4570c8;
+	stroke-width: 1.4;
+	stroke-linejoin: round;
 }
 
 .acc-brim {
 	fill: #4a78d4;
+	stroke: #3d63b3;
+	stroke-width: 1.2;
+	stroke-linejoin: round;
 }
 
 .acc-cap-button {
@@ -454,18 +543,41 @@
 
 .studio-cushion {
 	fill: var(--studio-cushion);
+	stroke: color-mix(in srgb, var(--studio-cushion) 70%, #000);
+	stroke-width: 1.6;
+}
+
+.studio-cushion-shine {
+	fill: #fff;
+	opacity: 0.14;
 }
 
 .studio-desk-top {
 	fill: var(--studio-wood);
 }
 
+.studio-desk-shine {
+	fill: #fff;
+	opacity: 0.2;
+}
+
 .studio-desk-front {
 	fill: var(--studio-wood-dark);
 }
 
+.studio-desk-handle {
+	fill: color-mix(in srgb, var(--studio-wood-dark) 65%, #000);
+}
+
 .studio-laptop {
 	fill: var(--studio-laptop);
+	stroke: var(--studio-laptop-dark);
+	stroke-width: 1.2;
+}
+
+.studio-laptop-shine {
+	fill: #fff;
+	opacity: 0.4;
 }
 
 .studio-laptop-base {
@@ -473,7 +585,7 @@
 }
 
 .studio-laptop-logo {
-	fill: var(--cat-glow);
+	fill: var(--cat-glow, var(--text-faint));
 	opacity: 0.45;
 }
 
@@ -490,20 +602,49 @@
 
 .studio-mug {
 	fill: var(--studio-mug);
+	stroke: color-mix(in srgb, var(--studio-mug) 70%, #000);
+	stroke-width: 1.2;
+	stroke-linejoin: round;
 }
 
-.studio-mug-handle,
-.studio-steam {
+.studio-mug-band {
+	fill: #fff;
+	opacity: 0.45;
+}
+
+.studio-mug-handle {
 	fill: none;
-	stroke: var(--studio-mug);
+	stroke: color-mix(in srgb, var(--studio-mug) 80%, #000);
 	stroke-width: 2.4;
 	stroke-linecap: round;
 }
 
 .studio-steam {
+	fill: none;
 	stroke: var(--text-faint);
 	stroke-width: 1.8;
+	stroke-linecap: round;
 	animation: studio-steam 2.4s ease-in-out infinite;
+}
+
+.studio-plant {
+	transform-origin: 41px 108px;
+	animation: studio-plant 4s ease-in-out infinite alternate;
+}
+
+.studio-plant-leaf {
+	fill: #6cbf73;
+	stroke: #4c9a54;
+	stroke-width: 1;
+	stroke-linejoin: round;
+}
+
+.studio-plant-pot {
+	fill: #d98b62;
+}
+
+.studio-plant-rim {
+	fill: #c4744d;
 }
 
 .cat-wave {
@@ -526,13 +667,13 @@
 }
 
 .cat-tail {
-	transform-origin: 134px 110px;
+	transform-origin: 128px 115px;
 	animation: studio-tail 2.6s ease-in-out infinite alternate;
 	animation-delay: var(--cat-phase, 0s);
 }
 
 .seat-cushion .cat-tail {
-	transform-origin: 140px 122px;
+	transform-origin: 128px 124px;
 	animation-duration: 4s;
 }
 
@@ -621,7 +762,7 @@
 
 .mood-waiting .cat-wave {
 	display: inline;
-	transform-origin: 136px 106px;
+	transform-origin: 126px 104px;
 	animation: studio-wave 0.5s ease-in-out infinite alternate;
 }
 
@@ -887,8 +1028,8 @@
 	overflow: visible;
 }
 
-.studio-minicat .cat-fill:first-child {
-	stroke: var(--cat-fur);
+.studio-minicat .cat-fill {
+	stroke-width: 1.8;
 }
 
 /* ---- empty floor ------------------------------------------------------------------------ */
@@ -1225,6 +1366,15 @@
 	100% {
 		opacity: 0;
 		transform: translate(var(--x), 110px) rotate(var(--r));
+	}
+}
+
+@keyframes studio-plant {
+	from {
+		transform: rotate(-3deg);
+	}
+	to {
+		transform: rotate(3deg);
 	}
 }
 

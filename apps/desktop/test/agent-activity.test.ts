@@ -1,7 +1,14 @@
 import { type ChatState, initialChatState } from "@pier/chat-state";
 import type { SessionSummary, SubagentInfo, UiRequest } from "@pier/protocol";
 import { describe, expect, it } from "vitest";
-import { CAT_ACCESSORIES, catLook, studioActivity, toolActivity } from "../src/lib/agent-activity.ts";
+import {
+	CAT_ACCESSORIES,
+	CAT_COATS,
+	catLook,
+	DESK_ITEMS,
+	studioActivity,
+	toolActivity,
+} from "../src/lib/agent-activity.ts";
 
 function session(overrides: Partial<SessionSummary> = {}): SessionSummary {
 	return {
@@ -185,6 +192,8 @@ describe("catLook", () => {
 		const look = catLook("session-b");
 		expect(look.name.length).toBeGreaterThan(0);
 		expect(CAT_ACCESSORIES).toContain(look.accessory);
+		expect(CAT_COATS).toContain(look.coat);
+		expect(DESK_ITEMS).toContain(look.deskItem);
 		expect(look.phase).toBeGreaterThanOrEqual(0);
 		expect(look.phase).toBeLessThan(4);
 	});
@@ -192,5 +201,17 @@ describe("catLook", () => {
 	it("varies between sessions", () => {
 		const looks = new Set(Array.from({ length: 40 }, (_, i) => JSON.stringify(catLook(`session-${i}`))));
 		expect(looks.size).toBeGreaterThan(20);
+	});
+
+	it("varies between ids that differ only at the end, as sequential ones do", () => {
+		const ids = Array.from(
+			{ length: 24 },
+			(_, i) => `019ac3f2-7b1e-7d40-9a51-3c8e2f6b10${i.toString(16).padStart(2, "0")}`,
+		);
+		const looks = ids.map(catLook);
+		expect(new Set(looks.map((look) => look.coat)).size).toBe(CAT_COATS.length);
+		expect(new Set(looks.map((look) => look.deskItem)).size).toBe(DESK_ITEMS.length);
+		expect(new Set(looks.map((look) => look.accessory)).size).toBeGreaterThanOrEqual(5);
+		expect(new Set(looks.map((look) => look.name)).size).toBeGreaterThanOrEqual(10);
 	});
 });

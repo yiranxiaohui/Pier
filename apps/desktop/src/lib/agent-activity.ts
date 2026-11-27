@@ -201,6 +201,14 @@ export function studioActivity(chat: ChatState | undefined, session: SessionSumm
 export const CAT_ACCESSORIES = ["sprout", "bow", "headphones", "glasses", "flower", "cap", "none"] as const;
 export type CatAccessory = (typeof CAT_ACCESSORIES)[number];
 
+/** Coat patterns: one colour, tabby stripes, a patch over one eye, or a white bib and paws. */
+export const CAT_COATS = ["plain", "tabby", "patch", "tuxedo"] as const;
+export type CatCoat = (typeof CAT_COATS)[number];
+
+/** What stands on the cat's desk besides its laptop. */
+export const DESK_ITEMS = ["mug", "plant", "none"] as const;
+export type DeskItem = (typeof DESK_ITEMS)[number];
+
 const CAT_NAMES = [
 	"团子",
 	"布丁",
@@ -218,31 +226,51 @@ const CAT_NAMES = [
 	"椰椰",
 	"米粒",
 	"咕噜",
+	"奶茶",
+	"雪球",
+	"橘子",
+	"棉花",
+	"布朗",
+	"小满",
+	"毛豆",
+	"樱桃",
 ];
 
 export interface CatLook {
 	name: string;
 	accessory: CatAccessory;
+	coat: CatCoat;
+	deskItem: DeskItem;
 	/** Seconds to offset its idle animations by, so the cats do not blink and sway in step. */
 	phase: number;
 }
 
-/** FNV-1a: a small, stable hash of a session id. */
+/**
+ * A small, stable hash of a session id: FNV-1a, then MurmurHash3's finalizer, so ids that differ
+ * only in their last characters (as sequential ones do) still differ in every bit.
+ */
 function hash(text: string): number {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < text.length; i++) {
 		h ^= text.charCodeAt(i);
 		h = Math.imul(h, 0x01000193);
 	}
+	h ^= h >>> 16;
+	h = Math.imul(h, 0x85ebca6b);
+	h ^= h >>> 13;
+	h = Math.imul(h, 0xc2b2ae35);
+	h ^= h >>> 16;
 	return h >>> 0;
 }
 
-/** The look of a session's cat: the same session always gets the same name and accessory. */
+/** The look of a session's cat: the same session always gets the same name, coat and accessory. */
 export function catLook(sessionId: string): CatLook {
 	const h = hash(sessionId);
 	return {
 		name: CAT_NAMES[h % CAT_NAMES.length] ?? "团子",
 		accessory: CAT_ACCESSORIES[(h >>> 8) % CAT_ACCESSORIES.length] ?? "none",
+		coat: CAT_COATS[(h >>> 12) % CAT_COATS.length] ?? "plain",
+		deskItem: DESK_ITEMS[(h >>> 24) % DESK_ITEMS.length] ?? "none",
 		phase: ((h >>> 16) % 40) / 10,
 	};
 }
