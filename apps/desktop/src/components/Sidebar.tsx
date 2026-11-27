@@ -4,7 +4,14 @@ import { DEFAULT_AGENT_RUNTIME } from "@pier/protocol";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { sessionActivity } from "../lib/agent-activity.ts";
 import { POLICY_DESCRIPTION, POLICY_LABEL, relativeTime, sessionTitle } from "../lib/format.ts";
-import { SESSION_PAGE, SESSION_PREVIEW, sessionListTime, sessionWindow, sortSessions } from "../lib/session-list.ts";
+import {
+	SESSION_PAGE,
+	SESSION_PREVIEW,
+	sessionListTime,
+	sessionWindow,
+	sortSessions,
+	sortWorkspacesByActivity,
+} from "../lib/session-list.ts";
 import {
 	type ComputerInfo,
 	LOCAL_NODE,
@@ -453,13 +460,16 @@ function WorkspaceGroup({
 				<button
 					type="button"
 					className="workspace-name"
-					title={`${local ? workspace.path : `${nodeName}：${workspace.path}`}\n拖动调整顺序 · Alt+↑/↓`}
-					draggable
+					title={`${local ? workspace.path : `${nodeName}：${workspace.path}`}\n${
+						byActivity ? "按最近活动排序（设置 → 常规 → 侧边栏排序）" : "拖动调整顺序 · Alt+↑/↓"
+					}`}
+					// Sorted by activity, the order is not the user's to change (theirs comes back when it is off).
+					draggable={!byActivity}
 					onDragStart={(event) => drag.start(event, workspace.id)}
 					onDragEnd={drag.end}
-					aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+					aria-keyshortcuts={byActivity ? undefined : "Alt+ArrowUp Alt+ArrowDown"}
 					onKeyDown={(event) => {
-						if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+						if (byActivity || !event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
 						event.preventDefault();
 						const workspaces = store.getState().workspaces;
 						const up = event.key === "ArrowUp";
@@ -684,6 +694,12 @@ export function Sidebar({ open = true }: { open?: boolean }) {
 		}
 	}, [draggingWorkspace, workspaces]);
 	const settingsWorkspace = workspaces.find((w) => w.id === settingsFor);
+	// Sorted by activity, workspaces follow their sessions (read only then, as they change often).
+	const activitySessions = useAppState((s) => (s.sortSessionsByActivity ? s.sessions : undefined));
+	const listed = useMemo(
+		() => (activitySessions ? sortWorkspacesByActivity(workspaces, activitySessions) : workspaces),
+		[workspaces, activitySessions],
+	);
 	// Collapsing the sidebar dismisses its workspace-settings dialog instead of hiding it.
 	useEffect(() => {
 		if (!open) {
@@ -734,7 +750,7 @@ export function Sidebar({ open = true }: { open?: boolean }) {
 					if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(undefined);
 				}}
 			>
-				{workspaces.map((workspace) => (
+				{listed.map((workspace) => (
 					<WorkspaceGroup
 						key={workspace.id}
 						workspace={workspace}

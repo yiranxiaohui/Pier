@@ -2,7 +2,13 @@
 import type { SessionSummary, WorkspaceInfo } from "@pier/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../src/lib/bridge.ts";
-import { sessionListTime, sortSessions, withSessionActivity } from "../src/lib/session-list.ts";
+import {
+	sessionListTime,
+	sortSessions,
+	sortWorkspacesByActivity,
+	withSessionActivity,
+	workspaceActivity,
+} from "../src/lib/session-list.ts";
 import { LOCAL_NODE, PierStore } from "../src/lib/store.tsx";
 
 const workspace: WorkspaceInfo = { id: "w", name: "W", path: "/w", policy: "ask" };
@@ -98,6 +104,42 @@ describe("withSessionActivity", () => {
 
 	it("reports a session that is not listed", () => {
 		expect(withSessionActivity([old], "missing", "streaming", 0, now)).toBeUndefined();
+	});
+});
+
+describe("sortWorkspacesByActivity", () => {
+	const space = (id: string) => ({ id });
+	const inSpace = (workspaceId: string, s: SessionSummary) => ({ ...s, workspaceId });
+
+	it("dates a workspace by its latest active session, archived ones included", () => {
+		expect(workspaceActivity([middle, old, fresh])).toBe(Date.parse(old.modifiedAt));
+		const archived = session("archived", middle.createdAt, "2026-11-25T00:00:00.000Z", { archived: true });
+		expect(workspaceActivity([old, archived])).toBe(Date.parse(archived.modifiedAt));
+		expect(workspaceActivity([])).toBe(0);
+		expect(workspaceActivity(undefined)).toBe(0);
+	});
+
+	it("puts the workspace with the latest activity first and those without sessions last, in the given order", () => {
+		const sessions = {
+			a: [inSpace("a", middle)],
+			b: [inSpace("b", fresh)],
+			c: [inSpace("c", old), inSpace("c", middle)],
+			empty: [],
+		};
+		// `offline` has no list yet (its computer is not connected); `empty` has no sessions.
+		const workspaces = ["offline", "a", "empty", "b", "c"].map(space);
+		expect(ids(sortWorkspacesByActivity(workspaces, sessions))).toEqual(["c", "b", "a", "offline", "empty"]);
+		expect(ids(workspaces)).toEqual(["offline", "a", "empty", "b", "c"]);
+	});
+
+	it("moves a workspace to the top once one of its sessions starts running", () => {
+		const now = Date.parse("2026-11-27T12:00:00.000Z");
+		const a = [inSpace("a", middle)];
+		const sessions = { a, c: [inSpace("c", old)] };
+		const workspaces = [space("c"), space("a")];
+		expect(ids(sortWorkspacesByActivity(workspaces, sessions))).toEqual(["c", "a"]);
+		const running = withSessionActivity(a, "middle", "streaming", 0, now) ?? [];
+		expect(ids(sortWorkspacesByActivity(workspaces, { ...sessions, a: running }))).toEqual(["a", "c"]);
 	});
 });
 

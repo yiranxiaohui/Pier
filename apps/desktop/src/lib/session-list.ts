@@ -34,8 +34,8 @@ function timeOf(iso: string | undefined): number {
 }
 
 /**
- * The time a session's sidebar row shows and the list sorts by: its latest activity when sessions
- * are sorted by activity (设置 → 常规 → 会话列表), otherwise when it was created.
+ * The time a session's sidebar row shows and the list sorts by: its latest activity when the
+ * sidebar is sorted by activity (设置 → 常规 → 侧边栏排序), otherwise when it was created.
  */
 export function sessionListTime(session: SessionSummary, byActivity: boolean): string {
 	return byActivity ? session.modifiedAt : session.createdAt;
@@ -79,4 +79,25 @@ export function withSessionActivity(
 		...(started ? { modifiedAt: new Date(Math.max(now, latest + 1)).toISOString() } : {}),
 	};
 	return sessions.map((s) => (s.id === sessionId ? next : s));
+}
+
+/** When anything last happened in a workspace: the latest activity of its sessions, archived ones included (0 for none). */
+export function workspaceActivity(sessions: readonly SessionSummary[] | undefined): number {
+	return (sessions ?? []).reduce((latest, session) => Math.max(latest, timeOf(session.modifiedAt)), 0);
+}
+
+/**
+ * Workspaces in sidebar order when sorting by activity: the one whose session was active last
+ * first, so a workspace moves to the top as soon as one of its sessions starts running. Workspaces
+ * without sessions, or whose sessions are not loaded (a computer offline), go last; workspaces with
+ * the same activity keep the order given (the user's own, from dragging them).
+ */
+export function sortWorkspacesByActivity<T extends { id: string }>(
+	workspaces: readonly T[],
+	sessions: Readonly<Record<string, readonly SessionSummary[] | undefined>>,
+): T[] {
+	return workspaces
+		.map((workspace) => ({ workspace, time: workspaceActivity(sessions[workspace.id]) }))
+		.sort((a, b) => b.time - a.time)
+		.map(({ workspace }) => workspace);
 }

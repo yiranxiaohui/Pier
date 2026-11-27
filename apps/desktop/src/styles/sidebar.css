@@ -357,6 +357,12 @@
 	cursor: grabbing;
 }
 
+/* Sorted by activity (设置 → 常规 → 侧边栏排序), workspaces are not dragged. */
+.workspace-name[draggable="false"],
+.workspace-name[draggable="false"]:active {
+	cursor: pointer;
+}
+
 .workspace-name:hover:not(:disabled) {
 	background: transparent;
 }

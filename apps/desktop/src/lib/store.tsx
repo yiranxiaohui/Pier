@@ -495,8 +495,10 @@ export interface AppState {
 	/** Width of the left-hand sidebar in pixels. */
 	sidebarWidth: number;
 	/**
-	 * The sidebar lists sessions by latest activity, so one that starts running moves to the top;
-	 * off (the default), by creation time. Remembered on this device (`pier.sessionSort`).
+	 * The sidebar lists workspaces and their sessions by latest activity, so a session that starts
+	 * running moves to the top of its workspace and the workspace to the top of the list; off (the
+	 * default), sessions by creation time and workspaces in the user's own order (`workspaceOrder`,
+	 * kept while this is on). Remembered on this device (`pier.sessionSort`).
 	 */
 	sortSessionsByActivity: boolean;
 	/** The right-hand workspace file panel is shown. */
@@ -2854,7 +2856,10 @@ export class PierStore {
 		if (mode !== this.state.filePreviewMode) this.set({ filePreviewMode: mode });
 	}
 
-	/** Sort the sidebar's sessions by latest activity, or (`false`) by creation time. */
+	/**
+	 * Sort the sidebar's workspaces and sessions by latest activity, or (`false`) sessions by
+	 * creation time and workspaces in the user's own order.
+	 */
 	setSortSessionsByActivity(enabled: boolean): void {
 		if (enabled !== this.state.sortSessionsByActivity) this.set({ sortSessionsByActivity: enabled });
 	}

@@ -164,7 +164,7 @@ const GROUPS: Array<{ title: string; items: SectionDef[] }> = [
 				label: "常规",
 				icon: IconSettings,
 				keywords:
-					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light 文件预览 预览 弹窗 全屏 右侧面板 标签页 会话列表 会话 排序 自动排序 最近活动 置顶 最前 创建时间",
+					"host 状态 连接 版本 配置目录 重启 退出 开机 自启 登录 启动 托盘 autostart pi 外观 主题 风格 深色 暗黑 浅色 dark light 文件预览 预览 弹窗 全屏 右侧面板 标签页 会话列表 会话 工作区 侧边栏 排序 自动排序 最近活动 置顶 最前 创建时间",
 			},
 			{
 				id: "workspaces",
@@ -233,7 +233,7 @@ function matchingPage(item: SectionDef, q: string): SectionDef | undefined {
 }
 const PAGE_DESCRIPTIONS: Record<SettingsSection, string> = {
 	account: "管理云链API 账号、额度与令牌，连接你的 Agent。",
-	general: "让 Pier 更合你的习惯，调整外观、文件预览、会话排序、语音与启动方式。",
+	general: "让 Pier 更合你的习惯，调整外观、文件预览、侧边栏排序、语音与启动方式。",
 	models: "为 pi 连接模型服务商，选择 pi 新会话的默认模型。",
 	workspaces: "管理项目目录，为每个工作区选择合适的工具审批策略。",
 	extensions: "发现与管理 pi 的扩展包，为 pi 的工作流程添加更多能力。",
@@ -418,18 +418,18 @@ function FilePreviewSettings() {
 	);
 }
 
-function SessionListSettings() {
+function SidebarSortSettings() {
 	const store = useStore();
 	const byActivity = useAppState((s) => s.sortSessionsByActivity);
 	return (
-		<SettingsGroup title="会话列表" description="选择侧边栏中会话的排列方式，仅对这台设备生效。">
+		<SettingsGroup title="侧边栏排序" description="选择侧边栏中工作区和会话的排列方式，仅对这台设备生效。">
 			<SettingsCard>
 				<SettingRow
 					title="按最近活动自动排序"
 					description={
 						byActivity
-							? "会话一开始运行就自动移到所在工作区列表的最前，最近用过的会话总在上面；会话旁显示最近活动的时间。"
-							: "默认关闭：会话按创建时间排列，新建的会话在最前，之后不会因为运行而改变位置；会话旁显示创建时间。"
+							? "会话一开始运行就移到所在工作区列表的最前，所在工作区也移到最上面；会话旁显示最近活动的时间。此时不能拖动调整工作区顺序，关闭后恢复你拖好的顺序。"
+							: "默认关闭：工作区保持你拖动调整的顺序；会话按创建时间排列，新建的会话在最前，之后不会因为运行而改变位置；会话旁显示创建时间。"
 					}
 				>
 					<Switch
@@ -449,7 +449,7 @@ function GeneralSettings() {
 		<>
 			<AppearanceSettings />
 			<FilePreviewSettings />
-			<SessionListSettings />
+			<SidebarSortSettings />
 			<SettingsGroup title="语音输入" description="在本机设置识别方式，让想法更快变成文字。">
 				<SettingsCard>
 					<SettingRow title="语音识别服务" stack>
