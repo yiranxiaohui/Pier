@@ -6,7 +6,7 @@
  * file panel; uploads run one file at a time, in the order they were added.
  */
 import type { PierClient } from "@pier/client";
-import { PierProtocolError, type WorkspaceInfo } from "@pier/protocol";
+import { PierProtocolError, type WorkspaceFileBytes, type WorkspaceInfo } from "@pier/protocol";
 import { useSyncExternalStore } from "react";
 import { workspaceNameError } from "./file-names.ts";
 import { hostSpeaksMinor } from "./settings-target.ts";
@@ -194,6 +194,14 @@ function base64Bytes(data: string): number {
 	return (data.length / 4) * 3 - padding;
 }
 
+/** The bytes of a base64 string. */
+export function base64ToBytes(data: string): Uint8Array<ArrayBuffer> {
+	const binary = atob(data);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes;
+}
+
 export function bytesToBase64(bytes: Uint8Array): string {
 	let binary = "";
 	for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -223,6 +231,34 @@ function transferClient(store: PierStore, location: TransferLocation): PierClien
 	return client;
 }
 
+/** Reads `length` bytes of one file from `offset`. */
+export type ReadBytes = (offset: number, length: number) => Promise<WorkspaceFileBytes>;
+
+/**
+ * A reader of byte ranges of a workspace, preview or host file, as downloads and media previews
+ * use it; throws when the file's computer is not connected or cannot transfer files.
+ */
+export function fileBytesReader(
+	store: PierStore,
+	location: TransferLocation,
+	path: string,
+	expectedRealPath?: string,
+	preview = false,
+): ReadBytes {
+	const client = transferClient(store, location);
+	return (offset, length) => {
+		const range = { path, offset, length };
+		return "node" in location
+			? client.request("host.readBytes", { directory: location.directory, ...range })
+			: client.request("workspace.readBytes", {
+					workspaceId: location.id,
+					...range,
+					...(expectedRealPath ? { expectedRealPath } : {}),
+					...(preview ? { preview: true } : {}),
+				});
+	};
+}
+
 /**
  * Download a workspace or preview file to this computer: asks where to save it, then copies it
  * in chunks. Resolves once the download ended (or the save dialog was cancelled).
@@ -234,9 +270,9 @@ export async function downloadFile(
 	expectedRealPath?: string,
 	preview = false,
 ): Promise<void> {
-	let client: PierClient;
+	let read: ReadBytes;
 	try {
-		client = transferClient(store, location);
+		read = fileBytesReader(store, location, path, expectedRealPath, preview);
 	} catch (error) {
 		store.toast("error", transferErrorMessage(error));
 		return;
@@ -257,16 +293,7 @@ export async function downloadFile(
 	try {
 		for (;;) {
 			if (transfers.isCancelled(item.id)) throw new CancelledError();
-			const range = { path, offset, length: TRANSFER_CHUNK_BYTES };
-			const chunk =
-				"node" in location
-					? await client.request("host.readBytes", { directory: location.directory, ...range })
-					: await client.request("workspace.readBytes", {
-							workspaceId: location.id,
-							...range,
-							...(expectedRealPath ? { expectedRealPath } : {}),
-							...(preview ? { preview: true } : {}),
-						});
+			const chunk = await read(offset, TRANSFER_CHUNK_BYTES);
 			const stamp = `${chunk.size}@${chunk.modifiedAt}`;
 			if (version !== undefined && stamp !== version) throw new Error("文件在下载过程中被修改，请重新下载");
 			version = stamp;

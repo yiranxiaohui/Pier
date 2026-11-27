@@ -28,6 +28,7 @@
 				"frame-src": "'self' pier-preview: http://pier-preview.localhost http://127.0.0.1:*",
 				"connect-src": "'self' ipc: http://ipc.localhost ws://127.0.0.1:*",
 				"img-src": "'self' data: blob:",
+				"media-src": "'self' blob:",
 				"style-src": "'self' 'unsafe-inline'",
 				"font-src": "'self' data:"
 			}

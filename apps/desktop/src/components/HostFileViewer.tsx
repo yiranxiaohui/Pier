@@ -3,6 +3,7 @@ import type { WorkspaceFileContent } from "@pier/protocol";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, relativeTime } from "../lib/format.ts";
 import { type FileScope, fileErrorText, scopeAbsolute, scopeFiles } from "../lib/host-files.ts";
+import { mediaType } from "../lib/media-files.ts";
 import { isSensitiveFile } from "../lib/sensitive-files.ts";
 import { CodeEditor, type CodeEditorHandle, SAVE_SHORTCUT } from "./CodeEditor.tsx";
 import {
@@ -16,12 +17,14 @@ import {
 	IconUndo,
 } from "./Icons.tsx";
 import { CopyButton } from "./Markdown.tsx";
+import { MediaPreview } from "./MediaPreview.tsx";
 import { Modal } from "./Modal.tsx";
 
 /**
- * Preview of one file in the host file manager: text in VS Code's editor (Monaco), an image, or a
- * note for binary files. Text read in full can be edited in place and saved with Ctrl/⌘+S; saving
- * refuses to overwrite a file changed on disk unless confirmed.
+ * Preview of one file in the host file manager: text in VS Code's editor (Monaco), an image, a
+ * video or audio player (when `canReadBytes`), or a note for other binary files. Text read in
+ * full can be edited in place and saved with Ctrl/⌘+S; saving refuses to overwrite a file
+ * changed on disk unless confirmed.
  */
 export function HostFileViewer({
 	client,
@@ -29,6 +32,7 @@ export function HostFileViewer({
 	path,
 	name,
 	editable,
+	canReadBytes,
 	onClose,
 	onDownload,
 	onSaved,
@@ -38,6 +42,8 @@ export function HostFileViewer({
 	path: string;
 	name: string;
 	editable: boolean;
+	/** The host reads files in chunks (`FileAbilities.transfer`), which playing media needs. */
+	canReadBytes: boolean;
 	onClose: () => void;
 	onDownload?: (() => void) | undefined;
 	onSaved?: () => void;
@@ -89,6 +95,7 @@ export function HostFileViewer({
 		};
 	}, [confirmed, load]);
 
+	const media = file?.kind === "binary" ? mediaType(path) : undefined;
 	const isText = file?.kind === "text";
 	const canEdit = editable && isText && !file.truncated;
 	const readOnlyReason = !isText
@@ -179,6 +186,24 @@ export function HostFileViewer({
 			</div>
 		) : (
 			<div className="file-viewer-empty">图片太大（{formatBytes(file.size)}），无法预览，可以下载后查看</div>
+		);
+	} else if (media) {
+		body = (
+			<MediaPreview
+				key={reads}
+				name={name}
+				size={file.size}
+				type={media}
+				reader={
+					canReadBytes
+						? () => {
+								if (!client) throw new Error("主机未连接");
+								const files = scopeFiles(client, scope);
+								return (offset, length) => files.readBytes(path, offset, length);
+							}
+						: undefined
+				}
+			/>
 		);
 	} else if (file.kind === "binary") {
 		body = (

@@ -1103,6 +1103,7 @@ function FileBrowser({ node, workspace }: { node: string; workspace?: WorkspaceI
 					path={viewing.entry.path}
 					name={viewing.entry.name}
 					editable={canManage}
+					canReadBytes={canTransfer}
 					onClose={() => setViewing(undefined)}
 					onSaved={bump}
 					onDownload={canTransfer && location ? () => void download([viewing.entry]) : undefined}

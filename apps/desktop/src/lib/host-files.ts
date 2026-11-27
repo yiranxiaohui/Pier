@@ -7,6 +7,7 @@ import type { PierClient } from "@pier/client";
 import {
 	type HostInfo,
 	PierProtocolError,
+	type WorkspaceFileBytes,
 	type WorkspaceFileContent,
 	type WorkspaceFileEntry,
 	type WorkspaceFileWriteResult,
@@ -81,6 +82,13 @@ export function scopeFiles(client: PierClient, scope: FileScope) {
 			return host
 				? client.request("host.readFile", { directory: host.directory, path })
 				: client.request("workspace.readFile", { workspaceId, path });
+		},
+		/** A chunk of a file, as downloads read it (needs `FileAbilities.transfer`). */
+		readBytes(path: string, offset: number, length: number): Promise<WorkspaceFileBytes> {
+			const range = { path, offset, length };
+			return host
+				? client.request("host.readBytes", { directory: host.directory, ...range })
+				: client.request("workspace.readBytes", { workspaceId, ...range });
 		},
 		writeFile(path: string, text: string, expectedModifiedAt?: string): Promise<WorkspaceFileWriteResult> {
 			const version = expectedModifiedAt ? { expectedModifiedAt } : {};

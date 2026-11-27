@@ -705,6 +705,69 @@ input.files-path-input.invalid {
 	object-fit: contain;
 }
 
+/* A video fills the body on black, like a player; audio shows its name above the controls. */
+.file-viewer-media {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
+	background: #000;
+}
+
+.file-viewer-media video {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+}
+
+.file-viewer-media.audio {
+	flex-direction: column;
+	gap: 14px;
+	padding: 24px;
+	background: var(--bg-code);
+	color: var(--text-faint);
+}
+
+.file-viewer-media.audio audio {
+	width: min(480px, 100%);
+}
+
+.file-viewer-media-name {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	color: var(--text);
+}
+
+.file-viewer-media-loading {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12px;
+	padding: 24px;
+	text-align: center;
+	font-size: 13px;
+	color: var(--text-faint);
+}
+
+.file-viewer-media-loading .update-progress-track {
+	width: min(320px, 100%);
+	margin: 0;
+}
+
+.file-viewer-media-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-variant-numeric: tabular-nums;
+}
+
 .file-viewer-empty {
 	display: flex;
 	flex: 1;

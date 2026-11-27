@@ -62,6 +62,7 @@ describe("host file scopes", () => {
 		await files.createDirectory("projects");
 		await files.deletePath("old");
 		await files.readFile("a.txt");
+		await files.readBytes("clip.mp4", 1024, 2048);
 		await files.writeFile("a.txt", "text", "2026-01-01T00:00:00.000Z");
 		await files.transferTo("a.txt", docs, "b.txt", "copy");
 		expect(calls).toEqual([
@@ -69,6 +70,7 @@ describe("host file scopes", () => {
 			{ method: "host.createDirectory", params: { directory: "/home/me", path: "projects" } },
 			{ method: "host.deletePath", params: { directory: "/home/me", path: "old" } },
 			{ method: "host.readFile", params: { directory: "/home/me", path: "a.txt" } },
+			{ method: "host.readBytes", params: { directory: "/home/me", path: "clip.mp4", offset: 1024, length: 2048 } },
 			{
 				method: "host.writeFile",
 				params: { directory: "/home/me", path: "a.txt", text: "text", expectedModifiedAt: "2026-01-01T00:00:00.000Z" },
@@ -92,8 +94,14 @@ describe("host file scopes", () => {
 		const files = scopeFiles(client, src);
 		await files.createFile("src/a.ts");
 		await files.transferTo("src/a.ts", { ...src, dir: "" }, "a.ts", "move");
-		expect(calls.map((call) => call.method)).toEqual(["workspace.createFile", "workspace.transferPath"]);
+		await files.readBytes("src/clip.mp4", 0, 10);
+		expect(calls.map((call) => call.method)).toEqual([
+			"workspace.createFile",
+			"workspace.transferPath",
+			"workspace.readBytes",
+		]);
 		expect(calls[1]?.params).toMatchObject({ workspaceId: "w1", destinationWorkspaceId: "w1", mode: "move" });
+		expect(calls[2]?.params).toEqual({ workspaceId: "w1", path: "src/clip.mp4", offset: 0, length: 10 });
 		await expect(files.transferTo("src/a.ts", home, "a.ts", "copy")).rejects.toThrow(/同一台主机/);
 	});
 

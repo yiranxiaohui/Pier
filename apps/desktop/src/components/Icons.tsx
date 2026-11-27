@@ -133,6 +133,18 @@ export const IconFile = make(
 		<path d="M14 2v5a1 1 0 0 0 1 1h5" />
 	</>,
 );
+// play
+export const IconPlay = make(
+	<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" />,
+);
+// music
+export const IconMusic = make(
+	<>
+		<path d="M9 18V5l12-2v13" />
+		<circle cx="6" cy="18" r="3" />
+		<circle cx="18" cy="16" r="3" />
+	</>,
+);
 // file-pen
 export const IconFilePen = make(
 	<>

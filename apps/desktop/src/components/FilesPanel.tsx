@@ -2086,6 +2086,7 @@ function FilesView({
 					path={viewing.path}
 					name={viewing.name}
 					editable={manageHost}
+					canReadBytes={canTransfer}
 					onClose={() => setViewing(undefined)}
 					onSaved={() => store.bumpFiles(hostKey)}
 					onDownload={canTransfer ? () => void downloadFile(store, transferLocation, viewing.path) : undefined}
