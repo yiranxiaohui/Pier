@@ -266,6 +266,15 @@ export interface HostStatsEntry {
 
 /** Subscriptions kept alive for recently viewed sessions (so approvals elsewhere stay visible). */
 const MAX_LIVE_CHATS = 8;
+
+/** The pages that take the window's place beside the navigation rail, all closed: at most one is open. */
+const NO_PAGE = {
+	settings: undefined,
+	scheduledTasksOpen: false,
+	hostHubOpen: false,
+	usageOpen: false,
+	studioOpen: false,
+} as const;
 /**
  * Chats no longer live whose state is kept in memory: opening one again shows it at once and
  * resumes from it, so the host sends only what is new instead of the whole transcript.
@@ -390,6 +399,8 @@ export interface AppState {
 	taskData: Record<string, { tasks: ScheduledTask[]; runs: ScheduledTaskRun[]; error?: string }>;
 	/** The token usage page is on screen (1.68). */
 	usageOpen: boolean;
+	/** The Agent studio, an animated view of what every agent does, is on screen. */
+	studioOpen: boolean;
 	usageRange: UsageRange;
 	/** Token usage of each computer, by node. */
 	usageData: Record<string, UsageNodeData>;
@@ -831,6 +842,7 @@ export class PierStore {
 			scheduledTasksOpen: false,
 			taskData: {},
 			usageOpen: false,
+			studioOpen: false,
 			usageRange: "7d",
 			usageData: {},
 			host: { state: "starting", restarts: 0, generation: 0 },
@@ -3140,6 +3152,7 @@ export class PierStore {
 			hostHubOpen: false,
 			scheduledTasksOpen: false,
 			usageOpen: false,
+			studioOpen: false,
 			selectedWorkspaceId: session.workspaceId,
 			selectedSessionId: session.id,
 			newChat: undefined,
@@ -3484,16 +3497,16 @@ export class PierStore {
 		if (section === "about" && this.state.settingsNode === LOCAL_NODE && this.state.update.version) {
 			this.announcedUpdate = this.state.update.version;
 		}
-		this.set({ settings: section, scheduledTasksOpen: false, hostHubOpen: false, usageOpen: false });
+		this.set({ ...NO_PAGE, settings: section });
 		if (section === "models" || section === "account") void this.loadProviders();
 	}
 
 	closeSettings(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: false, usageOpen: false });
+		this.set(NO_PAGE);
 	}
 
 	openHostHub(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: true, usageOpen: false });
+		this.set({ ...NO_PAGE, hostHubOpen: true });
 	}
 
 	selectHostView(node: string, tab: "connection" | "shell" | "files"): void {
@@ -3501,14 +3514,20 @@ export class PierStore {
 	}
 
 	openScheduledTasks(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: true, hostHubOpen: false, usageOpen: false });
+		this.set({ ...NO_PAGE, scheduledTasksOpen: true });
 		for (const node of this.clients.keys()) void this.loadTasks(node);
+	}
+
+	// ---- Agent studio ------------------------------------------------------------------------
+
+	openStudio(): void {
+		this.set({ ...NO_PAGE, studioOpen: true });
 	}
 
 	// ---- token usage page (1.68) ----------------------------------------------------------
 
 	openUsage(): void {
-		this.set({ settings: undefined, scheduledTasksOpen: false, hostHubOpen: false, usageOpen: true });
+		this.set({ ...NO_PAGE, usageOpen: true });
 		this.loadUsage();
 	}
 

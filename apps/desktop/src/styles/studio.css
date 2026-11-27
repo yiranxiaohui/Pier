@@ -1,0 +1,1228 @@
+/* Agent studio (AgentStudio.tsx): every agent is a cat at a desk, animated by what it does. */
+
+.studio-page {
+	--studio-wall: #1e1c19;
+	--studio-floor: #25221e;
+	--studio-wood: #8a6a4d;
+	--studio-wood-dark: #6c523b;
+	--studio-laptop: #b9c0ca;
+	--studio-laptop-dark: #8b939f;
+	--studio-shadow: rgba(0, 0, 0, 0.32);
+	--studio-cushion: #5f5280;
+	--studio-lounge: #1c1b18;
+	--studio-mug: #e98a6b;
+	--cat-ink: #2d2723;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr) auto;
+	min-width: 0;
+	min-height: 0;
+	background: var(--bg);
+}
+
+:root[data-theme="light"] .studio-page {
+	--studio-wall: #fcf8f1;
+	--studio-floor: #f3eadb;
+	--studio-wood: #d9b58b;
+	--studio-wood-dark: #c29a6c;
+	--studio-laptop: #c5ccd5;
+	--studio-laptop-dark: #a3acb8;
+	--studio-shadow: rgba(90, 60, 30, 0.13);
+	--studio-cushion: #cbbbec;
+	--studio-lounge: #faf6ef;
+	--studio-mug: #ef8f70;
+}
+
+.studio-page > .statusbar {
+	grid-column: 1;
+}
+
+.studio-scroll {
+	min-height: 0;
+	overflow: auto;
+}
+
+.studio-content {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	max-width: 1180px;
+	margin: 0 auto;
+	padding: 28px 32px 36px;
+}
+
+.studio-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 12px 20px;
+}
+
+.studio-heading h2 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	font-size: 19px;
+	font-weight: 650;
+}
+
+.studio-heading p {
+	margin: 6px 0 0;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.studio-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.studio-stat {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--bg-elevated);
+	color: var(--text-muted);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.studio-stat-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--text-faint);
+}
+
+.studio-stat.busy.on .studio-stat-dot {
+	background: var(--success);
+	animation: studio-pulse 1.6s ease-in-out infinite;
+}
+
+.studio-stat.waiting.on {
+	border-color: var(--warning-line);
+	background: var(--warning-soft);
+	color: var(--text);
+}
+
+.studio-stat.waiting.on .studio-stat-dot {
+	background: var(--warning);
+	animation: studio-pulse 1s ease-in-out infinite;
+}
+
+/* ---- desks ------------------------------------------------------------------------------ */
+
+.studio-floor {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(236px, 1fr));
+	gap: 16px;
+}
+
+/* Agent colours: a soft fur for each runtime, with its badge colour for the laptop's light. */
+.studio-desk,
+.studio-spot {
+	--cat-fur: #d6cfc4;
+	--cat-glow: #8a867f;
+}
+
+.runtime-pi {
+	--cat-fur: #7fd8cc;
+	--cat-glow: #0d9488;
+}
+
+.runtime-claude-code {
+	--cat-fur: #f6aa84;
+	--cat-glow: #c96442;
+}
+
+.runtime-codex {
+	--cat-fur: #9fc0f8;
+	--cat-glow: #3b82f6;
+}
+
+.runtime-opencode {
+	--cat-fur: #f5c86f;
+	--cat-glow: #d28e05;
+}
+
+.runtime-hermes {
+	--cat-fur: #f5a6c6;
+	--cat-glow: #e24d8b;
+}
+
+.studio-desk {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 4px;
+	min-width: 0;
+	padding: 14px 14px 16px;
+	border: 1px solid var(--border);
+	border-radius: 18px;
+	background: linear-gradient(180deg, var(--studio-wall) 0, var(--studio-wall) 62%, var(--studio-floor) 62%);
+	box-shadow: var(--highlight);
+	text-align: center;
+	white-space: normal;
+	transition:
+		transform 0.18s ease,
+		box-shadow 0.18s ease,
+		border-color 0.18s ease;
+}
+
+.studio-floor .studio-desk:hover {
+	background: linear-gradient(180deg, var(--studio-wall) 0, var(--studio-wall) 62%, var(--studio-floor) 62%);
+	border-color: var(--border-strong);
+	box-shadow: var(--shadow-md);
+	transform: translateY(-2px);
+}
+
+.studio-desk.mood-waiting {
+	border-color: var(--warning-line);
+	animation: studio-ring 1.6s ease-in-out infinite;
+}
+
+.studio-desk.mood-done {
+	border-color: color-mix(in srgb, var(--success) 55%, transparent);
+}
+
+.studio-desk.mood-error {
+	border-color: var(--danger-line);
+}
+
+/* The speech bubble: what the cat does, popping up whenever that changes. */
+.studio-bubble {
+	position: relative;
+	z-index: 2;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	min-width: 0;
+	min-height: 30px;
+	padding: 5px 12px;
+	border: 1px solid var(--border-strong);
+	border-radius: 999px;
+	background: var(--bg-raised);
+	box-shadow: var(--shadow-sm);
+	font-size: 12.5px;
+	line-height: 1.3;
+	white-space: nowrap;
+	animation: studio-pop 0.38s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.studio-bubble::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	bottom: -5px;
+	width: 8px;
+	height: 8px;
+	border-right: 1px solid var(--border-strong);
+	border-bottom: 1px solid var(--border-strong);
+	background: var(--bg-raised);
+	transform: translateX(-50%) rotate(45deg);
+}
+
+.studio-bubble > .icon-svg {
+	flex: none;
+	color: var(--cat-glow);
+}
+
+.mood-waiting .studio-bubble > .icon-svg {
+	color: var(--warning);
+}
+
+.mood-error .studio-bubble > .icon-svg {
+	color: var(--danger);
+}
+
+.mood-done .studio-bubble > .icon-svg {
+	color: var(--success);
+}
+
+.studio-bubble-label {
+	flex: none;
+	font-weight: 600;
+}
+
+.studio-bubble-detail {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--text-muted);
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+.studio-scene {
+	position: relative;
+	display: block;
+	width: 100%;
+	max-width: 232px;
+	aspect-ratio: 200 / 150;
+}
+
+.studio-cat {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+
+.studio-plate {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 2px;
+}
+
+.studio-nick {
+	font-size: 13px;
+	font-weight: 650;
+}
+
+.studio-title,
+.studio-location {
+	display: block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.studio-title {
+	font-size: 12.5px;
+}
+
+.studio-location {
+	color: var(--text-faint);
+	font-size: 11.5px;
+}
+
+/* ---- the cat ---------------------------------------------------------------------------- */
+
+.cat-fill {
+	fill: var(--cat-fur);
+}
+
+.cat-ear {
+	stroke: var(--cat-fur);
+	stroke-width: 6;
+	stroke-linejoin: round;
+}
+
+.cat-stroke {
+	fill: none;
+	stroke: var(--cat-fur);
+	stroke-width: 10;
+	stroke-linecap: round;
+}
+
+.cat-ear-inner {
+	fill: #ff9fb2;
+	opacity: 0.75;
+}
+
+.cat-belly {
+	fill: #fff;
+	opacity: 0.32;
+}
+
+.cat-cheek {
+	fill: #ff7d98;
+	opacity: 0.45;
+}
+
+.cat-whisker {
+	fill: none;
+	stroke: var(--cat-ink);
+	stroke-width: 1.3;
+	stroke-linecap: round;
+	opacity: 0.32;
+}
+
+.cat-ink {
+	fill: var(--cat-ink);
+}
+
+.cat-shine {
+	fill: #fff;
+}
+
+.cat-line {
+	fill: none;
+	stroke: var(--cat-ink);
+	stroke-width: 1.8;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.cat-line.thick {
+	stroke-width: 2.6;
+}
+
+.cat-nose {
+	fill: #ef7f95;
+}
+
+.cat-mouth-open {
+	fill: #c4435f;
+	stroke: var(--cat-ink);
+	stroke-width: 1.6;
+	stroke-linejoin: round;
+}
+
+.acc-stem {
+	fill: none;
+	stroke: #4f9d52;
+	stroke-width: 2.4;
+	stroke-linecap: round;
+}
+
+.acc-leaf {
+	fill: #6cc070;
+}
+
+.acc-bow {
+	fill: #ff6f91;
+	stroke: #ff6f91;
+	stroke-width: 2;
+	stroke-linejoin: round;
+}
+
+.acc-bow-knot {
+	fill: #e2557a;
+}
+
+.acc-band {
+	fill: none;
+	stroke: #3d3a46;
+	stroke-width: 4;
+	stroke-linecap: round;
+}
+
+.acc-cup {
+	fill: #4c4958;
+}
+
+.acc-frame {
+	fill: none;
+	stroke: #3a3530;
+	stroke-width: 2.2;
+}
+
+.acc-petal {
+	fill: #ffd0dc;
+}
+
+.acc-center {
+	fill: #ffcf4d;
+}
+
+.acc-cap {
+	fill: #5b8def;
+}
+
+.acc-brim {
+	fill: #4a78d4;
+}
+
+.acc-cap-button {
+	fill: #f5f5f5;
+}
+
+/* furniture */
+
+.studio-shadow {
+	fill: var(--studio-shadow);
+}
+
+.studio-cushion {
+	fill: var(--studio-cushion);
+}
+
+.studio-desk-top {
+	fill: var(--studio-wood);
+}
+
+.studio-desk-front {
+	fill: var(--studio-wood-dark);
+}
+
+.studio-laptop {
+	fill: var(--studio-laptop);
+}
+
+.studio-laptop-base {
+	fill: var(--studio-laptop-dark);
+}
+
+.studio-laptop-logo {
+	fill: var(--cat-glow);
+	opacity: 0.45;
+}
+
+.studio-screen-glow {
+	fill: var(--cat-glow);
+	opacity: 0;
+}
+
+.studio-mug {
+	fill: var(--studio-mug);
+}
+
+.studio-mug-handle,
+.studio-steam {
+	fill: none;
+	stroke: var(--studio-mug);
+	stroke-width: 2.4;
+	stroke-linecap: round;
+}
+
+.studio-steam {
+	stroke: var(--text-faint);
+	stroke-width: 1.8;
+	animation: studio-steam 2.4s ease-in-out infinite;
+}
+
+.cat-wave {
+	display: none;
+}
+
+/* ---- idle motion every cat has (offset per cat by --cat-phase) -------------------------- */
+
+.cat-body {
+	transform-origin: 100px 120px;
+	animation: studio-breathe 3.2s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.cat-eye {
+	transform-box: fill-box;
+	transform-origin: center;
+	animation: studio-blink 4.8s infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.cat-tail {
+	transform-origin: 134px 110px;
+	animation: studio-tail 2.6s ease-in-out infinite alternate;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.seat-cushion .cat-tail {
+	transform-origin: 140px 122px;
+	animation-duration: 4s;
+}
+
+/* ---- what each mood does ---------------------------------------------------------------- */
+
+/* Busy at the keyboard: paws tap and the screen light flickers. */
+.mood-writing .cat-paw,
+.mood-editing .cat-paw,
+.mood-command .cat-paw,
+.mood-tool .cat-paw,
+.mood-browsing .cat-paw {
+	animation: studio-tap 0.32s ease-in-out infinite;
+}
+
+.mood-writing .cat-paw.right,
+.mood-editing .cat-paw.right,
+.mood-command .cat-paw.right,
+.mood-tool .cat-paw.right,
+.mood-browsing .cat-paw.right {
+	animation-delay: 0.16s;
+}
+
+.mood-browsing .cat-paw {
+	animation-duration: 0.7s;
+}
+
+.mood-browsing .cat-paw.right {
+	animation-delay: 0.35s;
+}
+
+.mood-writing .studio-screen-glow,
+.mood-editing .studio-screen-glow,
+.mood-command .studio-screen-glow,
+.mood-tool .studio-screen-glow,
+.mood-browsing .studio-screen-glow,
+.mood-reading .studio-screen-glow,
+.mood-searching .studio-screen-glow,
+.mood-working .studio-screen-glow {
+	animation: studio-glow 1.4s ease-in-out infinite;
+}
+
+.studio-desk:not(.mood-resting, .mood-error) .studio-laptop-logo {
+	animation: studio-logo 1.8s ease-in-out infinite;
+}
+
+/* Reading: the eyes run along the lines. */
+.mood-reading .cat-eyes {
+	animation: studio-read 2.4s linear infinite;
+}
+
+/* Searching: the eyes dart about and the head tilts. */
+.mood-searching .cat-eyes {
+	animation: studio-dart 0.9s ease-in-out infinite alternate;
+}
+
+.mood-searching .cat-body {
+	animation: studio-tilt 1.8s ease-in-out infinite alternate;
+}
+
+/* Thinking: eyes up, swaying. */
+.mood-thinking .cat-eyes {
+	transform: translate(2px, -3px);
+}
+
+.mood-thinking .cat-body {
+	animation: studio-sway 3s ease-in-out infinite;
+}
+
+/* Delegating: looking at its helpers, bouncing along. */
+.mood-delegating .cat-eyes {
+	transform: translateX(-3.5px);
+}
+
+.mood-delegating .cat-body {
+	animation: studio-bob 0.9s ease-in-out infinite;
+}
+
+/* Waiting for the user: hopping and waving. */
+.mood-waiting .cat-body {
+	animation: studio-hop 0.8s ease-in-out infinite;
+}
+
+.mood-waiting .cat-paw.right {
+	display: none;
+}
+
+.mood-waiting .cat-wave {
+	display: inline;
+	transform-origin: 136px 106px;
+	animation: studio-wave 0.5s ease-in-out infinite alternate;
+}
+
+.mood-compacting .cat-body {
+	animation: studio-squash 0.8s ease-in-out infinite alternate;
+}
+
+.mood-retrying .cat-body {
+	animation: studio-wobble 0.5s ease-in-out infinite alternate;
+}
+
+.mood-working .cat-body {
+	animation: studio-bob 1.2s ease-in-out infinite;
+}
+
+.mood-resting .cat-body {
+	animation: studio-breathe-deep 4.5s ease-in-out infinite;
+	animation-delay: var(--cat-phase, 0s);
+}
+
+.mood-resting .cat-tail {
+	animation-duration: 4.5s;
+}
+
+.mood-error .cat-body {
+	animation: none;
+	transform: translateY(3px) scale(0.98);
+}
+
+.mood-error .cat-tail {
+	animation: none;
+	transform: rotate(18deg);
+}
+
+.mood-done .cat-body {
+	animation: studio-jump 0.65s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+}
+
+.mood-done .cat-tail {
+	animation-duration: 0.35s;
+}
+
+/* ---- floating extras -------------------------------------------------------------------- */
+
+.studio-floaters {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.studio-floater {
+	--dx: 0px;
+	position: absolute;
+	left: 50%;
+	top: 54%;
+	display: inline-flex;
+	align-items: center;
+	padding: 1px 5px;
+	border: 1px solid color-mix(in srgb, var(--cat-glow) 45%, transparent);
+	border-radius: 6px;
+	background: var(--bg-raised);
+	box-shadow: var(--shadow-sm);
+	color: color-mix(in srgb, var(--cat-glow) 70%, var(--text));
+	font-family: var(--mono);
+	font-size: 11px;
+	font-weight: 700;
+	line-height: 15px;
+	opacity: 0;
+	animation: studio-float 2.4s ease-out infinite;
+}
+
+/* They rise beside the cat, clear of its face. */
+.studio-floater.f0 {
+	left: 22%;
+	--dx: -12px;
+}
+
+.studio-floater.f1 {
+	left: 78%;
+	--dx: 12px;
+	animation-delay: 0.8s;
+}
+
+.studio-floater.f2 {
+	left: 28%;
+	--dx: -26px;
+	animation-delay: 1.6s;
+}
+
+/* Sleep's z's float bare, without the chip. */
+.mood-resting .studio-floater {
+	left: 62%;
+	top: 34%;
+	padding: 0;
+	border: none;
+	background: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	animation-duration: 3.6s;
+}
+
+.mood-resting .studio-floater.f0 {
+	--dx: 10px;
+}
+
+.mood-resting .studio-floater.f1 {
+	--dx: 24px;
+	font-size: 15px;
+	animation-delay: 1.2s;
+}
+
+.mood-resting .studio-floater.f2 {
+	--dx: 36px;
+	animation-delay: 2.4s;
+}
+
+.studio-thought {
+	position: absolute;
+	left: 68%;
+	top: 2%;
+	pointer-events: none;
+}
+
+.studio-thought-trail::before,
+.studio-thought-trail::after {
+	content: "";
+	position: absolute;
+	border: 1px solid var(--border-strong);
+	border-radius: 50%;
+	background: var(--bg-raised);
+}
+
+.studio-thought-trail::before {
+	left: -8px;
+	top: 34px;
+	width: 6px;
+	height: 6px;
+}
+
+.studio-thought-trail::after {
+	left: -2px;
+	top: 24px;
+	width: 9px;
+	height: 9px;
+}
+
+.studio-thought-cloud {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 9px;
+	border: 1px solid var(--border-strong);
+	border-radius: 999px;
+	background: var(--bg-raised);
+	box-shadow: var(--shadow-sm);
+}
+
+.studio-thought-cloud i {
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--cat-glow);
+	animation: studio-dot 1.2s ease-in-out infinite;
+}
+
+.studio-thought-cloud i:nth-child(2) {
+	animation-delay: 0.2s;
+}
+
+.studio-thought-cloud i:nth-child(3) {
+	animation-delay: 0.4s;
+}
+
+.studio-alert {
+	position: absolute;
+	left: 70%;
+	top: 0;
+	display: grid;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	background: var(--warning);
+	color: #1c1b19;
+	font-size: 14px;
+	font-weight: 800;
+	box-shadow: 0 0 0 4px var(--warning-soft);
+	animation: studio-hop 0.8s ease-in-out infinite;
+}
+
+.studio-sweat {
+	position: absolute;
+	left: 64%;
+	top: 26%;
+	width: 9px;
+	height: 9px;
+	border-radius: 0 50% 50% 50%;
+	background: #8cc8ff;
+	transform: rotate(45deg);
+	animation: studio-sweat 1.8s ease-in infinite;
+}
+
+.studio-confetti {
+	position: absolute;
+	left: 50%;
+	top: 18%;
+	pointer-events: none;
+}
+
+.studio-confetti i {
+	position: absolute;
+	width: 6px;
+	height: 10px;
+	border-radius: 2px;
+	background: var(--c);
+	opacity: 0;
+	animation: studio-confetti 1.4s ease-in infinite;
+}
+
+.studio-helpers {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.studio-helper {
+	position: absolute;
+	display: inline-flex;
+	pointer-events: auto;
+	animation: studio-hop 0.6s ease-in-out infinite;
+}
+
+.studio-helper.h0 {
+	left: 0;
+	top: 44%;
+}
+
+.studio-helper.h1 {
+	right: 0;
+	top: 6%;
+	animation-delay: 0.2s;
+}
+
+.studio-helper.h2 {
+	left: 3%;
+	top: 10%;
+	animation-delay: 0.4s;
+}
+
+.studio-helper-more {
+	position: absolute;
+	left: 20%;
+	top: 6%;
+	padding: 0 5px;
+	border-radius: 999px;
+	background: var(--bg-raised);
+	color: var(--text-muted);
+	font-size: 10.5px;
+	font-weight: 600;
+}
+
+.studio-minicat {
+	overflow: visible;
+}
+
+.studio-minicat .cat-fill:first-child {
+	stroke: var(--cat-fur);
+}
+
+/* ---- empty floor ------------------------------------------------------------------------ */
+
+.studio-empty {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	padding: 28px 24px 32px;
+	border: 1px dashed var(--border-strong);
+	border-radius: 18px;
+	background: var(--studio-wall);
+	text-align: center;
+}
+
+.studio-empty-desk {
+	width: 220px;
+	height: auto;
+}
+
+.studio-empty-text {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+.studio-empty-text strong {
+	color: var(--text);
+	font-size: 14px;
+	font-weight: 600;
+}
+
+/* ---- lounge ----------------------------------------------------------------------------- */
+
+.studio-lounge h3 {
+	margin: 0 0 10px;
+	color: var(--text-muted);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.studio-lounge-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+	gap: 12px;
+}
+
+.studio-spot {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	padding: 10px 10px 12px;
+	border: 1px dashed var(--border-strong);
+	border-radius: 16px;
+	background: var(--studio-lounge);
+	text-align: center;
+	white-space: normal;
+}
+
+.studio-lounge .studio-spot:hover {
+	background: var(--bg-hover);
+	border-style: solid;
+}
+
+.studio-spot .studio-scene {
+	max-width: 128px;
+}
+
+.studio-spot-text {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1px;
+	width: 100%;
+	min-width: 0;
+}
+
+/* ---- keyframes -------------------------------------------------------------------------- */
+
+@keyframes studio-pop {
+	from {
+		opacity: 0;
+		transform: translateY(6px) scale(0.85);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes studio-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+
+@keyframes studio-ring {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 var(--warning-soft);
+	}
+	50% {
+		box-shadow: 0 0 0 5px var(--warning-soft);
+	}
+}
+
+@keyframes studio-breathe {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: scale(1.012, 0.986);
+	}
+}
+
+@keyframes studio-breathe-deep {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: scale(1.03, 0.97);
+	}
+}
+
+@keyframes studio-blink {
+	0%,
+	92%,
+	100% {
+		transform: none;
+	}
+	95% {
+		transform: scaleY(0.1);
+	}
+}
+
+@keyframes studio-tail {
+	from {
+		transform: rotate(-7deg);
+	}
+	to {
+		transform: rotate(9deg);
+	}
+}
+
+@keyframes studio-tap {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: translateY(-3.5px);
+	}
+}
+
+@keyframes studio-glow {
+	0%,
+	100% {
+		opacity: 0.12;
+	}
+	50% {
+		opacity: 0.3;
+	}
+}
+
+@keyframes studio-logo {
+	0%,
+	100% {
+		opacity: 0.4;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+@keyframes studio-read {
+	0% {
+		transform: translate(-3px, -1px);
+	}
+	45% {
+		transform: translate(3px, -1px);
+	}
+	50% {
+		transform: translate(-3px, 1.5px);
+	}
+	95% {
+		transform: translate(3px, 1.5px);
+	}
+	100% {
+		transform: translate(-3px, -1px);
+	}
+}
+
+@keyframes studio-dart {
+	from {
+		transform: translateX(-3.5px);
+	}
+	to {
+		transform: translateX(3.5px);
+	}
+}
+
+@keyframes studio-tilt {
+	from {
+		transform: rotate(-3deg);
+	}
+	to {
+		transform: rotate(3deg);
+	}
+}
+
+@keyframes studio-sway {
+	0%,
+	100% {
+		transform: rotate(-2deg);
+	}
+	50% {
+		transform: rotate(2deg);
+	}
+}
+
+@keyframes studio-bob {
+	0%,
+	100% {
+		transform: none;
+	}
+	50% {
+		transform: translateY(-2.5px);
+	}
+}
+
+@keyframes studio-hop {
+	0%,
+	100% {
+		transform: none;
+	}
+	40% {
+		transform: translateY(-5px);
+	}
+}
+
+@keyframes studio-wave {
+	from {
+		transform: rotate(8deg);
+	}
+	to {
+		transform: rotate(-22deg);
+	}
+}
+
+@keyframes studio-squash {
+	from {
+		transform: scale(1.06, 0.92);
+	}
+	to {
+		transform: scale(0.97, 1.04);
+	}
+}
+
+@keyframes studio-wobble {
+	from {
+		transform: rotate(-5deg);
+	}
+	to {
+		transform: rotate(5deg);
+	}
+}
+
+@keyframes studio-jump {
+	0%,
+	100% {
+		transform: none;
+	}
+	15% {
+		transform: scale(1.06, 0.92);
+	}
+	50% {
+		transform: translateY(-14px) scale(0.97, 1.04);
+	}
+}
+
+@keyframes studio-float {
+	0% {
+		opacity: 0;
+		transform: translate(-50%, 0) scale(0.7);
+	}
+	20% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+		transform: translate(calc(-50% + var(--dx)), -46px) scale(1.05);
+	}
+}
+
+@keyframes studio-dot {
+	0%,
+	100% {
+		opacity: 0.35;
+		transform: none;
+	}
+	40% {
+		opacity: 1;
+		transform: translateY(-3px);
+	}
+}
+
+@keyframes studio-sweat {
+	0% {
+		opacity: 0;
+		transform: translateY(-4px) rotate(45deg);
+	}
+	30% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+		transform: translateY(10px) rotate(45deg);
+	}
+}
+
+@keyframes studio-confetti {
+	0% {
+		opacity: 1;
+		transform: translate(0, 0) rotate(0);
+	}
+	100% {
+		opacity: 0;
+		transform: translate(var(--x), 110px) rotate(var(--r));
+	}
+}
+
+@keyframes studio-steam {
+	0%,
+	100% {
+		opacity: 0.2;
+		transform: translateY(2px);
+	}
+	50% {
+		opacity: 0.8;
+		transform: translateY(-2px);
+	}
+}

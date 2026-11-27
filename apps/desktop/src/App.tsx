@@ -1,5 +1,6 @@
 import type { WorkspaceInfo } from "@pier/protocol";
 import { type CSSProperties, useEffect } from "react";
+import { AgentStudioPage } from "./components/AgentStudio.tsx";
 import { DirectoryPicker } from "./components/DirectoryPicker.tsx";
 import { Welcome, WorkspaceHome } from "./components/Home.tsx";
 import { HostHub } from "./components/HostHub.tsx";
@@ -101,6 +102,7 @@ export function App() {
 	const scheduled = useAppState((s) => s.scheduledTasksOpen);
 	const hosts = useAppState((s) => s.hostHubOpen);
 	const usage = useAppState((s) => s.usageOpen);
+	const studio = useAppState((s) => s.studioOpen);
 	const sidebar = useAppState((s) => s.sidebar);
 	const sidebarWidth = useAppState((s) => s.sidebarWidth);
 	// Terminals run on the computer of the workspace they were opened for; the right-hand
@@ -120,7 +122,7 @@ export function App() {
 	// Ctrl/⌘+Shift+E and Ctrl/⌘+Shift+G open (or hide) the file and source control views, as in editors; Ctrl/⌘+B the sidebar;
 	// Ctrl+` the terminal tab (Ctrl on macOS too, as in editors: ⌘+` cycles windows there).
 	useEffect(() => {
-		if (settings || scheduled || hosts || usage) return;
+		if (settings || scheduled || hosts || usage || studio) return;
 		const onKey = (e: KeyboardEvent) => {
 			if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === "`") {
 				// The right-hand panel, and so its terminal tab, belongs to a workspace on screen.
@@ -143,7 +145,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [store, settings, scheduled, hosts, usage, screenWorkspace, hasTerminals, canOpenTerminal]);
+	}, [store, settings, scheduled, hosts, usage, studio, screenWorkspace, hasTerminals, canOpenTerminal]);
 
 	return (
 		<div className="window">
@@ -156,6 +158,8 @@ export function App() {
 					<ScheduledTasksPage footer={<StatusBar />} />
 				) : usage ? (
 					<UsagePage footer={<StatusBar />} />
+				) : studio ? (
+					<AgentStudioPage footer={<StatusBar />} />
 				) : settings ? (
 					<SettingsPage section={settings} footer={<StatusBar />} />
 				) : (
@@ -176,7 +180,7 @@ export function App() {
 						<StatusBar />
 					</div>
 				)}
-				<SidePanel hidden={!!settings || scheduled || hosts || usage} {...screen} />
+				<SidePanel hidden={!!settings || scheduled || hosts || usage || studio} {...screen} />
 			</div>
 			<Toasts />
 			<AuthDialog />

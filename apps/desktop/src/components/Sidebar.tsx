@@ -2,12 +2,12 @@ import { agentRuntimeLabel } from "@pier/chat-state";
 import type { ApprovalPolicy, PeerInfo, SessionSummary, WorkspaceInfo } from "@pier/protocol";
 import { DEFAULT_AGENT_RUNTIME } from "@pier/protocol";
 import { type DragEvent, useEffect, useRef, useState } from "react";
+import { sessionActivity } from "../lib/agent-activity.ts";
 import { POLICY_DESCRIPTION, POLICY_LABEL, relativeTime, sessionTitle } from "../lib/format.ts";
 import { SESSION_PAGE, SESSION_PREVIEW, sessionWindow } from "../lib/session-list.ts";
 import {
 	type ComputerInfo,
 	LOCAL_NODE,
-	type PierStore,
 	useAppState,
 	useCanArchiveSessions,
 	useCanManageWorkspace,
@@ -184,18 +184,6 @@ function SessionBadge({ session }: { session: SessionSummary }) {
 		return <span className="badge-dot running" title="运行中" />;
 	}
 	return null;
-}
-
-function isRunning(state: SessionSummary["state"]): boolean {
-	return state === "streaming" || state === "retrying" || state === "compacting";
-}
-
-function sessionActivity(store: PierStore, session: SessionSummary) {
-	const live = store.liveChat(session.id)?.chat;
-	const state = live?.loaded ? live.runState : session.state;
-	const pending = live?.loaded ? live.pendingUi.length : (session.pendingUi ?? 0);
-	const running = isRunning(state);
-	return { running, pending, active: running || pending > 0 };
 }
 
 interface RunningAgent {

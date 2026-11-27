@@ -1,9 +1,11 @@
 import { type ComponentType, useEffect, useState } from "react";
 import { useAccountQuota } from "../lib/account-quota.ts";
 import { LOCAL_NODE, type SettingsSection, useAppState, useStore } from "../lib/store.tsx";
+import { useStudioAttention } from "./AgentStudio.tsx";
 import { useHostStatus } from "./HostPanels.tsx";
 import {
 	IconBot,
+	IconCat,
 	IconChartColumn,
 	IconClock,
 	IconDownload,
@@ -34,7 +36,9 @@ export function NavigationRail() {
 	const scheduled = useAppState((s) => s.scheduledTasksOpen);
 	const hosts = useAppState((s) => s.hostHubOpen);
 	const usage = useAppState((s) => s.usageOpen);
-	const workspacePage = !settings && !scheduled && !hosts && !usage;
+	const studio = useAppState((s) => s.studioOpen);
+	const workspacePage = !settings && !scheduled && !hosts && !usage && !studio;
+	const agentsWaiting = useStudioAttention();
 	const unread = useAppState((s) => Object.values(s.taskData).some((data) => data.runs.some((run) => !run.read)));
 	const sidebar = useAppState((s) => s.sidebar);
 	const noModels = useAppState((s) => s.localProviders?.availableCount === 0);
@@ -53,7 +57,7 @@ export function NavigationRail() {
 
 	// Navigating away or completing an update dismisses the update card.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: every navigation change closes the card.
-	useEffect(() => setUpdateOpen(false), [settings, scheduled, hosts, usage, pending]);
+	useEffect(() => setUpdateOpen(false), [settings, scheduled, hosts, usage, studio, pending]);
 
 	const utilities = (
 		<div className="navigation-utilities">
@@ -119,6 +123,17 @@ export function NavigationRail() {
 					}}
 				>
 					<IconHome size={20} />
+				</button>
+				<button
+					type="button"
+					className={`navigation-button${studio ? " selected" : ""}`}
+					aria-label="Agent 工作室"
+					aria-current={studio ? "page" : undefined}
+					title={`Agent 工作室${agentsWaiting ? " · 有 Agent 在等你处理" : ""}`}
+					onClick={() => store.openStudio()}
+				>
+					<IconCat size={20} />
+					{agentsWaiting ? <span className="navigation-badge warning" /> : null}
 				</button>
 				<button
 					type="button"
